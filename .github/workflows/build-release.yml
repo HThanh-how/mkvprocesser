@@ -258,6 +258,8 @@ jobs:
   release:
     needs: [build-windows-x64, build-windows-x86, build-macos-x64, build-macos-arm64, build-linux-x64, build-linux-arm64]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     # Tự động tạo release cho mọi push/workflow_dispatch (trừ pull_request)
     if: github.event_name != 'pull_request'
     steps:
@@ -302,6 +304,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           merge-multiple: true
+          path: artifacts
       
       - name: Create Release
         uses: softprops/action-gh-release@v1
@@ -312,12 +315,12 @@ jobs:
           body_path: release_notes.md
           prerelease: ${{ steps.release_meta.outputs.prerelease }}
           files: |
-            MKVProcessor_Windows_x64.zip
-            MKVProcessor_Windows_x86.zip
-            MKVProcessor_macOS_x64.zip
-            MKVProcessor_macOS_arm64.zip
-            MKVProcessor_Linux_x64.tar.gz
-            MKVProcessor_Linux_arm64.tar.gz
+            artifacts/MKVProcessor_Windows_x64.zip
+            artifacts/MKVProcessor_Windows_x86.zip
+            artifacts/MKVProcessor_macOS_x64.zip
+            artifacts/MKVProcessor_macOS_arm64.zip
+            artifacts/MKVProcessor_Linux_x64.tar.gz
+            artifacts/MKVProcessor_Linux_arm64.tar.gz
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
