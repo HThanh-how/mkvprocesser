@@ -14,6 +14,20 @@ import zipfile
 from pathlib import Path
 
 
+def ensure_utf8_output():
+    """Đảm bảo stdout/stderr hỗ trợ UTF-8 (fix lỗi emoji trên Windows CI)."""
+    for stream_name in ("stdout", "stderr"):
+        stream = getattr(sys, stream_name, None)
+        if stream and hasattr(stream, "reconfigure"):
+            try:
+                stream.reconfigure(encoding="utf-8")
+            except (AttributeError, ValueError):
+                pass
+
+
+ensure_utf8_output()
+
+
 def get_platform_spec():
     """Lấy thông tin platform"""
     system = platform.system()
