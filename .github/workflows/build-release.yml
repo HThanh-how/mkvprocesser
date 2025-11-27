@@ -1,0 +1,280 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+  pull_request:
+    branches:
+      - main
+      - master
+
+jobs:
+  build-windows-x64:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      
+      - name: Download FFmpeg for Windows
+        run: |
+          python download_ffmpeg.py
+      
+      - name: Build executable
+        run: |
+          python build_complete.py
+      
+      - name: Create ZIP archive
+        run: |
+          $packageDir = Get-ChildItem -Path "dist" -Directory -Filter "MKVProcessor_Portable_win_*" | Select-Object -First 1
+          if ($packageDir) {
+            Compress-Archive -Path $packageDir.FullName -DestinationPath "MKVProcessor_Windows_x64.zip" -Force
+          }
+      
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: MKVProcessor-Windows-x64
+          path: MKVProcessor_Windows_x64.zip
+
+  build-windows-x86:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      
+      - name: Download FFmpeg for Windows (x86)
+        run: |
+          $url = "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip"
+          Invoke-WebRequest -Uri $url -OutFile "ffmpeg_temp.zip"
+          Expand-Archive -Path "ffmpeg_temp.zip" -DestinationPath "." -Force
+          $ffmpegDir = Get-ChildItem -Directory | Where-Object { $_.Name -like "*ffmpeg*" } | Select-Object -First 1
+          New-Item -ItemType Directory -Path "ffmpeg_bin" -Force
+          Copy-Item "$($ffmpegDir.FullName)\bin\*.exe" -Destination "ffmpeg_bin\"
+          Remove-Item "ffmpeg_temp.zip"
+          Remove-Item $ffmpegDir -Recurse -Force
+      
+      - name: Build executable
+        run: |
+          python build_complete.py
+      
+      - name: Create ZIP archive
+        run: |
+          $packageDir = Get-ChildItem -Path "dist" -Directory -Filter "MKVProcessor_Portable_win_*" | Select-Object -First 1
+          if ($packageDir) {
+            Compress-Archive -Path $packageDir.FullName -DestinationPath "MKVProcessor_Windows_x86.zip" -Force
+          }
+      
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: MKVProcessor-Windows-x86
+          path: MKVProcessor_Windows_x86.zip
+          if-no-files-found: ignore
+          continue-on-error: true
+
+  build-macos-x64:
+    runs-on: macos-13
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      
+      - name: Install FFmpeg
+        run: |
+          brew install ffmpeg
+          mkdir -p ffmpeg_bin
+          cp $(which ffmpeg) ffmpeg_bin/
+          cp $(which ffprobe) ffmpeg_bin/
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      
+      - name: Build executable
+        run: |
+          python build_complete.py
+      
+      - name: Create ZIP archive
+        run: |
+          cd dist
+          if [ -d "MKVProcessor_Portable_mac_x64" ] || [ -d "MKVProcessor_Portable_mac_intel" ]; then
+            zip -r ../MKVProcessor_macOS_x64.zip MKVProcessor_Portable_mac_*
+          fi
+      
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: MKVProcessor-macOS-x64
+          path: MKVProcessor_macOS_x64.zip
+
+  build-macos-arm64:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      
+      - name: Install FFmpeg
+        run: |
+          brew install ffmpeg
+          mkdir -p ffmpeg_bin
+          cp $(which ffmpeg) ffmpeg_bin/
+          cp $(which ffprobe) ffmpeg_bin/
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      
+      - name: Build executable
+        run: |
+          python build_complete.py
+      
+      - name: Create ZIP archive
+        run: |
+          cd dist
+          if [ -d "MKVProcessor_Portable_mac_arm64" ]; then
+            zip -r ../MKVProcessor_macOS_arm64.zip MKVProcessor_Portable_mac_arm64
+          fi
+      
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: MKVProcessor-macOS-arm64
+          path: MKVProcessor_macOS_arm64.zip
+
+  build-linux-x64:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      
+      - name: Install FFmpeg
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+          mkdir -p ffmpeg_bin
+          cp $(which ffmpeg) ffmpeg_bin/
+          cp $(which ffprobe) ffmpeg_bin/
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      
+      - name: Build executable
+        run: |
+          python build_complete.py
+      
+      - name: Create TAR.GZ archive
+        run: |
+          cd dist
+          if [ -d "MKVProcessor_Portable_linux_x64" ]; then
+            tar -czf ../MKVProcessor_Linux_x64.tar.gz MKVProcessor_Portable_linux_x64
+          fi
+      
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: MKVProcessor-Linux-x64
+          path: MKVProcessor_Linux_x64.tar.gz
+
+  build-linux-arm64:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      
+      - name: Install FFmpeg
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+          mkdir -p ffmpeg_bin
+          cp $(which ffmpeg) ffmpeg_bin/
+          cp $(which ffprobe) ffmpeg_bin/
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      
+      - name: Build executable
+        run: |
+          python build_complete.py
+      
+      - name: Create TAR.GZ archive
+        run: |
+          cd dist
+          if [ -d "MKVProcessor_Portable_linux_arm64" ]; then
+            tar -czf ../MKVProcessor_Linux_arm64.tar.gz MKVProcessor_Portable_linux_arm64
+          fi
+      
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: MKVProcessor-Linux-arm64
+          path: MKVProcessor_Linux_arm64.tar.gz
+
+  release:
+    needs: [build-windows-x64, build-windows-x86, build-macos-x64, build-macos-arm64, build-linux-x64, build-linux-arm64]
+    runs-on: ubuntu-latest
+    # Chỉ tạo release khi push tag v*
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+      
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            MKVProcessor_Windows_x64.zip
+            MKVProcessor_Windows_x86.zip
+            MKVProcessor_macOS_x64.zip
+            MKVProcessor_macOS_arm64.zip
+            MKVProcessor_Linux_x64.tar.gz
+            MKVProcessor_Linux_arm64.tar.gz
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
