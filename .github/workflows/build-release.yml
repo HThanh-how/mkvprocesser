@@ -70,9 +70,10 @@ jobs:
           $url = "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip"
           Invoke-WebRequest -Uri $url -OutFile "ffmpeg_temp.zip"
           Expand-Archive -Path "ffmpeg_temp.zip" -DestinationPath "." -Force
-          $ffmpegDir = Get-ChildItem -Directory | Where-Object { $_.Name -like "*ffmpeg*" } | Select-Object -First 1
-          New-Item -ItemType Directory -Path "ffmpeg_bin" -Force
-          Copy-Item "$($ffmpegDir.FullName)\bin\*.exe" -Destination "ffmpeg_bin\"
+          $ffmpegDir = Get-ChildItem -Directory | Where-Object { $_.Name -like "ffmpeg-*" } | Select-Object -First 1
+          if (-not $ffmpegDir) { throw "Không tìm thấy thư mục ffmpeg sau khi giải nén." }
+          New-Item -ItemType Directory -Path "ffmpeg_bin" -Force | Out-Null
+          Copy-Item "$($ffmpegDir.FullName)\bin\*.exe" -Destination "ffmpeg_bin" -Force
           Remove-Item "ffmpeg_temp.zip"
           Remove-Item $ffmpegDir -Recurse -Force
       
