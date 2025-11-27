@@ -39,11 +39,13 @@ jobs:
           python scripts/build_complete.py
       
       - name: Create ZIP archive
+        shell: pwsh
         run: |
-          $packageDir = Get-ChildItem -Path "dist" -Directory -Filter "MKVProcessor_Portable_win_*" | Select-Object -First 1
-          if ($packageDir) {
-            Compress-Archive -Path $packageDir.FullName -DestinationPath "MKVProcessor_Windows_x64.zip" -Force
+          $packageItem = Get-ChildItem -Path "dist" | Where-Object { $_.Name -like "MKVProcessor*" } | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+          if (-not $packageItem) {
+            throw "Không tìm thấy output trong thư mục dist/"
           }
+          Compress-Archive -Path $packageItem.FullName -DestinationPath "MKVProcessor_Windows_x64.zip" -Force
       
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -83,22 +85,24 @@ jobs:
           python scripts/build_complete.py
       
       - name: Create ZIP archive
+        shell: pwsh
         run: |
-          $packageDir = Get-ChildItem -Path "dist" -Directory -Filter "MKVProcessor_Portable_win_*" | Select-Object -First 1
-          if ($packageDir) {
-            Compress-Archive -Path $packageDir.FullName -DestinationPath "MKVProcessor_Windows_x86.zip" -Force
+          $packageItem = Get-ChildItem -Path "dist" | Where-Object { $_.Name -like "MKVProcessor*" } | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+          if (-not $packageItem) {
+            throw "Không tìm thấy output trong thư mục dist/"
           }
+          Compress-Archive -Path $packageItem.FullName -DestinationPath "MKVProcessor_Windows_x86.zip" -Force
       
       - name: Upload artifact
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: MKVProcessor-Windows-x86
           path: MKVProcessor_Windows_x86.zip
           if-no-files-found: ignore
-          continue-on-error: true
 
   build-macos-x64:
-    runs-on: macos-13
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
       
@@ -125,10 +129,14 @@ jobs:
       
       - name: Create ZIP archive
         run: |
+          set -euo pipefail
           cd dist
-          if [ -d "MKVProcessor_Portable_mac_x64" ] || [ -d "MKVProcessor_Portable_mac_intel" ]; then
-            zip -r ../MKVProcessor_macOS_x64.zip MKVProcessor_Portable_mac_*
+          target=$(ls -1dt MKVProcessor* 2>/dev/null | head -n 1 || true)
+          if [ -z "$target" ]; then
+            echo "Không tìm thấy output trong dist/" >&2
+            exit 1
           fi
+          zip -r ../MKVProcessor_macOS_x64.zip "$target"
       
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -137,7 +145,7 @@ jobs:
           path: MKVProcessor_macOS_x64.zip
 
   build-macos-arm64:
-    runs-on: macos-14
+    runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
       
@@ -164,10 +172,14 @@ jobs:
       
       - name: Create ZIP archive
         run: |
+          set -euo pipefail
           cd dist
-          if [ -d "MKVProcessor_Portable_mac_arm64" ]; then
-            zip -r ../MKVProcessor_macOS_arm64.zip MKVProcessor_Portable_mac_arm64
+          target=$(ls -1dt MKVProcessor* 2>/dev/null | head -n 1 || true)
+          if [ -z "$target" ]; then
+            echo "Không tìm thấy output trong dist/" >&2
+            exit 1
           fi
+          zip -r ../MKVProcessor_macOS_arm64.zip "$target"
       
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -204,10 +216,14 @@ jobs:
       
       - name: Create TAR.GZ archive
         run: |
+          set -euo pipefail
           cd dist
-          if [ -d "MKVProcessor_Portable_linux_x64" ]; then
-            tar -czf ../MKVProcessor_Linux_x64.tar.gz MKVProcessor_Portable_linux_x64
+          target=$(ls -1dt MKVProcessor* 2>/dev/null | head -n 1 || true)
+          if [ -z "$target" ]; then
+            echo "Không tìm thấy output trong dist/" >&2
+            exit 1
           fi
+          tar -czf ../MKVProcessor_Linux_x64.tar.gz "$target"
       
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -244,10 +260,14 @@ jobs:
       
       - name: Create TAR.GZ archive
         run: |
+          set -euo pipefail
           cd dist
-          if [ -d "MKVProcessor_Portable_linux_arm64" ]; then
-            tar -czf ../MKVProcessor_Linux_arm64.tar.gz MKVProcessor_Portable_linux_arm64
+          target=$(ls -1dt MKVProcessor* 2>/dev/null | head -n 1 || true)
+          if [ -z "$target" ]; then
+            echo "Không tìm thấy output trong dist/" >&2
+            exit 1
           fi
+          tar -czf ../MKVProcessor_Linux_arm64.tar.gz "$target"
       
       - name: Upload artifact
         uses: actions/upload-artifact@v4

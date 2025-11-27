@@ -78,14 +78,22 @@ def load_script_module():
 # Check if running from executable (PyInstaller) or source code
 IS_EXECUTABLE = getattr(sys, 'frozen', False)
 
-# IMPORTANT: Import ffmpeg and psutil IMMEDIATELY so PyInstaller bundles them
-# PyInstaller only bundles what is directly imported in code
+# IMPORTANT: Import ffmpeg và psutil để PyInstaller bundle kèm
 try:
-    import ffmpeg  # type: ignore  # PyInstaller will bundle this package
-    import psutil  # type: ignore  # PyInstaller will bundle this package
+    import ffmpeg  # type: ignore
+    import psutil  # type: ignore
 except ImportError:
-    # If import fails, will handle later
     pass
+
+try:
+    from mkvprocessor.ffmpeg_helper import (  # type: ignore
+        check_ffmpeg_available as bundled_ffmpeg_check,
+    )
+except ImportError:
+    try:
+        from ffmpeg_helper import check_ffmpeg_available as bundled_ffmpeg_check  # type: ignore
+    except ImportError:
+        bundled_ffmpeg_check = None  # type: ignore[assignment]
 
 # Import processing functions (legacy name kept for compatibility)
 process_main = None
@@ -823,8 +831,7 @@ class MKVProcessorGUI:
                         self.log("FFmpeg đã được cài đặt", "SUCCESS")
                     except:
                         # Kiểm tra FFmpeg local trong package
-                        from ffmpeg_helper import check_ffmpeg_available as check_local
-                        if check_local():
+                        if bundled_ffmpeg_check and bundled_ffmpeg_check():
                             self.root.after(0, lambda: self.ffmpeg_status.config(
                                 text="FFmpeg: ✅ Đã bundle",
                                 fg=self.success_color
@@ -947,16 +954,12 @@ class MKVProcessorGUI:
         elif IS_EXECUTABLE:
             # Nếu chạy từ executable, thử kiểm tra trực tiếp
             try:
-                from ffmpeg_helper import check_ffmpeg_available as check_local
-                ffmpeg_ok = check_local()
+                import subprocess
+                subprocess.run(['ffmpeg', '-version'], 
+                               capture_output=True, check=True)
+                ffmpeg_ok = True
             except:
-                try:
-                    import subprocess
-                    subprocess.run(['ffmpeg', '-version'], 
-                                  capture_output=True, check=True)
-                    ffmpeg_ok = True
-                except:
-                    ffmpeg_ok = False
+                ffmpeg_ok = bool(bundled_ffmpeg_check and bundled_ffmpeg_check())
         
         if not ffmpeg_ok:
             response = messagebox.askyesno(

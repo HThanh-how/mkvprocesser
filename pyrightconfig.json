@@ -1,0 +1,13 @@
+{
+  "extraPaths": [
+    "./src"
+  ],
+  "exclude": [
+    "**/__pycache__",
+    "build",
+    "dist",
+    ".git",
+    ".cursor"
+  ]
+}
+
