@@ -31,11 +31,11 @@ jobs:
       
       - name: Download FFmpeg for Windows
         run: |
-          python download_ffmpeg.py
+          python tools/download_ffmpeg.py
       
       - name: Build executable
         run: |
-          python build_complete.py
+          python scripts/build_complete.py
       
       - name: Create ZIP archive
         run: |
@@ -78,7 +78,7 @@ jobs:
       
       - name: Build executable
         run: |
-          python build_complete.py
+          python scripts/build_complete.py
       
       - name: Create ZIP archive
         run: |
@@ -119,7 +119,7 @@ jobs:
       
       - name: Build executable
         run: |
-          python build_complete.py
+          python scripts/build_complete.py
       
       - name: Create ZIP archive
         run: |
@@ -158,7 +158,7 @@ jobs:
       
       - name: Build executable
         run: |
-          python build_complete.py
+          python scripts/build_complete.py
       
       - name: Create ZIP archive
         run: |
@@ -198,7 +198,7 @@ jobs:
       
       - name: Build executable
         run: |
-          python build_complete.py
+          python scripts/build_complete.py
       
       - name: Create TAR.GZ archive
         run: |
@@ -238,7 +238,7 @@ jobs:
       
       - name: Build executable
         run: |
-          python build_complete.py
+          python scripts/build_complete.py
       
       - name: Create TAR.GZ archive
         run: |
