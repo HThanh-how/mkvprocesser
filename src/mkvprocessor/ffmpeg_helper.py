@@ -1,46 +1,66 @@
 """
-Helper để tìm và sử dụng FFmpeg - ưu tiên FFmpeg bundle local
+Helper module to find and use FFmpeg - prioritizes local bundled FFmpeg.
 """
+import logging
 import os
-import sys
 import subprocess
 import platform
+import sys
 from pathlib import Path
+from typing import Optional, Union, List
 
-# Windows: ẩn cửa sổ CMD khi chạy subprocess
+logger = logging.getLogger(__name__)
+
+# Windows: Hide CMD window when running subprocess
 SUBPROCESS_FLAGS = 0
 if platform.system() == "Windows":
     SUBPROCESS_FLAGS = subprocess.CREATE_NO_WINDOW
 
 
-def get_bundle_dir():
-    """Lấy thư mục chứa executable (khi chạy từ PyInstaller)"""
+def get_bundle_dir() -> Path:
+    """Get the directory containing the executable (when running from PyInstaller).
+    
+    Returns:
+        Path to bundle directory. When running from PyInstaller, this is the
+        temporary _MEIPASS directory. When running from source, returns the
+        parent directory of this module.
+    """
     if getattr(sys, 'frozen', False):
-        # Chạy từ executable (PyInstaller)
-        # PyInstaller tạo thư mục _MEIPASS tạm thời để extract data files
+        # Running from executable (PyInstaller)
+        # PyInstaller creates temporary _MEIPASS directory to extract data files
         if hasattr(sys, '_MEIPASS'):
-            # Khi chạy từ PyInstaller, data files được extract vào _MEIPASS
-            # FFmpeg sẽ ở trong _MEIPASS/ffmpeg_bin/
+            # When running from PyInstaller, data files are extracted to _MEIPASS
+            # FFmpeg will be in _MEIPASS/ffmpeg_bin/
             bundle_path = Path(sys._MEIPASS)
-            # Debug: In ra để kiểm tra
+            # Debug: Print for verification
             if os.getenv('DEBUG_FFMPEG'):
-                print(f"[DEBUG] Bundle dir: {bundle_path}")
-                print(f"[DEBUG] FFmpeg bin dir: {bundle_path / 'ffmpeg_bin'}")
+                logger.debug(f"Bundle dir: {bundle_path}")
+                logger.debug(f"FFmpeg bin dir: {bundle_path / 'ffmpeg_bin'}")
             return bundle_path
         else:
-            # Fallback: thư mục chứa executable
+            # Fallback: directory containing executable
             return Path(sys.executable).parent
     else:
-        # Chạy từ source code
-        return Path(__file__).parent
+        # Running from source code
+        return Path(__file__).parent.parent.parent
 
 
-def find_ffmpeg_binary():
-    """Tìm FFmpeg binary - ưu tiên bundle local"""
+def find_ffmpeg_binary() -> Optional[str]:
+    """Find FFmpeg binary - prioritizes local bundle.
+    
+    Search order:
+    1. Bundle directory / ffmpeg_bin/
+    2. Bundle directory root
+    3. System PATH
+    
+    Returns:
+        Path to FFmpeg binary as string, or 'ffmpeg' if found in PATH,
+        or None if not found.
+    """
     bundle_dir = get_bundle_dir()
     system = platform.system()
     
-    # Tên file FFmpeg theo OS
+    # FFmpeg filename by OS
     if system == "Windows":
         ffmpeg_name = "ffmpeg.exe"
         ffprobe_name = "ffprobe.exe"
@@ -48,23 +68,23 @@ def find_ffmpeg_binary():
         ffmpeg_name = "ffmpeg"
         ffprobe_name = "ffprobe"
     
-    # 1. Tìm trong thư mục bundle/ffmpeg_bin
+    # 1. Search in bundle/ffmpeg_bin directory
     local_ffmpeg = bundle_dir / "ffmpeg_bin" / ffmpeg_name
     if local_ffmpeg.exists():
         ffmpeg_path = str(local_ffmpeg.absolute())
         if os.getenv('DEBUG_FFMPEG'):
-            print(f"[DEBUG] Found FFmpeg at: {ffmpeg_path}")
+            logger.debug(f"Found FFmpeg at: {ffmpeg_path}")
         return ffmpeg_path
     
-    # 2. Tìm trong thư mục bundle (cùng thư mục với exe)
+    # 2. Search in bundle directory (same directory as exe)
     local_ffmpeg = bundle_dir / ffmpeg_name
     if local_ffmpeg.exists():
         ffmpeg_path = str(local_ffmpeg.absolute())
         if os.getenv('DEBUG_FFMPEG'):
-            print(f"[DEBUG] Found FFmpeg at: {ffmpeg_path}")
+            logger.debug(f"Found FFmpeg at: {ffmpeg_path}")
         return ffmpeg_path
     
-    # 3. Tìm trong PATH (system FFmpeg)
+    # 3. Search in PATH (system FFmpeg)
     try:
         result = subprocess.run(
             ['ffmpeg', '-version'],
@@ -74,20 +94,30 @@ def find_ffmpeg_binary():
             creationflags=SUBPROCESS_FLAGS
         )
         if os.getenv('DEBUG_FFMPEG'):
-            print("[DEBUG] Using system FFmpeg from PATH")
-        return 'ffmpeg'  # Sử dụng system FFmpeg
+            logger.debug("Using system FFmpeg from PATH")
+        return 'ffmpeg'  # Use system FFmpeg
     except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired):
         pass
     
     if os.getenv('DEBUG_FFMPEG'):
-        print(f"[DEBUG] FFmpeg not found in: {bundle_dir / 'ffmpeg_bin'}")
-        print(f"[DEBUG] FFmpeg not found in: {bundle_dir}")
+        logger.debug(f"FFmpeg not found in: {bundle_dir / 'ffmpeg_bin'}")
+        logger.debug(f"FFmpeg not found in: {bundle_dir}")
     
     return None
 
 
-def find_ffprobe_binary():
-    """Tìm FFprobe binary - ưu tiên bundle local"""
+def find_ffprobe_binary() -> Optional[str]:
+    """Find FFprobe binary - prioritizes local bundle.
+    
+    Search order:
+    1. Bundle directory / ffmpeg_bin/
+    2. Bundle directory root
+    3. System PATH
+    
+    Returns:
+        Path to FFprobe binary as string, or 'ffprobe' if found in PATH,
+        or None if not found.
+    """
     bundle_dir = get_bundle_dir()
     system = platform.system()
     
@@ -96,17 +126,17 @@ def find_ffprobe_binary():
     else:
         ffprobe_name = "ffprobe"
     
-    # 1. Tìm trong thư mục bundle/ffmpeg_bin
+    # 1. Search in bundle/ffmpeg_bin directory
     local_ffprobe = bundle_dir / "ffmpeg_bin" / ffprobe_name
     if local_ffprobe.exists():
         return str(local_ffprobe.absolute())
     
-    # 2. Tìm trong thư mục bundle
+    # 2. Search in bundle directory
     local_ffprobe = bundle_dir / ffprobe_name
     if local_ffprobe.exists():
         return str(local_ffprobe.absolute())
     
-    # 3. Tìm trong PATH
+    # 3. Search in PATH
     try:
         result = subprocess.run(
             ['ffprobe', '-version'],
@@ -121,8 +151,12 @@ def find_ffprobe_binary():
     return None
 
 
-def check_ffmpeg_available():
-    """Kiểm tra FFmpeg có sẵn - sử dụng local nếu có"""
+def check_ffmpeg_available() -> bool:
+    """Check if FFmpeg is available - uses local binary if available.
+    
+    Returns:
+        True if FFmpeg is found and executable, False otherwise.
+    """
     ffmpeg_path = find_ffmpeg_binary()
     if ffmpeg_path is None:
         return False
@@ -139,15 +173,23 @@ def check_ffmpeg_available():
         return False
 
 
-def get_ffmpeg_command(cmd):
-    """Thay thế 'ffmpeg' trong command bằng path thực tế"""
+def get_ffmpeg_command(cmd: Union[List[str], str]) -> Union[List[str], str]:
+    """Replace 'ffmpeg' and 'ffprobe' in command with actual paths.
+    
+    Args:
+        cmd: Command as list of strings or single string.
+    
+    Returns:
+        Command with 'ffmpeg' and 'ffprobe' replaced with actual paths.
+        Returns original command if FFmpeg not found (fallback).
+    """
     ffmpeg_path = find_ffmpeg_binary()
     if ffmpeg_path is None:
-        return cmd  # Fallback về command gốc
+        return cmd  # Fallback to original command
     
-    # Thay thế 'ffmpeg' và 'ffprobe' trong command
+    # Replace 'ffmpeg' and 'ffprobe' in command
     if isinstance(cmd, list):
-        new_cmd = []
+        new_cmd: List[str] = []
         for arg in cmd:
             if arg == 'ffmpeg':
                 new_cmd.append(ffmpeg_path)
@@ -161,20 +203,31 @@ def get_ffmpeg_command(cmd):
                 new_cmd.append(arg)
         return new_cmd
     elif isinstance(cmd, str):
-        return cmd.replace('ffmpeg', ffmpeg_path).replace('ffprobe', find_ffprobe_binary() or 'ffprobe')
+        ffprobe_path = find_ffprobe_binary() or 'ffprobe'
+        return cmd.replace('ffmpeg', ffmpeg_path).replace('ffprobe', ffprobe_path)
     
     return cmd
 
 
 def probe_file(file_path: str) -> dict:
-    """
-    Probe file với ffprobe, ẩn console window trên Windows.
-    Thay thế cho ffmpeg.probe() để không hiện CMD.
+    """Probe file with ffprobe, hiding console window on Windows.
+    
+    This is a replacement for ffmpeg.probe() that doesn't show CMD window.
+    
+    Args:
+        file_path: Path to the video file to probe.
+    
+    Returns:
+        Dictionary containing FFprobe output (format and streams info).
+    
+    Raises:
+        FileNotFoundError: If the input file doesn't exist.
+        RuntimeError: If ffprobe fails or returns invalid output.
+        subprocess.TimeoutExpired: If ffprobe times out (30 seconds).
     """
     import json
-    import os
     
-    # Kiểm tra file tồn tại
+    # Check if file exists
     if not os.path.exists(file_path):
         raise FileNotFoundError(f"File not found: {file_path}")
     
@@ -182,7 +235,7 @@ def probe_file(file_path: str) -> dict:
     
     cmd = [
         ffprobe_path,
-        '-v', 'error',  # Hiển thị lỗi để debug
+        '-v', 'error',  # Show errors for debugging
         '-print_format', 'json',
         '-show_format',
         '-show_streams',
@@ -194,7 +247,7 @@ def probe_file(file_path: str) -> dict:
             cmd,
             capture_output=True,
             creationflags=SUBPROCESS_FLAGS,
-            timeout=30  # Timeout 30 giây
+            timeout=30  # Timeout 30 seconds
         )
         
         if result.returncode != 0:
@@ -208,8 +261,7 @@ def probe_file(file_path: str) -> dict:
             raise RuntimeError("ffprobe returned empty output")
         
         return json.loads(output)
-    except subprocess.TimeoutExpired:
-        raise RuntimeError(f"ffprobe timeout for: {file_path}")
+    except subprocess.TimeoutExpired as e:
+        raise RuntimeError(f"ffprobe timeout for: {file_path}") from e
     except json.JSONDecodeError as e:
-        raise RuntimeError(f"ffprobe JSON parse error: {e}")
-
+        raise RuntimeError(f"ffprobe JSON parse error: {e}") from e

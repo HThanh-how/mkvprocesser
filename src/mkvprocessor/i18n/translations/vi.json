@@ -1,0 +1,53 @@
+{
+  "ui": {
+    "app_title": "MKV Video Processing Toolkit",
+    "start_processing": "Bắt Đầu Xử Lý",
+    "stop_processing": "Dừng Xử Lý",
+    "select_folder": "Chọn Thư Mục",
+    "processing": "Đang Xử Lý",
+    "completed": "Hoàn Thành",
+    "error": "Lỗi",
+    "settings": "Cài Đặt",
+    "language": "Ngôn Ngữ",
+    "select_language": "Chọn Ngôn Ngữ",
+    "ffmpeg_status": "Trạng Thái FFmpeg",
+    "ram_status": "Trạng Thái RAM",
+    "available": "Sẵn Sàng",
+    "not_available": "Không Sẵn Sàng",
+    "file_list": "Danh Sách File",
+    "log": "Nhật Ký",
+    "save": "Lưu",
+    "cancel": "Hủy",
+    "ok": "OK",
+    "warning": "Cảnh Báo",
+    "info": "Thông Tin"
+  },
+  "messages": {
+    "processing_file": "Đang xử lý file {current}/{total}: {filename}",
+    "processing_started": "Đã bắt đầu xử lý",
+    "processing_completed": "Đã hoàn thành xử lý",
+    "processing_error": "Đã xảy ra lỗi khi xử lý",
+    "no_files_found": "Không tìm thấy file MKV",
+    "ffmpeg_not_found": "Không tìm thấy FFmpeg. Vui lòng cài đặt FFmpeg.",
+    "insufficient_ram": "Không đủ RAM",
+    "insufficient_disk_space": "Không đủ dung lượng ổ đĩa",
+    "file_already_exists": "File đã tồn tại: {path}",
+    "extracting_subtitle": "Đang trích xuất phụ đề: {language}",
+    "subtitle_extracted": "Đã trích xuất phụ đề: {path}",
+    "video_processed": "Đã xử lý video: {path}",
+    "renamed_file": "Đã đổi tên file: {old} -> {new}"
+  },
+  "errors": {
+    "file_not_found": "Không tìm thấy file: {path}",
+    "ffmpeg_error": "Lỗi FFmpeg: {error}",
+    "processing_failed": "Xử lý thất bại: {error}",
+    "invalid_file": "File không hợp lệ: {path}",
+    "permission_denied": "Không có quyền truy cập: {path}"
+  },
+  "folders": {
+    "vietnamese_audio": "Lồng Tiếng - Thuyết Minh",
+    "original": "Original",
+    "subtitles": "Subtitles"
+  }
+}
+

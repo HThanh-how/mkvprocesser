@@ -1,29 +1,33 @@
 """
-History Manager - Quản lý lịch sử xử lý file với JSONL format.
+History Manager - Manage processing history with JSONL format.
 
-Format JSONL (mỗi dòng là 1 JSON object):
+JSONL format (each line is 1 JSON object):
 {"id": "uuid", "old_name": "...", "new_name": "...", "timestamp": "...", "signature": "..."}
 
-Ưu điểm:
-- Append-only: không bao giờ conflict khi merge
-- Dễ đọc từng dòng mà không cần parse toàn bộ file
-- Dễ dedupe bằng signature hoặc id
+Advantages:
+- Append-only: never conflicts when merging
+- Easy to read line by line without parsing entire file
+- Easy to dedupe by signature or id
 """
 import json
+import logging
 import os
 import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Set
 
+logger = logging.getLogger(__name__)
+
 
 class HistoryManager:
-    """Quản lý lịch sử xử lý file."""
+    """Manage processing history."""
     
     def __init__(self, base_dir: str):
-        """
+        """Initialize HistoryManager.
+        
         Args:
-            base_dir: Thư mục gốc (thường là Subtitles/)
+            base_dir: Base directory (usually Subtitles/)
         """
         self.base_dir = Path(base_dir)
         self.history_dir = self.base_dir / "history"
@@ -35,19 +39,19 @@ class HistoryManager:
         self._by_name: Dict[str, str] = {}  # name -> signature
         self._loaded = False
     
-    def ensure_dir(self):
-        """Tạo thư mục history nếu chưa có."""
+    def ensure_dir(self) -> None:
+        """Create history directory if it doesn't exist."""
         self.history_dir.mkdir(parents=True, exist_ok=True)
     
-    def load(self):
-        """Load lịch sử vào memory."""
+    def load(self) -> None:
+        """Load history into memory."""
         if self._loaded:
             return
         
         self._by_signature = {}
         self._by_name = {}
         
-        # 1. Load từ JSONL file
+        # 1. Load from JSONL file
         if self.history_file.exists():
             try:
                 with open(self.history_file, "r", encoding="utf-8") as f:
@@ -68,28 +72,28 @@ class HistoryManager:
                                     self._by_name[new_name] = sig
                         except json.JSONDecodeError:
                             continue
-            except Exception:
-                pass
+            except (IOError, OSError) as e:
+                logger.error(f"Failed to load history file: {e}")
         
-        # 2. Load từ index file (nếu có, để lookup nhanh)
+        # 2. Load from index file (if exists, for fast lookup)
         if self.index_file.exists():
             try:
                 with open(self.index_file, "r", encoding="utf-8") as f:
                     index = json.load(f)
-                    # Merge với data từ JSONL
+                    # Merge with data from JSONL
                     for sig, entry in index.get("by_signature", {}).items():
                         if sig not in self._by_signature:
                             self._by_signature[sig] = entry
                     for name, sig in index.get("by_name", {}).items():
                         if name not in self._by_name:
                             self._by_name[name] = sig
-            except Exception:
-                pass
+            except (IOError, OSError, json.JSONDecodeError) as e:
+                logger.error(f"Failed to load index file: {e}")
         
         self._loaded = True
     
-    def save_index(self):
-        """Lưu index để lookup nhanh."""
+    def save_index(self) -> None:
+        """Save index for fast lookup."""
         self.ensure_dir()
         index = {
             "by_signature": self._by_signature,
@@ -99,8 +103,8 @@ class HistoryManager:
         try:
             with open(self.index_file, "w", encoding="utf-8") as f:
                 json.dump(index, f, ensure_ascii=False, indent=2)
-        except Exception:
-            pass
+        except (IOError, OSError) as e:
+            logger.error(f"Failed to save index: {e}")
     
     def add_entry(
         self,
@@ -110,15 +114,21 @@ class HistoryManager:
         **metadata
     ) -> dict:
         """
-        Thêm entry mới vào lịch sử.
+        Add new entry to history.
+        
+        Args:
+            old_name: Original filename
+            new_name: New filename after processing
+            signature: File signature for deduplication
+            **metadata: Additional metadata fields
         
         Returns:
-            Entry đã được thêm
+            Entry that was added
         """
         self.load()
         self.ensure_dir()
         
-        # Tạo entry
+        # Create entry
         entry = {
             "id": str(uuid.uuid4()),
             "old_name": old_name,
@@ -128,12 +138,12 @@ class HistoryManager:
             **metadata
         }
         
-        # Append vào JSONL file
+        # Append to JSONL file
         try:
             with open(self.history_file, "a", encoding="utf-8") as f:
                 f.write(json.dumps(entry, ensure_ascii=False) + "\n")
-        except Exception as e:
-            print(f"[HISTORY] Lỗi ghi lịch sử: {e}")
+        except (IOError, OSError) as e:
+            logger.error(f"[HISTORY] Error writing history: {e}")
         
         # Update index
         self._by_signature[signature] = entry
@@ -143,22 +153,50 @@ class HistoryManager:
         return entry
     
     def has_signature(self, signature: str) -> bool:
-        """Kiểm tra signature đã tồn tại chưa."""
+        """Check if signature already exists.
+        
+        Args:
+            signature: File signature to check
+        
+        Returns:
+            True if signature exists, False otherwise
+        """
         self.load()
         return signature in self._by_signature
     
     def has_name(self, name: str) -> bool:
-        """Kiểm tra tên file đã tồn tại chưa."""
+        """Check if filename already exists.
+        
+        Args:
+            name: Filename to check
+        
+        Returns:
+            True if name exists, False otherwise
+        """
         self.load()
         return name in self._by_name
     
     def get_by_signature(self, signature: str) -> Optional[dict]:
-        """Lấy entry theo signature."""
+        """Get entry by signature.
+        
+        Args:
+            signature: File signature
+        
+        Returns:
+            Entry dictionary or None if not found
+        """
         self.load()
         return self._by_signature.get(signature)
     
     def get_by_name(self, name: str) -> Optional[dict]:
-        """Lấy entry theo tên file."""
+        """Get entry by filename.
+        
+        Args:
+            name: Filename (old or new)
+        
+        Returns:
+            Entry dictionary or None if not found
+        """
         self.load()
         sig = self._by_name.get(name)
         if sig:
@@ -166,26 +204,41 @@ class HistoryManager:
         return None
     
     def get_all_entries(self) -> List[dict]:
-        """Lấy tất cả entries."""
+        """Get all entries.
+        
+        Returns:
+            List of all entry dictionaries
+        """
         self.load()
         return list(self._by_signature.values())
     
     def get_all_signatures(self) -> Set[str]:
-        """Lấy tất cả signatures."""
+        """Get all signatures.
+        
+        Returns:
+            Set of all signatures
+        """
         self.load()
         return set(self._by_signature.keys())
     
     def get_all_names(self) -> Set[str]:
-        """Lấy tất cả tên file."""
+        """Get all filenames.
+        
+        Returns:
+            Set of all filenames (old and new)
+        """
         self.load()
         return set(self._by_name.keys())
     
     def import_legacy_log(self, log_path: str) -> int:
         """
-        Import từ processed_files.log cũ.
+        Import from old processed_files.log.
+        
+        Args:
+            log_path: Path to legacy log file
         
         Returns:
-            Số entries đã import
+            Number of entries imported
         """
         if not os.path.exists(log_path):
             return 0
@@ -201,7 +254,7 @@ class HistoryManager:
                         timestamp = parts[2] if len(parts) > 2 else ""
                         signature = parts[3] if len(parts) > 3 else ""
                         
-                        # Chỉ import nếu chưa có
+                        # Only import if not already exists
                         if signature and not self.has_signature(signature):
                             self.add_entry(
                                 old_name=old_name,
@@ -212,7 +265,7 @@ class HistoryManager:
                             )
                             count += 1
                         elif not signature and not self.has_name(old_name):
-                            # Không có signature, dùng tên để check
+                            # No signature, use name to check
                             self.add_entry(
                                 old_name=old_name,
                                 new_name=new_name,
@@ -221,8 +274,8 @@ class HistoryManager:
                                 original_timestamp=timestamp
                             )
                             count += 1
-        except Exception as e:
-            print(f"[HISTORY] Lỗi import legacy log: {e}")
+        except (IOError, OSError) as e:
+            logger.error(f"[HISTORY] Error importing legacy log: {e}")
         
         if count > 0:
             self.save_index()
@@ -231,10 +284,13 @@ class HistoryManager:
     
     def import_json_logs(self, logs_dir: str) -> int:
         """
-        Import từ logs/*.json.
+        Import from logs/*.json files.
+        
+        Args:
+            logs_dir: Directory containing JSON log files
         
         Returns:
-            Số entries đã import
+            Number of entries imported
         """
         logs_path = Path(logs_dir)
         if not logs_path.exists():
@@ -258,7 +314,7 @@ class HistoryManager:
                                     category=entry.get("category", "video")
                                 )
                                 count += 1
-            except Exception:
+            except (IOError, OSError, json.JSONDecodeError):
                 continue
         
         if count > 0:
@@ -269,11 +325,15 @@ class HistoryManager:
 
 def merge_history_files(files: List[str], output_file: str) -> int:
     """
-    Merge nhiều file JSONL thành 1, dedupe bằng signature.
-    Dùng cho GitHub merge.
+    Merge multiple JSONL files into one, dedupe by signature.
+    Used for GitHub merge.
+    
+    Args:
+        files: List of JSONL file paths to merge
+        output_file: Output file path
     
     Returns:
-        Số entries sau khi merge
+        Number of entries after merge
     """
     seen_signatures: Set[str] = set()
     entries: List[dict] = []
@@ -295,20 +355,19 @@ def merge_history_files(files: List[str], output_file: str) -> int:
                             entries.append(entry)
                     except json.JSONDecodeError:
                         continue
-        except Exception:
+        except (IOError, OSError):
             continue
     
-    # Sắp xếp theo timestamp
+    # Sort by timestamp
     entries.sort(key=lambda x: x.get("timestamp", ""))
     
-    # Ghi ra file
+    # Write to file
     try:
         with open(output_file, "w", encoding="utf-8") as f:
             for entry in entries:
                 f.write(json.dumps(entry, ensure_ascii=False) + "\n")
-    except Exception as e:
-        print(f"[HISTORY] Lỗi merge: {e}")
+    except (IOError, OSError) as e:
+        logger.error(f"[HISTORY] Error merging: {e}")
         return 0
     
     return len(entries)
-

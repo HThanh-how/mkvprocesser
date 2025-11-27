@@ -26,12 +26,14 @@ def find_executable():
     exe_name = get_platform_exe_name()
     
     # Tìm trong dist/
-    dist_path = Path("dist") / exe_name
+    project_root = Path(__file__).parent.parent
+    dist_path = project_root / "dist" / exe_name
     if dist_path.exists():
         return dist_path
     
     # Tìm bất kỳ file nào trong dist/
-    dist_dir = Path("dist")
+    project_root = Path(__file__).parent.parent
+    dist_dir = project_root / "dist"
     if dist_dir.exists():
         files = list(dist_dir.glob("MKVProcessor*"))
         if files:
@@ -234,7 +236,8 @@ def check_ffmpeg_bundled(exe_path):
     print("=" * 70)
     
     # Kiểm tra thư mục ffmpeg_bin có tồn tại không
-    ffmpeg_bin = Path("ffmpeg_bin")
+    project_root = Path(__file__).parent.parent
+    ffmpeg_bin = project_root / "ffmpeg_bin"
     if ffmpeg_bin.exists():
         print("✅ Thư mục ffmpeg_bin/ tồn tại")
         

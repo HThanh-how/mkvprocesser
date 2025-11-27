@@ -81,14 +81,16 @@ def download_ffmpeg_windows():
         with zipfile.ZipFile(zip_path, 'r') as zip_ref:
             zip_ref.extractall(".")
         
-        # Tìm thư mục ffmpeg
-        ffmpeg_dirs = [d for d in Path(".").iterdir() if d.is_dir() and "ffmpeg" in d.name.lower()]
+        # Tìm thư mục ffmpeg (trong thư mục hiện tại - nơi script chạy)
+        current_dir = Path.cwd()
+        ffmpeg_dirs = [d for d in current_dir.iterdir() if d.is_dir() and "ffmpeg" in d.name.lower()]
         if ffmpeg_dirs:
             ffmpeg_dir = ffmpeg_dirs[0]
             bin_dir = ffmpeg_dir / "bin"
             
-            # Copy vào thư mục local
-            local_bin = Path("ffmpeg_bin")
+            # Copy vào thư mục local (project root)
+            project_root = Path(__file__).parent.parent
+            local_bin = project_root / "ffmpeg_bin"
             if local_bin.exists():
                 shutil.rmtree(local_bin)
             local_bin.mkdir()
@@ -204,7 +206,8 @@ def main():
     if system == "Windows":
         success = download_ffmpeg_windows()
         if success:
-            add_to_path_windows(Path("ffmpeg_bin").absolute())
+            project_root = Path(__file__).parent.parent
+            add_to_path_windows((project_root / "ffmpeg_bin").absolute())
     elif system == "Linux":
         success = download_ffmpeg_linux()
     elif system == "Darwin":

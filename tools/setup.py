@@ -22,8 +22,11 @@ def install_python_packages():
     """Cài đặt các package Python"""
     print("\n📦 Đang cài đặt các package Python...")
     try:
+        from pathlib import Path
+        project_root = Path(__file__).parent.parent
+        requirements_file = project_root / "requirements.txt"
         subprocess.check_call([
-            sys.executable, "-m", "pip", "install", "-r", "requirements.txt", "--upgrade"
+            sys.executable, "-m", "pip", "install", "-r", str(requirements_file), "--upgrade"
         ])
         print("✅ Đã cài đặt các package Python thành công!")
         return True

@@ -1,0 +1,53 @@
+{
+  "ui": {
+    "app_title": "MKV Video Processing Toolkit",
+    "start_processing": "Start Processing",
+    "stop_processing": "Stop Processing",
+    "select_folder": "Select Folder",
+    "processing": "Processing",
+    "completed": "Completed",
+    "error": "Error",
+    "settings": "Settings",
+    "language": "Language",
+    "select_language": "Select Language",
+    "ffmpeg_status": "FFmpeg Status",
+    "ram_status": "RAM Status",
+    "available": "Available",
+    "not_available": "Not Available",
+    "file_list": "File List",
+    "log": "Log",
+    "save": "Save",
+    "cancel": "Cancel",
+    "ok": "OK",
+    "warning": "Warning",
+    "info": "Info"
+  },
+  "messages": {
+    "processing_file": "Processing file {current}/{total}: {filename}",
+    "processing_started": "Processing started",
+    "processing_completed": "Processing completed",
+    "processing_error": "Processing error occurred",
+    "no_files_found": "No MKV files found",
+    "ffmpeg_not_found": "FFmpeg not found. Please install FFmpeg.",
+    "insufficient_ram": "Insufficient RAM available",
+    "insufficient_disk_space": "Insufficient disk space",
+    "file_already_exists": "File already exists: {path}",
+    "extracting_subtitle": "Extracting subtitle: {language}",
+    "subtitle_extracted": "Subtitle extracted: {path}",
+    "video_processed": "Video processed: {path}",
+    "renamed_file": "Renamed file: {old} -> {new}"
+  },
+  "errors": {
+    "file_not_found": "File not found: {path}",
+    "ffmpeg_error": "FFmpeg error: {error}",
+    "processing_failed": "Processing failed: {error}",
+    "invalid_file": "Invalid file: {path}",
+    "permission_denied": "Permission denied: {path}"
+  },
+  "folders": {
+    "vietnamese_audio": "Vietnamese Audio - Subtitles",
+    "original": "Original",
+    "subtitles": "Subtitles"
+  }
+}
+

@@ -13,7 +13,15 @@ from pathlib import Path
 import requests
 from PySide6 import QtCore, QtGui, QtWidgets
 
-from config_manager import (
+import sys
+from pathlib import Path
+
+# Add src to sys.path to import mkvprocessor
+src_path = Path(__file__).parent.parent.parent
+if str(src_path) not in sys.path:
+    sys.path.insert(0, str(src_path))
+
+from mkvprocessor.config_manager import (
     get_config_path,
     load_raw_user_config,
     load_user_config,
@@ -48,7 +56,22 @@ class MainWindow(QtWidgets.QMainWindow):
         self.setWindowTitle("MKV Processor (PySide6)")
         self.resize(1200, 800)
         self.config = load_user_config()
-        self.script = importlib.import_module("script")
+        # Try importing from new package, fallback to legacy names
+        module_candidates = [
+            "mkvprocessor.processing_core",
+            "mkvprocessor.legacy_api",
+            "processing_core",
+            "legacy_api",
+        ]
+        self.script = None
+        for module_name in module_candidates:
+            try:
+                self.script = importlib.import_module(module_name)
+                break
+            except ModuleNotFoundError:
+                continue
+        if self.script is None:
+            raise ImportError("Cannot import processing_core module")
         self.worker: Worker | None = None
         self.file_options: dict[str, FileOptions] = {}
         self.current_file_path: str | None = None
@@ -78,7 +101,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.status_bar = QtWidgets.QStatusBar()
         self.setStatusBar(self.status_bar)
-        self.status_bar.showMessage("Sẵn sàng")
+        self.status_bar.showMessage("Ready")
 
     def build_processing_tab(self):
         tab = QtWidgets.QWidget()
@@ -208,7 +231,7 @@ class MainWindow(QtWidgets.QMainWindow):
         controls_layout.setSpacing(8)
         controls_layout.setContentsMargins(12, 6, 12, 6)
 
-        self.start_btn = QtWidgets.QPushButton("🚀 Bắt đầu xử lý")
+        self.start_btn = QtWidgets.QPushButton("🚀 Start Processing")
         self.start_btn.setObjectName("primaryButton")
         self.start_btn.clicked.connect(self.start_processing)
         self.stop_btn = QtWidgets.QPushButton("⏹ Dừng")
@@ -286,11 +309,27 @@ class MainWindow(QtWidgets.QMainWindow):
         form = QtWidgets.QFormLayout(tab)
         form.setSpacing(10)
 
-        self.auto_upload_cb = QtWidgets.QCheckBox("Bật auto upload GitHub")
+        # Language selector
+        try:
+            from mkvprocessor.i18n import get_supported_languages, set_language, t
+            languages = get_supported_languages()
+            self.language_combo = QtWidgets.QComboBox()
+            current_lang = self.config.get("language", "en")
+            for lang_code, lang_name in languages.items():
+                self.language_combo.addItem(f"{lang_name} ({lang_code})", lang_code)
+                if lang_code == current_lang:
+                    self.language_combo.setCurrentIndex(self.language_combo.count() - 1)
+            self.language_combo.currentIndexChanged.connect(self.on_language_changed)
+            form.addRow("Language / Ngôn ngữ", self.language_combo)
+        except ImportError:
+            # Fallback if i18n not available
+            pass
+
+        self.auto_upload_cb = QtWidgets.QCheckBox("Enable auto upload to GitHub")
         self.auto_upload_cb.setChecked(self.config.get("auto_upload", False))
         form.addRow(self.auto_upload_cb)
 
-        self.force_reprocess_cb = QtWidgets.QCheckBox("Luôn xử lý lại (bỏ qua log cũ)")
+        self.force_reprocess_cb = QtWidgets.QCheckBox("Always reprocess (ignore old log)")
         self.force_reprocess_cb.setChecked(self.config.get("force_reprocess", False))
         form.addRow(self.force_reprocess_cb)
 
@@ -298,15 +337,15 @@ class MainWindow(QtWidgets.QMainWindow):
         raw_config = load_raw_user_config() if has_config_file else {}
 
         self.repo_edit = QtWidgets.QLineEdit(raw_config.get("repo", ""))
-        self.repo_edit.setPlaceholderText("vd: HThanh-how/Subtitles")
+        self.repo_edit.setPlaceholderText("e.g.: HThanh-how/Subtitles")
         form.addRow("Repository", self.repo_edit)
 
         self.repo_url_edit = QtWidgets.QLineEdit(raw_config.get("repo_url", ""))
-        self.repo_url_edit.setPlaceholderText("URL repo Git")
+        self.repo_url_edit.setPlaceholderText("Git repository URL")
         form.addRow("Repo URL", self.repo_url_edit)
 
         self.branch_edit = QtWidgets.QLineEdit(raw_config.get("branch", ""))
-        self.branch_edit.setPlaceholderText("vd: main")
+        self.branch_edit.setPlaceholderText("e.g.: main")
         form.addRow("Branch", self.branch_edit)
 
         self.token_edit = QtWidgets.QLineEdit(self.config.get("token", ""))
@@ -315,7 +354,7 @@ class MainWindow(QtWidgets.QMainWindow):
         form.addRow("Token", self.token_edit)
 
         btn_row = QtWidgets.QHBoxLayout()
-        save_btn = QtWidgets.QPushButton("💾 Lưu")
+        save_btn = QtWidgets.QPushButton("💾 Save")
         save_btn.clicked.connect(self.save_settings)
         test_btn = QtWidgets.QPushButton("🔄 Test")
         test_btn.clicked.connect(self.test_token)
@@ -327,7 +366,21 @@ class MainWindow(QtWidgets.QMainWindow):
         self.settings_status = QtWidgets.QLabel("")
         form.addRow(self.settings_status)
 
-        self.tabs.addTab(tab, "Cài đặt")
+        self.tabs.addTab(tab, "Settings")
+
+    def on_language_changed(self, index: int):
+        """Handle language selection change."""
+        try:
+            from mkvprocessor.i18n import set_language
+            lang_code = self.language_combo.itemData(index)
+            if lang_code:
+                set_language(lang_code)
+                self.config["language"] = lang_code
+                save_user_config(self.config)
+                # Optionally show a message that restart may be needed
+                self.settings_status.setText("Language changed. Some changes may require restart.")
+        except (ImportError, AttributeError):
+            pass
 
     def build_log_tab(self):
         tab = QtWidgets.QWidget()
@@ -401,7 +454,7 @@ class MainWindow(QtWidgets.QMainWindow):
         clear_errors_btn = QtWidgets.QToolButton()
         clear_errors_btn.setObjectName("tinyButton")
         clear_errors_btn.setText("🗑")
-        clear_errors_btn.setToolTip("Xóa lỗi")
+        clear_errors_btn.setToolTip("Clear errors")
         clear_errors_btn.clicked.connect(self.clear_errors)
         errors_header.addWidget(clear_errors_btn)
         errors_layout.addLayout(errors_header)
@@ -490,7 +543,7 @@ class MainWindow(QtWidgets.QMainWindow):
         return bool(re.match(pattern, filename))
 
     def probe_tracks(self, file_path: str) -> tuple[list, list]:
-        from ffmpeg_helper import probe_file
+        from mkvprocessor.ffmpeg_helper import probe_file
 
         probe = probe_file(file_path)
         subs = [
@@ -528,7 +581,7 @@ class MainWindow(QtWidgets.QMainWindow):
         if options.metadata_ready and options.cached_subs and options.cached_audios:
             return True
         try:
-            from ffmpeg_helper import probe_file
+            from mkvprocessor.ffmpeg_helper import probe_file
             probe = probe_file(file_path)
             subs, audios = self.probe_tracks(file_path)
             
@@ -842,7 +895,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self.file_count_label.setText(f"{len(processed_files)}/{len(mkv_files)}")
 
         except Exception as e:
-            QtWidgets.QMessageBox.warning(self, "Lỗi", str(e))
+            QtWidgets.QMessageBox.warning(self, "Error", str(e))
         finally:
             self.file_tree.blockSignals(False)
             self.update_select_all_state()
@@ -889,7 +942,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         try:
             if not self.ensure_options_metadata(file_path, options):
-                raise RuntimeError("Không đọc được metadata")
+                raise RuntimeError("Cannot read metadata")
 
             subs = options.cached_subs
             audios = options.cached_audios
@@ -1281,7 +1334,7 @@ class MainWindow(QtWidgets.QMainWindow):
     def start_processing(self):
         folder = self.folder_edit.text().strip()
         if not folder:
-            QtWidgets.QMessageBox.warning(self, "Lỗi", "Chọn thư mục trước.")
+            QtWidgets.QMessageBox.warning(self, "Error", "Please select a folder first.")
             return
         if self.worker and self.worker.isRunning():
             return
@@ -1325,7 +1378,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.progress.setVisible(True)
         self.start_btn.setEnabled(False)
         self.stop_btn.setEnabled(True)
-        self.status_bar.showMessage(f"Đang xử lý 0/{len(selected)} files…")
+        self.status_bar.showMessage(f"Processing 0/{len(selected)} files…")
 
     def stop_processing(self):
         if self.worker and self.worker.isRunning():
@@ -1350,7 +1403,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.stop_btn.setEnabled(False)
         os.environ.pop("MKV_FILE_OPTIONS", None)
         self.refresh_file_list()
-        self.status_bar.showMessage("Hoàn thành" if success else "Có lỗi - xem log", 5000)
+        self.status_bar.showMessage("Completed" if success else "Error - see log", 5000)
 
     def log_message(self, text: str, level: str = "INFO"):
         if self.session_log_file:
@@ -1427,7 +1480,7 @@ class MainWindow(QtWidgets.QMainWindow):
         
         # Auto-migrate: nếu có data cũ và chưa có history mới, migrate
         try:
-            from history_manager import HistoryManager
+            from mkvprocessor.history_manager import HistoryManager
             history = HistoryManager(os.path.join(folder, "Subtitles"))
             
             # Import từ legacy log nếu có
@@ -1509,6 +1562,17 @@ class MainWindow(QtWidgets.QMainWindow):
         QtGui.QDesktopServices.openUrl(QtCore.QUrl.fromLocalFile(str(logs_dir.resolve())))
 
     def save_settings(self):
+        # Save language if available
+        try:
+            if hasattr(self, 'language_combo'):
+                lang_code = self.language_combo.currentData()
+                if lang_code:
+                    self.config["language"] = lang_code
+                    from mkvprocessor.i18n import set_language
+                    set_language(lang_code)
+        except (ImportError, AttributeError):
+            pass
+        
         self.config.update({
             "input_folder": self.folder_edit.text(),
             "auto_upload": self.auto_upload_cb.isChecked(),
@@ -1519,13 +1583,13 @@ class MainWindow(QtWidgets.QMainWindow):
             "force_reprocess": self.force_reprocess_cb.isChecked(),
         })
         save_user_config(self.config)
-        self.settings_status.setText("✅ Đã lưu")
+        self.settings_status.setText("✅ Saved")
         self.refresh_system_status()
 
     def test_token(self):
         token, repo = self.token_edit.text().strip(), self.repo_edit.text().strip()
         if not token or not repo:
-            QtWidgets.QMessageBox.warning(self, "Lỗi", "Cần token và repo.")
+            QtWidgets.QMessageBox.warning(self, "Error", "Token and repo are required.")
             return
         try:
             r = requests.get(f"https://api.github.com/repos/{repo}", 
@@ -1533,9 +1597,9 @@ class MainWindow(QtWidgets.QMainWindow):
             if r.status_code == 200:
                 QtWidgets.QMessageBox.information(self, "OK", "Token hợp lệ!")
             else:
-                QtWidgets.QMessageBox.critical(self, "Lỗi", f"Mã {r.status_code}")
+                QtWidgets.QMessageBox.critical(self, "Error", f"Status code {r.status_code}")
         except Exception as e:
-            QtWidgets.QMessageBox.critical(self, "Lỗi", str(e))
+            QtWidgets.QMessageBox.critical(self, "Error", str(e))
 
     def refresh_system_status(self):
         try:

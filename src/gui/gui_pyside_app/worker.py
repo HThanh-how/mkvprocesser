@@ -1,5 +1,5 @@
 """
-Worker - QThread xử lý MKV trong background.
+Worker - QThread for processing MKV files in background.
 """
 from __future__ import annotations
 
@@ -13,11 +13,11 @@ from PySide6 import QtCore
 
 
 class Worker(QtCore.QThread):
-    """Worker thread để xử lý MKV files"""
+    """Worker thread for processing MKV files."""
 
-    log_signal = QtCore.Signal(str, str)
+    log_signal = QtCore.Signal(str, str)  # text, level
     progress_signal = QtCore.Signal(int, int, str)  # current, total, filename
-    finished_signal = QtCore.Signal(bool)
+    finished_signal = QtCore.Signal(bool)  # success
 
     def __init__(self, folder: str, selected_files: list[str] | None = None):
         super().__init__()
@@ -27,7 +27,22 @@ class Worker(QtCore.QThread):
     def run(self):
         selected_backup = None
         try:
-            script = importlib.import_module("script")
+            # Try importing from new package, fallback to legacy names
+            module_candidates = [
+                "mkvprocessor.processing_core",
+                "mkvprocessor.script",
+                "processing_core",
+                "script",
+            ]
+            script = None
+            for module_name in module_candidates:
+                try:
+                    script = importlib.import_module(module_name)
+                    break
+                except ModuleNotFoundError:
+                    continue
+            if script is None:
+                raise ImportError("Cannot import processing_core module")
             selected_backup = os.environ.get("MKV_SELECTED_FILES")
             if self.selected_files:
                 os.environ["MKV_SELECTED_FILES"] = json.dumps(self.selected_files)
@@ -43,7 +58,7 @@ class Worker(QtCore.QThread):
                     text = text.strip()
                     if text:
                         self.signal.emit(text, self.level)
-                        # Phát hiện tiến độ từ log
+                        # Detect progress from log
                         if text.startswith("Processing file") or text.startswith("Đang xử lý file"):
                             # Parse "Processing file X/Y: filename"
                             import re
@@ -64,7 +79,7 @@ class Worker(QtCore.QThread):
             # Emit initial progress
             total = len(self.selected_files) if self.selected_files else 0
             if total > 0:
-                self.progress_signal.emit(0, total, "Đang bắt đầu...")
+                self.progress_signal.emit(0, total, "Starting...")
 
             script.main(self.folder)
             self.finished_signal.emit(True)

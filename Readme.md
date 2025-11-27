@@ -3,6 +3,8 @@
 ![FFmpeg](https://img.shields.io/badge/FFmpeg-%23FF0000.svg?style=for-the-badge&logo=ffmpeg&logoColor=white)
 ![Python](https://img.shields.io/badge/Python-3.8%2B-3776AB?style=for-the-badge&logo=python&logoColor=white)
 ![Platform](https://img.shields.io/badge/Platform-Windows%20|%20Linux%20|%20macOS-0078D6?style=for-the-badge)
+![License](https://img.shields.io/badge/License-MIT-green.svg?style=for-the-badge)
+![Contributions Welcome](https://img.shields.io/badge/Contributions-Welcome-brightgreen.svg?style=for-the-badge)
 
 **A Next-Generation Media Management Solution**  
 *Automate your MKV workflow with AI-powered metadata analysis and smart file organization*
@@ -121,6 +123,22 @@ python script.py --hwaccel cuda  # NVIDIA GPUs
 python script.py --hwaccel vaapi # Intel iGPUs
 ```
 
+## 🧪 Development Workflow
+
+```bash
+# Run the modern CLI entry point
+python -m mkvprocessor.cli_main /path/to/mkv/folder
+
+# Install dev dependencies
+pip install -r requirements.txt -r requirements-dev.txt
+
+# Execute unit tests
+python -m pytest tests
+
+# Run lint hooks locally
+pre-commit run --all-files
+```
+
 ## 🌐 Multi-Language Support
 
 **Supported Audio Languages:**
@@ -138,22 +156,17 @@ mindmap
         └─ Spanish
 ```
 
-## 📜 License & Compliance
+## 📜 License
 
-```legal
-MIT License
-Copyright (c) 2024 Media Processing Toolkit
+Dự án này được phân phối dưới giấy phép MIT. Xem file [LICENSE](LICENSE) để biết thêm chi tiết.
 
-Permission includes:
-- Commercial use
-- Modification
-- Distribution
-- Private use
+## 🤝 Đóng Góp
 
-Limitations:
-- Liability
-- Warranty
-```
+Chúng tôi hoan nghênh mọi đóng góp! Vui lòng đọc [CONTRIBUTING.md](CONTRIBUTING.md) để biết cách đóng góp.
+
+## 📝 Code of Conduct
+
+Dự án này tuân thủ [Code of Conduct](CODE_OF_CONDUCT.md). Bằng cách tham gia, bạn đồng ý tuân thủ quy tắc này.
 
 ---
 
@@ -179,6 +192,16 @@ Limitations:
 
 **🔮 Roadmap Features**
 - [x] Basic metadata processing
+- [x] Organized project structure
 - [ ] Cloud integration (AWS S3/GCP)
 - [ ] AI-based content analysis
 - [ ] Docker container support
+- [x] Unit tests coverage
+- [x] CI/CD pipeline
+
+## 📚 Tài Liệu
+
+- [README](Readme.md) - Tài liệu chính
+- [CONTRIBUTING](CONTRIBUTING.md) - Hướng dẫn đóng góp
+- [CHANGELOG](CHANGELOG.md) - Lịch sử thay đổi
+- [LICENSE](LICENSE) - Giấy phép MIT

@@ -1,12 +1,13 @@
 """
-Module hỗ trợ đồng bộ subtitle và log lên GitHub bằng token cá nhân.
-Đọc cấu hình từ auto_push_config.json hoặc biến môi trường.
+Module for syncing subtitles and logs to GitHub using personal access token.
+Reads configuration from auto_push_config.json or environment variables.
 """
 from __future__ import annotations
 
 import base64
 import datetime
 import json
+import logging
 import os
 from dataclasses import dataclass
 from pathlib import Path
@@ -14,9 +15,12 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import requests
 
+logger = logging.getLogger(__name__)
+
 
 @dataclass
 class AutoPushConfig:
+    """Configuration for auto-push to GitHub."""
     token: str
     repo: str
     branch: str = "main"
@@ -27,6 +31,14 @@ class AutoPushConfig:
 
 
 def build_auto_push_config(settings: Dict[str, Any]) -> Optional[AutoPushConfig]:
+    """Build AutoPushConfig from settings dictionary.
+    
+    Args:
+        settings: Dictionary containing configuration settings
+    
+    Returns:
+        AutoPushConfig instance if valid settings found, None otherwise
+    """
     token = (settings.get("token") or "").strip()
     repo = (settings.get("repo") or "").strip()
     if not token or not repo:
@@ -44,9 +56,14 @@ def build_auto_push_config(settings: Dict[str, Any]) -> Optional[AutoPushConfig]
 
 
 class GitHubClient:
-    """Client đơn giản gọi GitHub Content API."""
+    """Simple client for GitHub Content API."""
 
     def __init__(self, config: AutoPushConfig):
+        """Initialize GitHub client.
+        
+        Args:
+            config: AutoPushConfig instance with authentication and repo info
+        """
         self.config = config
         self.base_url = "https://api.github.com"
         self.session = requests.Session()
@@ -61,6 +78,20 @@ class GitHubClient:
     def _request(
         self, method: str, endpoint: str, *, params: Optional[Dict[str, Any]] = None, json_data: Optional[Dict[str, Any]] = None
     ) -> requests.Response:
+        """Make HTTP request to GitHub API.
+        
+        Args:
+            method: HTTP method (GET, PUT, DELETE, etc.)
+            endpoint: API endpoint (e.g., "/repos/owner/repo/contents/path")
+            params: Optional query parameters
+            json_data: Optional JSON payload
+        
+        Returns:
+            Response object from requests
+        
+        Raises:
+            RuntimeError: If API returns error status code
+        """
         url = f"{self.base_url}{endpoint}"
         response = self.session.request(method, url, params=params, json=json_data, timeout=30)
         if response.status_code >= 400:
@@ -68,7 +99,14 @@ class GitHubClient:
         return response
 
     def get_content(self, path: str) -> Tuple[Optional[bytes], Optional[str]]:
-        """Lấy nội dung file (base64) từ repo."""
+        """Get file content (base64) from repository.
+        
+        Args:
+            path: File path in repository
+        
+        Returns:
+            Tuple of (content bytes, sha string). Returns (None, None) if file not found.
+        """
         try:
             response = self._request(
                 "GET",
@@ -86,7 +124,17 @@ class GitHubClient:
         return content, sha
 
     def put_content(self, path: str, content: bytes, message: str, sha: Optional[str] = None) -> str:
-        """Upload (hoặc cập nhật) file lên repo. Trả về sha mới."""
+        """Upload (or update) file to repository. Returns new sha.
+        
+        Args:
+            path: File path in repository
+            content: File content as bytes
+            message: Commit message
+            sha: Optional existing file sha (for updates)
+        
+        Returns:
+            New file sha after upload
+        """
         encoded = base64.b64encode(content).decode("utf-8")
         payload: Dict[str, Any] = {
             "message": message,
@@ -105,6 +153,13 @@ class GitHubClient:
         return resp_json.get("content", {}).get("sha", "")
 
     def delete_content(self, path: str, sha: str, message: str) -> None:
+        """Delete file from repository.
+        
+        Args:
+            path: File path in repository
+            sha: File sha (required for deletion)
+            message: Commit message
+        """
         payload = {"message": message, "sha": sha, "branch": self.config.branch}
         self._request(
             "DELETE",
@@ -115,12 +170,17 @@ class GitHubClient:
 
 class RemoteSyncManager:
     """
-    Quản lý log và upload subtitle lên GitHub.
-    - Log được lưu tại log_path (JSON list).
-    - Subtitle lưu trong subtitle_dir.
+    Manage logs and upload subtitles to GitHub.
+    - Logs are stored at log_path (JSON list).
+    - Subtitles are stored in subtitle_dir.
     """
 
     def __init__(self, config: AutoPushConfig):
+        """Initialize RemoteSyncManager.
+        
+        Args:
+            config: AutoPushConfig instance
+        """
         self.config = config
         self.client = GitHubClient(config)
         self.log_entries: List[Dict[str, Any]] = []
@@ -129,11 +189,15 @@ class RemoteSyncManager:
         self.signatures: Dict[str, Dict[str, Any]] = {}
 
     def load_remote_logs(self) -> List[Dict[str, Any]]:
-        """Tải log hiện tại từ GitHub."""
+        """Load current logs from GitHub.
+        
+        Returns:
+            List of log entries from GitHub
+        """
         try:
             content, sha = self.client.get_content(self.config.log_path)
-        except Exception as exc:
-            print(f"[AUTO PUSH] Không thể tải log từ GitHub: {exc}")
+        except (RuntimeError, requests.RequestException) as exc:
+            logger.error(f"[AUTO PUSH] Failed to load log from GitHub: {exc}")
             return []
 
         self.log_sha = sha
@@ -143,7 +207,7 @@ class RemoteSyncManager:
             try:
                 self.log_entries = json.loads(content.decode("utf-8"))
             except json.JSONDecodeError:
-                print("[AUTO PUSH] Log từ GitHub không hợp lệ. Bắt đầu bằng danh sách rỗng.")
+                logger.warning("[AUTO PUSH] Invalid log from GitHub. Starting with empty list.")
                 self.log_entries = []
 
         self.signatures = {
@@ -154,10 +218,17 @@ class RemoteSyncManager:
         return self.log_entries
 
     def convert_remote_legacy_log(self, legacy_path: str = "Subtitles/processed_files.log") -> Optional[List[Dict[str, Any]]]:
-        """Nếu repo còn log dạng cũ, chuyển sang JSON và xóa file cũ."""
+        """If repository still has old format log, convert to JSON and delete old file.
+        
+        Args:
+            legacy_path: Path to legacy log file in repository
+        
+        Returns:
+            List of converted entries, or None if conversion not needed
+        """
         try:
             content, sha = self.client.get_content(legacy_path)
-        except Exception:
+        except (RuntimeError, requests.RequestException):
             return None
         if not content:
             return None
@@ -193,18 +264,31 @@ class RemoteSyncManager:
         )
         if sha:
             self.client.delete_content(legacy_path, sha, message="Remove legacy processed_files.log")
-        print(f"[AUTO PUSH] Đã chuyển đổi {legacy_path} thành {remote_path}")
+        logger.info(f"[AUTO PUSH] Converted {legacy_path} to {remote_path}")
         return converted
 
     def has_signature(self, signature: Optional[str]) -> bool:
+        """Check if signature exists in remote logs.
+        
+        Args:
+            signature: File signature to check
+        
+        Returns:
+            True if signature exists, False otherwise
+        """
         if not signature:
             return False
         return signature in self.signatures
 
     def record_entry(self, entry: Dict[str, Any], local_path: Optional[str] = None, local_file: Optional[str] = None) -> None:
         """
-        Ghi nhận một entry và upload file nếu cần.
-        entry phải chứa `category`.
+        Record an entry and upload file if needed.
+        Entry must contain `category`.
+        
+        Args:
+            entry: Dictionary with entry data (must have 'category')
+            local_path: Optional local file path for upload
+            local_file: Optional local file path (alias for local_path)
         """
         category = entry.get("category", "video")
         file_path = local_path or local_file
@@ -224,7 +308,7 @@ class RemoteSyncManager:
             self.pending_entries.append(entry)
 
     def flush(self) -> None:
-        """Upload toàn bộ pending entries vào log trên GitHub."""
+        """Upload all pending entries to log on GitHub."""
         if not self.pending_entries:
             return
 
@@ -239,12 +323,20 @@ class RemoteSyncManager:
             self.log_entries = merged_entries
             self.log_sha = new_sha
             self.pending_entries = []
-            print("[AUTO PUSH] Đã đồng bộ log lên GitHub.")
-        except Exception as exc:
-            print(f"[AUTO PUSH] Không thể cập nhật log: {exc}")
+            logger.info("[AUTO PUSH] Synced log to GitHub.")
+        except (RuntimeError, requests.RequestException) as exc:
+            logger.error(f"[AUTO PUSH] Failed to update log: {exc}")
 
     def _upload_file(self, local_path: str, prefix: str) -> str:
-        """Upload file và trả về đường dẫn remote."""
+        """Upload file and return remote path.
+        
+        Args:
+            local_path: Path to local file
+            prefix: Remote directory prefix
+        
+        Returns:
+            Remote path where file was uploaded
+        """
         file_name = os.path.basename(local_path)
         timestamp = datetime.datetime.utcnow().strftime("%Y%m%d_%H%M%S")
         remote_path = f"{prefix}/{timestamp}_{file_name}"
@@ -256,12 +348,21 @@ class RemoteSyncManager:
                 content,
                 message=f"Upload {file_name}",
             )
-            print(f"[AUTO PUSH] Đã upload file {file_name} lên {remote_path}")
-        except Exception as exc:
-            print(f"[AUTO PUSH] Không thể upload {local_path}: {exc}")
+            logger.info(f"[AUTO PUSH] Uploaded file {file_name} to {remote_path}")
+        except (IOError, OSError, RuntimeError, requests.RequestException) as exc:
+            logger.error(f"[AUTO PUSH] Failed to upload {local_path}: {exc}")
         return remote_path
 
     def upload_log_snapshot(self, entries: List[Dict[str, Any]], filename_prefix: str = "run") -> Optional[str]:
+        """Upload log snapshot to GitHub.
+        
+        Args:
+            entries: List of log entries
+            filename_prefix: Prefix for snapshot filename
+        
+        Returns:
+            Remote path of uploaded snapshot, or None if upload fails
+        """
         if not entries:
             return None
         remote_path = f"{self.config.logs_dir}/{filename_prefix}_{datetime.datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.json"
@@ -271,9 +372,8 @@ class RemoteSyncManager:
                 json.dumps(entries, ensure_ascii=False, indent=2).encode("utf-8"),
                 message=f"Upload {filename_prefix} log snapshot",
             )
-            print(f"[AUTO PUSH] Đã upload log snapshot tới {remote_path}")
+            logger.info(f"[AUTO PUSH] Uploaded log snapshot to {remote_path}")
             return remote_path
-        except Exception as exc:
-            print(f"[AUTO PUSH] Không thể upload log snapshot: {exc}")
+        except (RuntimeError, requests.RequestException) as exc:
+            logger.error(f"[AUTO PUSH] Failed to upload log snapshot: {exc}")
             return None
-

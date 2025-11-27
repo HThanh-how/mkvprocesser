@@ -113,7 +113,7 @@ def download_ffmpeg_windows():
 
 def check_ffmpeg_local():
     """Kiểm tra FFmpeg đã có local chưa"""
-    ffmpeg_bin_dir = Path("ffmpeg_bin")
+    ffmpeg_bin_dir = Path(__file__).parent.parent / "ffmpeg_bin"
     system = platform.system()
     
     if system == "Windows":
@@ -179,17 +179,19 @@ def build_executable():
     
     # Tùy chọn PyInstaller - sử dụng python -m PyInstaller để tránh lỗi PATH
     # KHÔNG dùng --add-data cho script.py và ffmpeg_helper.py vì chúng sẽ tự bundle khi import
+    src_dir = Path(__file__).parent.parent / "src"
     pyinstaller_args = [
         sys.executable, "-m", "PyInstaller",
         "--name", output_name,
         "--onefile",  # 1 file duy nhất
         "--windowed",  # GUI mode
-        "--additional-hooks-dir", ".",  # Sử dụng hook files trong thư mục hiện tại
+        "--additional-hooks-dir", str(Path(__file__).parent.parent / "hooks"),  # Sử dụng hook files
+        "--paths", str(src_dir),  # đảm bảo PyInstaller tìm được packages trong src
     ]
     
     # Bundle FFmpeg vào executable (sẽ extract tự động khi chạy)
     if check_ffmpeg_local():
-        ffmpeg_bin_dir = Path("ffmpeg_bin").absolute()
+        ffmpeg_bin_dir = (Path(__file__).parent.parent / "ffmpeg_bin").absolute()
         # Bundle FFmpeg vào executable, sẽ extract vào thư mục tạm khi chạy
         if platform_name == "win":
             pyinstaller_args.extend([
@@ -204,7 +206,7 @@ def build_executable():
         print("⚠️ Không tìm thấy FFmpeg local, sẽ cần cài đặt riêng")
     
     # Bundle Git portable nếu có
-    git_portable_dir = Path("git_portable").absolute()
+    git_portable_dir = (Path(__file__).parent.parent / "git_portable").absolute()
     git_exe = git_portable_dir / "bin" / ("git.exe" if platform_name == "win" else "git")
     if git_exe.exists():
         pyinstaller_args.extend([
@@ -218,7 +220,7 @@ def build_executable():
     # QUAN TRỌNG: ffmpeg-python package được cài với tên "ffmpeg-python" nhưng import là "ffmpeg"
     hidden_imports = [
         # ffmpeg-python package - bundle đầy đủ TẤT CẢ modules
-        "ffmpeg", 
+        "ffmpeg",
         "ffmpeg._run", "ffmpeg._probe", "ffmpeg.nodes", "ffmpeg._ffmpeg",
         "ffmpeg._utils", "ffmpeg._filters", "ffmpeg._streams",
         "ffmpeg._probe_utils", "ffmpeg._run_utils",
@@ -229,7 +231,8 @@ def build_executable():
         "tkinter", "tkinter.ttk",
         "tkinter.filedialog", "tkinter.scrolledtext", "tkinter.messagebox",
         # Custom modules
-        "script", "ffmpeg_helper"
+        "legacy_cli_entry", "mkvprocessor.legacy_api", "mkvprocessor.ffmpeg_helper",
+        "gui.gui_pyside_app", "gui.gui"
     ]
     for imp in hidden_imports:
         pyinstaller_args.extend(["--hidden-import", imp])
@@ -253,12 +256,14 @@ def build_executable():
             "--osx-bundle-identifier", "com.mkvprocessor.app"
         ])
     
-    # Đảm bảo script.py cũng được copy dưới dạng data để có thể fallback load khi cần
-    script_path = Path("script.py").absolute()
-    pyinstaller_args.extend(["--add-data", f"{script_path}{os.pathsep}."])
+    # Đảm bảo legacy_cli_entry.py được copy dưới dạng data để fallback
+    script_path = Path(__file__).parent.parent / "legacy_cli_entry.py"
+    if script_path.exists():
+        pyinstaller_args.extend(["--add-data", f"{script_path.absolute()}{os.pathsep}."])
 
     # Dùng GUI PySide6 mới
-    pyinstaller_args.append("gui_pyside.py")
+    gui_pyside_path = Path(__file__).parent.parent / "gui_pyside.py"
+    pyinstaller_args.append(str(gui_pyside_path))
     
     try:
         print(f"\nChạy PyInstaller...")
@@ -380,7 +385,7 @@ IMPORT_MAP = {
 
 def parse_requirements():
     reqs = []
-    req_file = Path("requirements.txt")
+    req_file = Path(__file__).parent.parent / "requirements.txt"
     if not req_file.exists():
         return reqs
     for line in req_file.read_text().splitlines():
