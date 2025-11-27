@@ -7,6 +7,7 @@ on:
     branches:
       - main
       - master
+      - develop
   workflow_dispatch:
   pull_request:
     branches:
@@ -257,15 +258,59 @@ jobs:
   release:
     needs: [build-windows-x64, build-windows-x86, build-macos-x64, build-macos-arm64, build-linux-x64, build-linux-arm64]
     runs-on: ubuntu-latest
-    # Chỉ tạo release khi push tag v*
-    if: startsWith(github.ref, 'refs/tags/v')
+    # Tự động tạo release cho mọi push/workflow_dispatch (trừ pull_request)
+    if: github.event_name != 'pull_request'
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Generate changelog from commit history
+        run: |
+          {
+            echo "## Changelog ($(date -u +"%Y-%m-%d %H:%M:%S") UTC)"
+            echo
+            git log -n 50 --pretty=format:"- %s (%h)"
+          } > release_notes.md
+          if [ ! -s release_notes.md ]; then
+            echo "- No commits found." > release_notes.md
+          fi
+
+      - name: Set release metadata
+        id: release_meta
+        run: |
+          DATE_SEG=$(date -u +%m.%d)
+          BUILD_SEG=${GITHUB_RUN_NUMBER}
+          if [[ "${GITHUB_REF}" == "refs/heads/main" || "${GITHUB_REF}" == "refs/heads/master" ]]; then
+            VERSION="1.${DATE_SEG}.${BUILD_SEG}"
+            PRERELEASE=false
+            NAME="Release ${VERSION}"
+          else
+            VERSION="1.${DATE_SEG}.beta-${BUILD_SEG}"
+            PRERELEASE=true
+            NAME="Beta ${VERSION}"
+          fi
+          {
+            echo "version=${VERSION}"
+            echo "tag=${VERSION}"
+            echo "name=${NAME}"
+            echo "prerelease=${PRERELEASE}"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Download all artifacts
         uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
       
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
+          tag_name: ${{ steps.release_meta.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          name: ${{ steps.release_meta.outputs.name }}
+          body_path: release_notes.md
+          prerelease: ${{ steps.release_meta.outputs.prerelease }}
           files: |
             MKVProcessor_Windows_x64.zip
             MKVProcessor_Windows_x86.zip
