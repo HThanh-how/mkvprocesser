@@ -318,9 +318,6 @@ jobs:
             MKVProcessor_macOS_arm64.zip
             MKVProcessor_Linux_x64.tar.gz
             MKVProcessor_Linux_arm64.tar.gz
-          draft: false
-          prerelease: false
-          generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
