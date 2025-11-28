@@ -138,14 +138,33 @@ class UpdateManager:
         
         Examples:
             "1.11.28.11" -> (1, 11, 28, 11)
+            "1.11.28.beta-11" -> (1, 11, 28, -1, 11)  # beta = -1
             "v1.2.3" -> (1, 2, 3)
         """
         # Remove 'v' prefix if present
         version_str = version_str.lstrip('vV')
+        
+        # Handle beta versions: "1.11.28.beta-11" -> split by "beta-"
+        is_beta = False
+        beta_number = 0
+        if '.beta-' in version_str.lower():
+            parts_beta = version_str.lower().split('.beta-')
+            version_str = parts_beta[0]  # "1.11.28"
+            is_beta = True
+            if len(parts_beta) > 1:
+                try:
+                    beta_number = int(parts_beta[1])  # "11"
+                except ValueError:
+                    beta_number = 0
+        
         # Split by dots and convert to int
         parts = version_str.split('.')
         try:
-            return tuple(int(part) for part in parts)
+            version_tuple = tuple(int(part) for part in parts)
+            # Append beta indicator: -1 for beta, then beta number
+            if is_beta:
+                version_tuple = version_tuple + (-1, beta_number)
+            return version_tuple
         except ValueError:
             # If parsing fails, return (0,)
             return (0,)

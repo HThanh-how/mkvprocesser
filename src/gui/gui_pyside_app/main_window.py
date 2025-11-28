@@ -90,6 +90,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.apply_theme()
         QtCore.QTimer.singleShot(250, self.refresh_system_status)
         QtCore.QTimer.singleShot(500, self.refresh_file_list)
+        # Auto-check for updates silently after 3 seconds (non-blocking)
+        QtCore.QTimer.singleShot(3000, self.auto_check_for_updates)
 
     def build_ui(self):
         central = QtWidgets.QWidget()
@@ -103,8 +105,11 @@ class MainWindow(QtWidgets.QMainWindow):
         layout.addWidget(self.tabs, 1)
 
         self.build_processing_tab()
-        self.build_settings_tab()
+        self.settings_tab_index = self.build_settings_tab()
         self.build_log_tab()
+        
+        # Track update badge state
+        self._has_update_badge = False
 
         self.status_bar = QtWidgets.QStatusBar()
         self.setStatusBar(self.status_bar)
@@ -414,7 +419,8 @@ class MainWindow(QtWidgets.QMainWindow):
             no_update_label.setStyleSheet("color: #94a3b8;")
             form.addRow(no_update_label)
 
-        self.tabs.addTab(tab, "Settings")
+        settings_tab_index = self.tabs.addTab(tab, "Settings")
+        return settings_tab_index
 
     def on_language_changed(self, index: int):
         """Handle language selection change."""
@@ -1916,3 +1922,66 @@ class MainWindow(QtWidgets.QMainWindow):
         finally:
             self.update_progress_bar.setVisible(False)
             self.download_update_btn.setEnabled(True)
+    
+    def auto_check_for_updates(self):
+        """Silently check for updates on startup (non-blocking)."""
+        if not self.update_manager:
+            return
+        
+        # Check in background thread to avoid blocking UI
+        def check_in_background():
+            try:
+                has_update, release_info = self.update_manager.check_for_updates(timeout=5)
+                if has_update and release_info:
+                    # Update UI in main thread using signal
+                    QtCore.QTimer.singleShot(0, lambda: self._show_update_notification(release_info))
+            except Exception:
+                # Silent fail - don't show error on auto-check
+                pass
+        
+        # Run in background
+        import threading
+        thread = threading.Thread(target=check_in_background, daemon=True)
+        thread.start()
+    
+    def _show_update_notification(self, release_info: dict):
+        """Show update notification (called from background thread)."""
+        version = release_info.get("version", "new version")
+        name = release_info.get("name", "")
+        html_url = release_info.get("html_url", "")
+        
+        # Update UI
+        self.update_status_label.setText(
+            f"<b style='color: #10b981;'>Update available: {version}</b><br/>"
+            f"{name}<br/>"
+            f"<a href='{html_url}'>View on GitHub</a>"
+        )
+        self.download_update_btn.setEnabled(True)
+        self.latest_release_info = release_info
+        
+        # Show red dot badge on Settings tab
+        self._show_update_badge(True)
+        
+        # Mark as shown (to avoid showing multiple times)
+        self._update_notification_shown = True
+    
+    def _show_update_badge(self, show: bool):
+        """Show or hide red dot badge on Settings tab."""
+        if not hasattr(self, 'settings_tab_index') or self.settings_tab_index is None:
+            return
+        
+        tab_index = self.settings_tab_index
+        if show and not self._has_update_badge:
+            # Add red dot to tab text
+            current_text = self.tabs.tabText(tab_index)
+            if "●" not in current_text:
+                self.tabs.setTabText(tab_index, f"Settings ●")
+                # Style the tab to show red dot
+                self.tabs.tabBar().setTabTextColor(tab_index, QtGui.QColor("#ef4444"))
+                self._has_update_badge = True
+        elif not show and self._has_update_badge:
+            # Remove red dot
+            current_text = self.tabs.tabText(tab_index)
+            self.tabs.setTabText(tab_index, current_text.replace(" ●", ""))
+            self.tabs.tabBar().setTabTextColor(tab_index, QtGui.QColor())  # Reset to default
+            self._has_update_badge = False
