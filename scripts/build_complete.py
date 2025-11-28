@@ -91,7 +91,9 @@ def get_build_version() -> str:
         build_number = "1"
     
     # 4. Get year segment (YEAR - 2024) and date segment (MM.DD in UTC)
-    now = datetime.utcnow()
+    # Use timezone-aware datetime (replaces deprecated utcnow())
+    from datetime import timezone
+    now = datetime.now(timezone.utc)
     year_seg = now.year - 2024  # 2025 → 1, 2026 → 2, etc.
     date_seg = now.strftime("%m.%d")  # MM.DD
     
@@ -272,14 +274,16 @@ def build_executable():
     
     # Tùy chọn PyInstaller - sử dụng python -m PyInstaller để tránh lỗi PATH
     # KHÔNG dùng --add-data cho script.py và ffmpeg_helper.py vì chúng sẽ tự bundle khi import
-    src_dir = Path(__file__).parent.parent / "src"
+    project_root = Path(__file__).parent.parent
+    src_dir = project_root / "src"
     pyinstaller_args = [
         sys.executable, "-m", "PyInstaller",
         "--name", output_name,
         "--onefile",  # 1 file duy nhất
         "--windowed",  # GUI mode
-        "--additional-hooks-dir", str(Path(__file__).parent.parent / "hooks"),  # Sử dụng hook files
+        "--additional-hooks-dir", str(project_root / "hooks"),  # Sử dụng hook files
         "--paths", str(src_dir),  # đảm bảo PyInstaller tìm được packages trong src
+        "--paths", str(project_root),  # Thêm project root để tìm gui_pyside.py
     ]
     
     # Bundle FFmpeg vào executable (sẽ extract tự động khi chạy)
@@ -312,11 +316,15 @@ def build_executable():
     # Hidden imports - đảm bảo bundle đầy đủ
     # QUAN TRỌNG: ffmpeg-python package được cài với tên "ffmpeg-python" nhưng import là "ffmpeg"
     hidden_imports = [
+        # PySide6 - QUAN TRỌNG: Phải bundle PySide6 và các submodules chính
+        "PySide6",
+        "PySide6.QtCore", "PySide6.QtWidgets", "PySide6.QtGui",
+        "PySide6.QtNetwork", "PySide6.QtOpenGL", "PySide6.QtQml",
         # ffmpeg-python package - bundle đầy đủ TẤT CẢ modules
+        # Chỉ thêm các modules thực sự tồn tại (kiểm tra bằng python -c "import ffmpeg; print(dir(ffmpeg))")
         "ffmpeg",
         "ffmpeg._run", "ffmpeg._probe", "ffmpeg.nodes", "ffmpeg._ffmpeg",
-        "ffmpeg._utils", "ffmpeg._filters", "ffmpeg._streams",
-        "ffmpeg._probe_utils", "ffmpeg._run_utils",
+        "ffmpeg._utils", "ffmpeg._filters", "ffmpeg._view", "ffmpeg.dag",
         # psutil package - bundle đầy đủ
         "psutil", "psutil._common", "psutil._pswindows", "psutil._psutil_windows",
         "psutil._psutil_linux", "psutil._psutil_osx",
@@ -325,20 +333,31 @@ def build_executable():
         "tkinter.filedialog", "tkinter.scrolledtext", "tkinter.messagebox",
         # Custom modules
         "legacy_cli_entry", "mkvprocessor.legacy_api", "mkvprocessor.ffmpeg_helper",
-        "gui.gui_pyside_app", "gui.gui"
+        # GUI package - KHÔNG cần hidden-import vì đã có --collect-all và --collect-submodules
+        # PyInstaller sẽ tự động bundle khi thấy import trong gui_pyside.py
     ]
     for imp in hidden_imports:
         pyinstaller_args.extend(["--hidden-import", imp])
     
     # Collect-submodules để bundle TẤT CẢ submodules (QUAN TRỌNG!)
-    # Điều này đảm bảo bundle đầy đủ các module con của ffmpeg và psutil
+    # Điều này đảm bảo bundle đầy đủ các module con của ffmpeg, psutil và PySide6
     pyinstaller_args.extend(["--collect-submodules", "ffmpeg"])
     pyinstaller_args.extend(["--collect-submodules", "psutil"])
+    pyinstaller_args.extend(["--collect-submodules", "PySide6"])  # QUAN TRỌNG: Bundle PySide6 submodules
     
     # Collect-all để bundle toàn bộ package (có thể có warnings nhưng không sao)
     # Warnings về "not a package" là bình thường, PyInstaller vẫn bundle qua hidden-import
+    # QUAN TRỌNG: PySide6 cần collect-all để bundle cả binaries (DLLs trên Windows)
     pyinstaller_args.extend(["--collect-all", "ffmpeg"])
     pyinstaller_args.extend(["--collect-all", "psutil"])
+    pyinstaller_args.extend(["--collect-all", "PySide6"])  # QUAN TRỌNG: Bundle PySide6 + binaries
+    
+    # QUAN TRỌNG: Bundle gui package
+    # PyInstaller sẽ tự động bundle khi thấy import trong gui_pyside.py
+    # Với --paths src/, PyInstaller sẽ tìm được package gui trong src/gui
+    # Chỉ dùng --collect-submodules, KHÔNG dùng --collect-all vì gây warnings
+    # Package sẽ được bundle qua --add-data (dòng 389-391)
+    pyinstaller_args.extend(["--collect-submodules", "gui"])
     
     # QUAN TRỌNG: Đảm bảo import ffmpeg ngay từ đầu trong gui.py
     # PyInstaller sẽ tự động bundle nếu thấy import statement
@@ -362,6 +381,16 @@ def build_executable():
     # Bundle version.txt vào executable
     pyinstaller_args.extend(["--add-data", f"{version_file.absolute()}{os.pathsep}."])
 
+    # QUAN TRỌNG: Bundle toàn bộ src/gui package bằng --add-data
+    # PyInstaller có thể không tự động bundle package trong src/
+    gui_package_dir = project_root / "src" / "gui"
+    if gui_package_dir.exists():
+        # Bundle toàn bộ gui package
+        pyinstaller_args.extend([
+            "--add-data", f"{gui_package_dir.absolute()}{os.pathsep}gui"
+        ])
+        print("✅ Sẽ bundle gui package vào executable")
+    
     # Dùng GUI PySide6 mới
     gui_pyside_path = Path(__file__).parent.parent / "gui_pyside.py"
     pyinstaller_args.append(str(gui_pyside_path))

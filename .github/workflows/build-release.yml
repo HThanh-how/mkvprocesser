@@ -38,20 +38,26 @@ jobs:
         run: |
           python scripts/build_complete.py
       
-      - name: Create ZIP archive
+      - name: Find executable
         shell: pwsh
+        id: find_exe
         run: |
-          $packageItem = Get-ChildItem -Path "dist" | Where-Object { $_.Name -like "MKVProcessor*" } | Sort-Object LastWriteTime -Descending | Select-Object -First 1
-          if (-not $packageItem) {
-            throw "Không tìm thấy output trong thư mục dist/"
+          $exe = Get-ChildItem -Path "dist" -Filter "MKVProcessor.exe" | Select-Object -First 1
+          if (-not $exe) {
+            throw "Không tìm thấy MKVProcessor.exe trong thư mục dist/"
           }
-          Compress-Archive -Path $packageItem.FullName -DestinationPath "MKVProcessor_Windows_x64.zip" -Force
+          $sizeMB = [math]::Round($exe.Length / 1MB, 2)
+          Write-Host "Found: $($exe.FullName)"
+          Write-Host "Size: $sizeMB MB"
+          echo "exe_path=$($exe.FullName)" >> $env:GITHUB_OUTPUT
+          echo "exe_name=$($exe.Name)" >> $env:GITHUB_OUTPUT
+          echo "size_mb=$sizeMB" >> $env:GITHUB_OUTPUT
       
-      - name: Upload artifact
+      - name: Upload executable
         uses: actions/upload-artifact@v4
         with:
           name: MKVProcessor-Windows-x64
-          path: MKVProcessor_Windows_x64.zip
+          path: ${{ steps.find_exe.outputs.exe_path }}
 
   build-windows-x86:
     runs-on: windows-latest
@@ -84,21 +90,27 @@ jobs:
         run: |
           python scripts/build_complete.py
       
-      - name: Create ZIP archive
+      - name: Find executable (x86)
         shell: pwsh
+        id: find_exe_x86
         run: |
-          $packageItem = Get-ChildItem -Path "dist" | Where-Object { $_.Name -like "MKVProcessor*" } | Sort-Object LastWriteTime -Descending | Select-Object -First 1
-          if (-not $packageItem) {
-            throw "Không tìm thấy output trong thư mục dist/"
+          $exe = Get-ChildItem -Path "dist" -Filter "MKVProcessor.exe" | Select-Object -First 1
+          if (-not $exe) {
+            throw "Không tìm thấy MKVProcessor.exe trong thư mục dist/"
           }
-          Compress-Archive -Path $packageItem.FullName -DestinationPath "MKVProcessor_Windows_x86.zip" -Force
+          $sizeMB = [math]::Round($exe.Length / 1MB, 2)
+          Write-Host "Found: $($exe.FullName)"
+          Write-Host "Size: $sizeMB MB"
+          echo "exe_path=$($exe.FullName)" >> $env:GITHUB_OUTPUT
+          echo "exe_name=$($exe.Name)" >> $env:GITHUB_OUTPUT
+          echo "size_mb=$sizeMB" >> $env:GITHUB_OUTPUT
       
-      - name: Upload artifact
+      - name: Upload executable (x86)
         continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: MKVProcessor-Windows-x86
-          path: MKVProcessor_Windows_x86.zip
+          path: ${{ steps.find_exe_x86.outputs.exe_path }}
           if-no-files-found: ignore
 
   build-macos-x64:
@@ -325,8 +337,38 @@ jobs:
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
-          merge-multiple: true
+          merge-multiple: false
           path: artifacts
+      
+      - name: Prepare release files
+        shell: bash
+        run: |
+          # Windows x64
+          if [ -f "artifacts/MKVProcessor-Windows-x64/MKVProcessor.exe" ]; then
+            cp "artifacts/MKVProcessor-Windows-x64/MKVProcessor.exe" "MKVProcessor_Windows_x64.exe"
+          fi
+          # Windows x86
+          if [ -f "artifacts/MKVProcessor-Windows-x86/MKVProcessor.exe" ]; then
+            cp "artifacts/MKVProcessor-Windows-x86/MKVProcessor.exe" "MKVProcessor_Windows_x86.exe"
+          fi
+          # macOS x64
+          if [ -d "artifacts/MKVProcessor-macOS-x64/MKVProcessor.app" ]; then
+            zip -r "MKVProcessor_macOS_x64.zip" "artifacts/MKVProcessor-macOS-x64/MKVProcessor.app"
+          fi
+          # macOS arm64
+          if [ -d "artifacts/MKVProcessor-macOS-arm64/MKVProcessor.app" ]; then
+            zip -r "MKVProcessor_macOS_arm64.zip" "artifacts/MKVProcessor-macOS-arm64/MKVProcessor.app"
+          fi
+          # Linux x64
+          if [ -f "artifacts/MKVProcessor-Linux-x64/MKVProcessor" ]; then
+            cp "artifacts/MKVProcessor-Linux-x64/MKVProcessor" "MKVProcessor_Linux_x64"
+            chmod +x "MKVProcessor_Linux_x64"
+          fi
+          # Linux arm64
+          if [ -f "artifacts/MKVProcessor-Linux-arm64/MKVProcessor" ]; then
+            cp "artifacts/MKVProcessor-Linux-arm64/MKVProcessor" "MKVProcessor_Linux_arm64"
+            chmod +x "MKVProcessor_Linux_arm64"
+          fi
       
       - name: Create Release
         uses: softprops/action-gh-release@v1
@@ -337,12 +379,12 @@ jobs:
           body_path: release_notes.md
           prerelease: ${{ steps.release_meta.outputs.prerelease }}
           files: |
-            artifacts/MKVProcessor_Windows_x64.zip
-            artifacts/MKVProcessor_Windows_x86.zip
-            artifacts/MKVProcessor_macOS_x64.zip
-            artifacts/MKVProcessor_macOS_arm64.zip
-            artifacts/MKVProcessor_Linux_x64.tar.gz
-            artifacts/MKVProcessor_Linux_arm64.tar.gz
+            MKVProcessor_Windows_x64.exe
+            MKVProcessor_Windows_x86.exe
+            MKVProcessor_macOS_x64.zip
+            MKVProcessor_macOS_arm64.zip
+            MKVProcessor_Linux_x64
+            MKVProcessor_Linux_arm64
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
