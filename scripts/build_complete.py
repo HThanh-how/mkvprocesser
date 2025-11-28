@@ -28,6 +28,85 @@ def ensure_utf8_output():
 ensure_utf8_output()
 
 
+def get_build_version() -> str:
+    """
+    Get version following the same format as GitHub Actions workflow.
+    
+    Format:
+    - If git tag v* exists: use tag (without v prefix)
+    - If on main/master: (YEAR-2024).MM.DD.BUILD_NUMBER
+    - Otherwise: (YEAR-2024).MM.DD.beta-BUILD_NUMBER
+    
+    Examples:
+    - 2025.11.28 → 1.11.28.xx (2025 - 2024 = 1)
+    - 2026.10.11 → 2.10.11.xx (2026 - 2024 = 2)
+    
+    Where:
+    - YEAR-2024 = current year minus 2024
+    - MM.DD = current month.day (UTC)
+    - BUILD_NUMBER = from GITHUB_RUN_NUMBER env or 1
+    """
+    import subprocess
+    import os
+    from datetime import datetime
+    
+    project_root = Path(__file__).parent.parent
+    
+    # 1. Check if we're on a git tag (v*)
+    try:
+        result = subprocess.run(
+            ["git", "describe", "--tags", "--exact-match", "--abbrev=0"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            cwd=project_root
+        )
+        if result.returncode == 0:
+            tag = result.stdout.strip().lstrip('vV')
+            if tag:
+                return tag
+    except Exception:
+        pass
+    
+    # 2. Check current git branch
+    branch = None
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            cwd=project_root
+        )
+        if result.returncode == 0:
+            branch = result.stdout.strip()
+    except Exception:
+        pass
+    
+    # 3. Get build number from environment (GitHub Actions) or use 1
+    build_number = os.environ.get("GITHUB_RUN_NUMBER", "1")
+    try:
+        build_number = str(int(build_number))
+    except ValueError:
+        build_number = "1"
+    
+    # 4. Get year segment (YEAR - 2024) and date segment (MM.DD in UTC)
+    now = datetime.utcnow()
+    year_seg = now.year - 2024  # 2025 → 1, 2026 → 2, etc.
+    date_seg = now.strftime("%m.%d")  # MM.DD
+    
+    # 5. Determine if main/master branch
+    is_main = branch in ("main", "master")
+    
+    # 6. Create version: (YEAR-2024).MM.DD.BUILD_NUMBER
+    if is_main:
+        version = f"{year_seg}.{date_seg}.{build_number}"
+    else:
+        version = f"{year_seg}.{date_seg}.beta-{build_number}"
+    
+    return version
+
+
 def get_platform_spec():
     """Lấy thông tin platform"""
     system = platform.system()
@@ -275,6 +354,14 @@ def build_executable():
     if script_path.exists():
         pyinstaller_args.extend(["--add-data", f"{script_path.absolute()}{os.pathsep}."])
 
+    # Tạo file version.txt với version từ git tag hoặc GitHub
+    version = get_build_version()
+    version_file = Path(__file__).parent.parent / "version.txt"
+    version_file.write_text(version, encoding='utf-8')
+    print(f"📝 Version: {version}")
+    # Bundle version.txt vào executable
+    pyinstaller_args.extend(["--add-data", f"{version_file.absolute()}{os.pathsep}."])
+
     # Dùng GUI PySide6 mới
     gui_pyside_path = Path(__file__).parent.parent / "gui_pyside.py"
     pyinstaller_args.append(str(gui_pyside_path))
@@ -414,6 +501,8 @@ def parse_requirements():
 
 def check_dependency(pkg_name):
     module_name = IMPORT_MAP.get(pkg_name.lower(), pkg_name)
+    if not module_name:
+        module_name = pkg_name
     try:
         importlib.import_module(module_name)
         print(f"✅ {pkg_name}: OK")

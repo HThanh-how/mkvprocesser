@@ -78,6 +78,13 @@ class MainWindow(QtWidgets.QMainWindow):
         self.session_log_file: Path | None = None
         self.log_view: QtWidgets.QPlainTextEdit | None = None
         self.current_selected_path: str | None = None
+        
+        # Update manager
+        try:
+            from mkvprocessor.update_manager import UpdateManager
+            self.update_manager = UpdateManager()
+        except ImportError:
+            self.update_manager = None
 
         self.build_ui()
         self.apply_theme()
@@ -365,6 +372,47 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.settings_status = QtWidgets.QLabel("")
         form.addRow(self.settings_status)
+        
+        # Update section
+        form.addRow(QtWidgets.QLabel(""))  # Separator
+        update_label = QtWidgets.QLabel("🔄 Updates")
+        update_label.setObjectName("sectionLabel")
+        form.addRow(update_label)
+        
+        # Current version
+        if self.update_manager:
+            # Load version (may fetch from GitHub)
+            current_version = self.update_manager.get_current_version()
+            version_label = QtWidgets.QLabel(f"Current version: <b>{current_version}</b>")
+            form.addRow(version_label)
+            
+            # Update status
+            self.update_status_label = QtWidgets.QLabel("")
+            self.update_status_label.setWordWrap(True)
+            form.addRow(self.update_status_label)
+            
+            # Update buttons
+            update_btn_row = QtWidgets.QHBoxLayout()
+            self.check_update_btn = QtWidgets.QPushButton("🔍 Check for Updates")
+            self.check_update_btn.clicked.connect(self.check_for_updates)
+            update_btn_row.addWidget(self.check_update_btn)
+            
+            self.download_update_btn = QtWidgets.QPushButton("⬇️ Download Update")
+            self.download_update_btn.setEnabled(False)
+            self.download_update_btn.clicked.connect(self.download_update)
+            update_btn_row.addWidget(self.download_update_btn)
+            
+            update_btn_row.addStretch()
+            form.addRow(update_btn_row)
+            
+            # Update progress
+            self.update_progress_bar = QtWidgets.QProgressBar()
+            self.update_progress_bar.setVisible(False)
+            form.addRow(self.update_progress_bar)
+        else:
+            no_update_label = QtWidgets.QLabel("Update manager not available")
+            no_update_label.setStyleSheet("color: #94a3b8;")
+            form.addRow(no_update_label)
 
         self.tabs.addTab(tab, "Settings")
 
@@ -529,11 +577,12 @@ class MainWindow(QtWidgets.QMainWindow):
             self.refresh_file_list()
 
     def format_file_size(self, size_bytes: int) -> str:
+        size: float = float(size_bytes)
         for unit in ["B", "KB", "MB", "GB"]:
-            if size_bytes < 1024:
-                return f"{size_bytes:.1f}{unit}" if unit != "B" else f"{size_bytes}B"
-            size_bytes /= 1024
-        return f"{size_bytes:.1f}TB"
+            if size < 1024:
+                return f"{size:.1f}{unit}" if unit != "B" else f"{int(size)}B"
+            size /= 1024
+        return f"{size:.1f}TB"
 
     def is_already_processed_by_name(self, filename: str) -> bool:
         """Kiểm tra file đã được xử lý dựa trên tiền tố tên file"""
@@ -1717,3 +1766,153 @@ class MainWindow(QtWidgets.QMainWindow):
             self.status_labels["github"].setStyleSheet(f"color: {get_status_color('warning')};")
 
         QtCore.QTimer.singleShot(60000, self.refresh_system_status)
+    
+    def check_for_updates(self):
+        """Manually check for updates."""
+        if not self.update_manager:
+            QtWidgets.QMessageBox.warning(self, "Error", "Update manager not available")
+            return
+        
+        self.check_update_btn.setEnabled(False)
+        self.check_update_btn.setText("Checking...")
+        
+        try:
+            has_update, release_info = self.update_manager.check_for_updates()
+            
+            if has_update and release_info:
+                version = release_info.get("version", "new version")
+                name = release_info.get("name", "")
+                body = release_info.get("body", "")
+                html_url = release_info.get("html_url", "")
+                
+                # Update UI
+                self.update_status_label.setText(
+                    f"<b style='color: #10b981;'>Update available: {version}</b><br/>"
+                    f"{name}<br/>"
+                    f"<a href='{html_url}'>View on GitHub</a>"
+                )
+                self.download_update_btn.setEnabled(True)
+                self.latest_release_info = release_info
+                
+                # Show message box
+                msg = QtWidgets.QMessageBox(self)
+                msg.setIcon(QtWidgets.QMessageBox.Information)
+                msg.setWindowTitle("Update Available")
+                msg.setText(f"New version {version} is available!")
+                msg.setInformativeText(f"{name}\n\nDo you want to download it now?")
+                msg.setStandardButtons(
+                    QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No
+                )
+                msg.setDefaultButton(QtWidgets.QMessageBox.Yes)
+                
+                if msg.exec() == QtWidgets.QMessageBox.Yes:
+                    self.download_update()
+            else:
+                current_version = self.update_manager.get_current_version()
+                self.update_status_label.setText(
+                    f"<b style='color: #94a3b8;'>You are using the latest version: {current_version}</b>"
+                )
+                self.download_update_btn.setEnabled(False)
+                QtWidgets.QMessageBox.information(
+                    self, "Up to Date", 
+                    f"You are using the latest version: {current_version}"
+                )
+                
+        except Exception as e:
+            self.update_status_label.setText(
+                f"<b style='color: #ef4444;'>Error checking for updates: {str(e)}</b>"
+            )
+            QtWidgets.QMessageBox.critical(self, "Error", f"Failed to check for updates:\n{str(e)}")
+        finally:
+            self.check_update_btn.setEnabled(True)
+            self.check_update_btn.setText("🔍 Check for Updates")
+    
+    def download_update(self):
+        """Download and install the update."""
+        if not self.update_manager or not hasattr(self, 'latest_release_info'):
+            QtWidgets.QMessageBox.warning(self, "Error", "No update information available")
+            return
+        
+        release_info = self.latest_release_info
+        assets = release_info.get("assets", [])
+        
+        if not assets:
+            QtWidgets.QMessageBox.warning(self, "Error", "No download available for this release")
+            return
+        
+        # Find executable asset
+        exe_asset = self.update_manager.find_exe_asset(assets)
+        if not exe_asset:
+            QtWidgets.QMessageBox.warning(
+                self, "Error", 
+                "No compatible executable found for your platform.\n"
+                "Please download manually from GitHub."
+            )
+            return
+        
+        # Confirm download
+        file_name = exe_asset.get("name", "update.exe")
+        file_size = exe_asset.get("size", 0)
+        size_mb = file_size / 1024 / 1024
+        
+        reply = QtWidgets.QMessageBox.question(
+            self, "Download Update",
+            f"Download {file_name} ({size_mb:.1f} MB)?\n\n"
+            "The application will restart after installation.",
+            QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
+            QtWidgets.QMessageBox.Yes
+        )
+        
+        if reply != QtWidgets.QMessageBox.Yes:
+            return
+        
+        # Download with progress
+        self.download_update_btn.setEnabled(False)
+        self.update_progress_bar.setVisible(True)
+        self.update_progress_bar.setRange(0, 100)
+        self.update_progress_bar.setValue(0)
+        
+        def progress_callback(url, downloaded, total):
+            if total > 0:
+                percent = int((downloaded / total) * 100)
+                self.update_progress_bar.setValue(percent)
+                self.update_status_label.setText(
+                    f"Downloading: {downloaded / 1024 / 1024:.1f} MB / {total / 1024 / 1024:.1f} MB"
+                )
+        
+        try:
+            download_path = self.update_manager.download_update(exe_asset, progress_callback)
+            
+            if not download_path:
+                raise Exception("Download failed")
+            
+            # Install update
+            self.update_status_label.setText("Installing update...")
+            self.update_progress_bar.setValue(100)
+            
+            if self.update_manager.install_update(download_path):
+                # Restart application
+                reply = QtWidgets.QMessageBox.question(
+                    self, "Update Installed",
+                    "Update installed successfully!\n\n"
+                    "The application will now restart.",
+                    QtWidgets.QMessageBox.Ok
+                )
+                
+                if reply == QtWidgets.QMessageBox.Ok:
+                    self.update_manager.restart_application()
+            else:
+                raise Exception("Installation failed")
+                
+        except Exception as e:
+            self.update_status_label.setText(
+                f"<b style='color: #ef4444;'>Error: {str(e)}</b>"
+            )
+            QtWidgets.QMessageBox.critical(
+                self, "Update Error",
+                f"Failed to download/install update:\n{str(e)}\n\n"
+                "Please try downloading manually from GitHub."
+            )
+        finally:
+            self.update_progress_bar.setVisible(False)
+            self.download_update_btn.setEnabled(True)

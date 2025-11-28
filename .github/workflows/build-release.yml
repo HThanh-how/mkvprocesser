@@ -303,13 +303,15 @@ jobs:
         id: release_meta
         run: |
           DATE_SEG=$(date -u +%m.%d)
+          YEAR=$(date -u +%Y)
+          YEAR_SEG=$((YEAR - 2024))
           BUILD_SEG=${GITHUB_RUN_NUMBER}
           if [[ "${GITHUB_REF}" == "refs/heads/main" || "${GITHUB_REF}" == "refs/heads/master" ]]; then
-            VERSION="1.${DATE_SEG}.${BUILD_SEG}"
+            VERSION="${YEAR_SEG}.${DATE_SEG}.${BUILD_SEG}"
             PRERELEASE=false
             NAME="Release ${VERSION}"
           else
-            VERSION="1.${DATE_SEG}.beta-${BUILD_SEG}"
+            VERSION="${YEAR_SEG}.${DATE_SEG}.beta-${BUILD_SEG}"
             PRERELEASE=true
             NAME="Beta ${VERSION}"
           fi
