@@ -231,7 +231,25 @@ def probe_file(file_path: str) -> dict:
     if not os.path.exists(file_path):
         raise FileNotFoundError(f"File not found: {file_path}")
     
-    ffprobe_path = find_ffprobe_binary() or 'ffprobe'
+    # Find ffprobe binary
+    ffprobe_path = find_ffprobe_binary()
+    if ffprobe_path is None:
+        # Try system ffprobe
+        ffprobe_path = 'ffprobe'
+        # Verify it exists
+        try:
+            subprocess.run(
+                [ffprobe_path, '-version'],
+                capture_output=True,
+                check=True,
+                timeout=5,
+                creationflags=SUBPROCESS_FLAGS
+            )
+        except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired):
+            raise RuntimeError(
+                "ffprobe không được tìm thấy. "
+                "Vui lòng đảm bảo ffprobe.exe có trong thư mục ffmpeg_bin hoặc trong PATH."
+            )
     
     cmd = [
         ffprobe_path,
@@ -243,6 +261,7 @@ def probe_file(file_path: str) -> dict:
     ]
     
     try:
+        logger.debug(f"Running ffprobe: {' '.join(cmd)}")
         result = subprocess.run(
             cmd,
             capture_output=True,
@@ -254,14 +273,24 @@ def probe_file(file_path: str) -> dict:
             error_msg = result.stderr.decode('utf-8', errors='replace').strip()
             if not error_msg:
                 error_msg = f"ffprobe returned code {result.returncode}"
+            logger.error(f"ffprobe error for {file_path}: {error_msg}")
             raise RuntimeError(f"ffprobe error: {error_msg}")
         
         output = result.stdout.decode('utf-8')
         if not output.strip():
+            logger.error(f"ffprobe returned empty output for {file_path}")
             raise RuntimeError("ffprobe returned empty output")
         
         return json.loads(output)
     except subprocess.TimeoutExpired as e:
+        logger.error(f"ffprobe timeout for: {file_path}")
         raise RuntimeError(f"ffprobe timeout for: {file_path}") from e
     except json.JSONDecodeError as e:
+        logger.error(f"ffprobe JSON parse error for {file_path}: {e}")
         raise RuntimeError(f"ffprobe JSON parse error: {e}") from e
+    except FileNotFoundError as e:
+        logger.error(f"ffprobe not found: {e}")
+        raise RuntimeError(
+            f"ffprobe không được tìm thấy. "
+            f"Vui lòng đảm bảo ffprobe.exe có trong thư mục ffmpeg_bin hoặc trong PATH."
+        ) from e

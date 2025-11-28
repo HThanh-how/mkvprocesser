@@ -61,14 +61,27 @@ from .video_processor import (
 from .subtitle_extractor import extract_subtitle
 from .utils.ffmpeg_runner import run_ffmpeg_command
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.StreamHandler(sys.stdout)
-    ]
-)
+# Configure logging - only add StreamHandler if stdout is valid
+def setup_logging():
+    """Setup logging with safe stream handling."""
+    root_logger = logging.getLogger()
+    root_logger.setLevel(logging.INFO)
+    
+    # Only add StreamHandler if stdout is valid
+    if sys.stdout is not None and hasattr(sys.stdout, 'write') and sys.stdout.write is not None:
+        # Check if handler already exists
+        has_stream_handler = any(
+            isinstance(h, logging.StreamHandler) and h.stream == sys.stdout 
+            for h in root_logger.handlers
+        )
+        if not has_stream_handler:
+            handler = logging.StreamHandler(sys.stdout)
+            handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
+            root_logger.addHandler(handler)
+    # If stdout is not valid, logging will use NullHandler (no output)
+    # This prevents AttributeError when trying to write to None
+
+setup_logging()
 logger = logging.getLogger(__name__)
 
 # Global variables - these are now managed by log_manager and git_utils

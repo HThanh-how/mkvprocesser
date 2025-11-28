@@ -545,45 +545,72 @@ class MainWindow(QtWidgets.QMainWindow):
     def probe_tracks(self, file_path: str) -> tuple[list, list]:
         from mkvprocessor.ffmpeg_helper import probe_file
 
-        probe = probe_file(file_path)
-        subs = [
-            (
-                stream.get("index", -1),
-                stream.get("tags", {}).get("language", "und"),
-                stream.get("tags", {}).get("title", ""),
-                stream.get("codec_name", ""),
-            )
-            for stream in probe["streams"]
-            if stream["codec_type"] == "subtitle"
-        ]
+        try:
+            probe = probe_file(file_path)
+        except Exception as e:
+            print(f"[ERROR] Không thể probe file {file_path}: {e}")
+            return [], []
+        
+        if "streams" not in probe:
+            print(f"[WARNING] Probe không có streams: {file_path}")
+            return [], []
+        
+        subs = []
+        try:
+            for stream in probe["streams"]:
+                if stream.get("codec_type") == "subtitle":
+                    subs.append((
+                        stream.get("index", -1),
+                        stream.get("tags", {}).get("language", "und"),
+                        stream.get("tags", {}).get("title", ""),
+                        stream.get("codec_name", ""),
+                    ))
+        except Exception as e:
+            print(f"[ERROR] Lỗi khi đọc subtitle tracks: {e}")
 
         audios = []
-        for order, stream in enumerate(probe["streams"]):
-            if stream["codec_type"] == "audio":
-                bitrate_raw = stream.get("bit_rate") or stream.get("tags", {}).get("BPS")
-                try:
-                    bitrate = int(bitrate_raw) if bitrate_raw else 0
-                except (TypeError, ValueError):
-                    bitrate = 0
-                audios.append(
-                    (
+        try:
+            for order, stream in enumerate(probe["streams"]):
+                if stream.get("codec_type") == "audio":
+                    bitrate_raw = stream.get("bit_rate") or stream.get("tags", {}).get("BPS")
+                    try:
+                        bitrate = int(bitrate_raw) if bitrate_raw else 0
+                    except (TypeError, ValueError):
+                        bitrate = 0
+                    audios.append((
                         stream.get("index", -1),
                         stream.get("channels", 0),
                         stream.get("tags", {}).get("language", "und"),
                         stream.get("tags", {}).get("title", ""),
                         bitrate,
                         order,
-                    )
-                )
+                    ))
+        except Exception as e:
+            print(f"[ERROR] Lỗi khi đọc audio tracks: {e}")
+            
         return subs, audios
 
     def ensure_options_metadata(self, file_path: str, options: FileOptions) -> bool:
         if options.metadata_ready and options.cached_subs and options.cached_audios:
             return True
+        
+        # Kiểm tra file có tồn tại không
+        if not os.path.exists(file_path):
+            print(f"[ERROR] File không tồn tại: {file_path}")
+            options.cached_subs = []
+            options.cached_audios = []
+            options.cached_resolution = "?"
+            options.metadata_ready = True
+            return False
+            
         try:
             from mkvprocessor.ffmpeg_helper import probe_file
+            print(f"[DEBUG] Đang đọc metadata của: {os.path.basename(file_path)}")
             probe = probe_file(file_path)
+            print(f"[DEBUG] Đã đọc probe thành công, có {len(probe.get('streams', []))} streams")
+            
             subs, audios = self.probe_tracks(file_path)
+            print(f"[DEBUG] Tìm thấy {len(subs)} subtitle tracks và {len(audios)} audio tracks")
             
             # Cache resolution
             if not options.cached_resolution:
@@ -615,8 +642,18 @@ class MainWindow(QtWidgets.QMainWindow):
             # Lưu vào options
             options.cached_subs = subs
             options.cached_audios = audios
+        except FileNotFoundError as e:
+            print(f"[ERROR] File không tìm thấy: {file_path} - {e}")
+            options.cached_subs = []
+            options.cached_audios = []
+            options.cached_resolution = "?"
+            options.metadata_ready = True
+            return False
         except Exception as e:
             # Fallback: không có metadata nhưng vẫn hiển thị file
+            import traceback
+            print(f"[ERROR] Lỗi khi đọc metadata của {os.path.basename(file_path)}: {e}")
+            print(f"[ERROR] Chi tiết: {traceback.format_exc()}")
             options.cached_subs = []
             options.cached_audios = []
             options.cached_resolution = "?"
@@ -780,18 +817,21 @@ class MainWindow(QtWidgets.QMainWindow):
             # 1. Đọc từ processed_files.log (format cũ)
             log_file = os.path.join(folder, "Subtitles", "processed_files.log")
             if os.path.exists(log_file):
-                with open(log_file, "r", encoding="utf-8") as f:
-                    for line in f:
-                        parts = line.strip().split("|")
-                        if len(parts) >= 2:
-                            old_name = parts[0]
-                            new_name = parts[1]
-                            time_processed = parts[2] if len(parts) > 2 else ""
-                            
-                            processed_old_names.add(old_name)
-                            processed_new_names.add(new_name)
-                            processed_info[old_name] = {"new": new_name, "time": time_processed}
-                            processed_info[new_name] = {"new": new_name, "time": time_processed}
+                try:
+                    with open(log_file, "r", encoding="utf-8") as f:
+                        for line in f:
+                            parts = line.strip().split("|")
+                            if len(parts) >= 2:
+                                old_name = parts[0]
+                                new_name = parts[1]
+                                time_processed = parts[2] if len(parts) > 2 else ""
+                                
+                                processed_old_names.add(old_name)
+                                processed_new_names.add(new_name)
+                                processed_info[old_name] = {"new": new_name, "time": time_processed}
+                                processed_info[new_name] = {"new": new_name, "time": time_processed}
+                except Exception as e:
+                    print(f"[WARNING] Không thể đọc processed_files.log: {e}")
             
             # 2. Đọc từ logs/*.json (format mới)
             logs_dir = Path(folder) / "Subtitles" / "logs"
@@ -811,10 +851,29 @@ class MainWindow(QtWidgets.QMainWindow):
                                     if new_name:
                                         processed_new_names.add(new_name)
                                         processed_info[new_name] = {"new": new_name, "time": timestamp}
-                    except (json.JSONDecodeError, IOError):
-                        pass
+                    except (json.JSONDecodeError, IOError) as e:
+                        print(f"[WARNING] Không thể đọc {json_file}: {e}")
 
-            mkv_files = sorted(f for f in os.listdir(folder) if f.lower().endswith(".mkv"))
+            # Đọc danh sách file MKV từ thư mục
+            try:
+                all_files = os.listdir(folder)
+                print(f"[DEBUG] Tìm thấy {len(all_files)} file trong thư mục: {folder}")
+                mkv_files = sorted(f for f in all_files if f.lower().endswith(".mkv"))
+                print(f"[DEBUG] Tìm thấy {len(mkv_files)} file MKV")
+            except PermissionError as e:
+                QtWidgets.QMessageBox.warning(
+                    self, 
+                    "Lỗi quyền truy cập", 
+                    f"Không có quyền đọc thư mục:\n{folder}\n\nLỗi: {e}"
+                )
+                return
+            except Exception as e:
+                QtWidgets.QMessageBox.warning(
+                    self, 
+                    "Lỗi đọc thư mục", 
+                    f"Không thể đọc thư mục:\n{folder}\n\nLỗi: {e}"
+                )
+                return
 
             # Phân loại: đã xử lý (có tiền tố HOẶC có trong log) vs chưa xử lý
             processed_files = []
@@ -835,11 +894,24 @@ class MainWindow(QtWidgets.QMainWindow):
             # Hiển thị file chưa xử lý trước (màu vàng)
             for mkv in pending_files:
                 file_path = os.path.abspath(os.path.join(folder, mkv))
+                if not os.path.exists(file_path):
+                    print(f"[WARNING] File không tồn tại: {file_path}")
+                    continue
+                    
                 options = self.file_options.setdefault(file_path, FileOptions(file_path))
 
-                self.ensure_options_metadata(file_path, options)
+                # Đọc metadata, nếu lỗi thì vẫn hiển thị file nhưng không có metadata
+                try:
+                    self.ensure_options_metadata(file_path, options)
+                except Exception as e:
+                    print(f"[WARNING] Không thể đọc metadata của {mkv}: {e}")
+                    # Vẫn tiếp tục hiển thị file nhưng không có metadata
 
-                size = self.format_file_size(os.path.getsize(file_path)) if os.path.exists(file_path) else "?"
+                try:
+                    size = self.format_file_size(os.path.getsize(file_path))
+                except Exception as e:
+                    print(f"[WARNING] Không thể đọc kích thước file {mkv}: {e}")
+                    size = "?"
                 
                 item = QtWidgets.QTreeWidgetItem(self.file_tree)
                 item.setFlags(item.flags() | QtCore.Qt.ItemIsUserCheckable)
@@ -864,11 +936,24 @@ class MainWindow(QtWidgets.QMainWindow):
             # Hiển thị file đã xử lý sau (màu xanh)
             for mkv in processed_files:
                 file_path = os.path.abspath(os.path.join(folder, mkv))
+                if not os.path.exists(file_path):
+                    print(f"[WARNING] File không tồn tại: {file_path}")
+                    continue
+                    
                 options = self.file_options.setdefault(file_path, FileOptions(file_path))
 
-                self.ensure_options_metadata(file_path, options)
+                # Đọc metadata, nếu lỗi thì vẫn hiển thị file nhưng không có metadata
+                try:
+                    self.ensure_options_metadata(file_path, options)
+                except Exception as e:
+                    print(f"[WARNING] Không thể đọc metadata của {mkv}: {e}")
+                    # Vẫn tiếp tục hiển thị file nhưng không có metadata
 
-                size = self.format_file_size(os.path.getsize(file_path)) if os.path.exists(file_path) else "?"
+                try:
+                    size = self.format_file_size(os.path.getsize(file_path))
+                except Exception as e:
+                    print(f"[WARNING] Không thể đọc kích thước file {mkv}: {e}")
+                    size = "?"
                 
                 item = QtWidgets.QTreeWidgetItem(self.file_tree)
                 item.setFlags(item.flags() | QtCore.Qt.ItemIsUserCheckable)
@@ -895,7 +980,11 @@ class MainWindow(QtWidgets.QMainWindow):
             self.file_count_label.setText(f"{len(processed_files)}/{len(mkv_files)}")
 
         except Exception as e:
-            QtWidgets.QMessageBox.warning(self, "Error", str(e))
+            import traceback
+            error_msg = f"Lỗi khi đọc danh sách file:\n\n{str(e)}\n\n"
+            error_msg += f"Chi tiết:\n{traceback.format_exc()}"
+            print(f"[ERROR] {error_msg}")
+            QtWidgets.QMessageBox.warning(self, "Lỗi", error_msg)
         finally:
             self.file_tree.blockSignals(False)
             self.update_select_all_state()

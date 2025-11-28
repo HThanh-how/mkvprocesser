@@ -5,11 +5,36 @@ from __future__ import annotations
 
 import importlib
 import json
+import logging
 import os
 import sys
 import traceback
 
 from PySide6 import QtCore
+
+
+class QtSignalLogHandler(logging.Handler):
+    """Custom logging handler that emits log messages via Qt signal."""
+    
+    def __init__(self, signal: QtCore.SignalInstance):
+        super().__init__()
+        self.signal = signal
+    
+    def emit(self, record):
+        try:
+            msg = self.format(record)
+            level = record.levelname
+            # Map logging levels to our signal levels
+            if level in ("ERROR", "CRITICAL"):
+                signal_level = "ERROR"
+            elif level == "WARNING":
+                signal_level = "WARNING"
+            else:
+                signal_level = "INFO"
+            self.signal.emit(msg, signal_level)
+        except Exception:
+            # Ignore errors in logging handler to avoid infinite loops
+            pass
 
 
 class Worker(QtCore.QThread):
@@ -23,9 +48,11 @@ class Worker(QtCore.QThread):
         super().__init__()
         self.folder = folder
         self.selected_files = selected_files or []
+        self.log_handler = None
 
     def run(self):
         selected_backup = None
+        old_handlers = []
         try:
             # Try importing from new package, fallback to legacy names
             module_candidates = [
@@ -48,6 +75,30 @@ class Worker(QtCore.QThread):
                 os.environ["MKV_SELECTED_FILES"] = json.dumps(self.selected_files)
 
             worker_ref = self
+
+            # Setup custom logging handler
+            root_logger = logging.getLogger()
+            # Remove existing StreamHandlers that might have None streams
+            for handler in root_logger.handlers[:]:
+                if isinstance(handler, logging.StreamHandler):
+                    try:
+                        # Check if stream is valid
+                        if handler.stream is None or (hasattr(handler.stream, 'write') and handler.stream.write is None):
+                            root_logger.removeHandler(handler)
+                            handler.close()
+                        else:
+                            old_handlers.append(handler)
+                    except Exception:
+                        # If we can't check, remove it to be safe
+                        root_logger.removeHandler(handler)
+                        handler.close()
+            
+            # Add our custom handler
+            self.log_handler = QtSignalLogHandler(self.log_signal)
+            self.log_handler.setFormatter(logging.Formatter('%(message)s'))
+            self.log_handler.setLevel(logging.INFO)
+            root_logger.addHandler(self.log_handler)
+            root_logger.setLevel(logging.INFO)
 
             class Redirect:
                 def __init__(self, level: str, signal: QtCore.SignalInstance):
@@ -72,9 +123,15 @@ class Worker(QtCore.QThread):
                 def flush(self):
                     pass
 
-            old_stdout, old_stderr = sys.stdout, sys.stderr
-            sys.stdout = Redirect("INFO", self.log_signal)
-            sys.stderr = Redirect("ERROR", self.log_signal)
+            # Backup original stdout/stderr
+            old_stdout = sys.stdout if sys.stdout and hasattr(sys.stdout, 'write') else None
+            old_stderr = sys.stderr if sys.stderr and hasattr(sys.stderr, 'write') else None
+            
+            # Only redirect if we have valid streams to restore
+            if old_stdout is not None:
+                sys.stdout = Redirect("INFO", self.log_signal)
+            if old_stderr is not None:
+                sys.stderr = Redirect("ERROR", self.log_signal)
 
             # Emit initial progress
             total = len(self.selected_files) if self.selected_files else 0
@@ -88,10 +145,31 @@ class Worker(QtCore.QThread):
             self.log_signal.emit(traceback.format_exc(), "ERROR")
             self.finished_signal.emit(False)
         finally:
+            # Restore environment
             if self.selected_files:
                 if selected_backup is None:
                     os.environ.pop("MKV_SELECTED_FILES", None)
                 else:
                     os.environ["MKV_SELECTED_FILES"] = selected_backup
-            sys.stdout = sys.__stdout__
-            sys.stderr = sys.__stderr__
+            
+            # Remove our custom handler
+            if self.log_handler:
+                root_logger = logging.getLogger()
+                root_logger.removeHandler(self.log_handler)
+                self.log_handler.close()
+                self.log_handler = None
+            
+            # Restore old handlers
+            for handler in old_handlers:
+                root_logger.addHandler(handler)
+            
+            # Restore stdout/stderr safely
+            if old_stdout is not None:
+                sys.stdout = old_stdout
+            elif sys.__stdout__ is not None and hasattr(sys.__stdout__, 'write'):
+                sys.stdout = sys.__stdout__
+            
+            if old_stderr is not None:
+                sys.stderr = old_stderr
+            elif sys.__stderr__ is not None and hasattr(sys.__stderr__, 'write'):
+                sys.stderr = sys.__stderr__
