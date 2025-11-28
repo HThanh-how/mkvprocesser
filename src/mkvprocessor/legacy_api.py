@@ -74,16 +74,22 @@ def setup_logging():
     root_logger.setLevel(logging.INFO)
     
     # Only add StreamHandler if stdout is valid
-    if sys.stdout is not None and hasattr(sys.stdout, 'write') and sys.stdout.write is not None:
-        # Check if handler already exists
-        has_stream_handler = any(
-            isinstance(h, logging.StreamHandler) and h.stream == sys.stdout 
-            for h in root_logger.handlers
-        )
-        if not has_stream_handler:
-            handler = logging.StreamHandler(sys.stdout)
-            handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
-            root_logger.addHandler(handler)
+    try:
+        if (sys.stdout is not None and 
+            hasattr(sys.stdout, 'write') and 
+            callable(getattr(sys.stdout, 'write', None))):
+            # Check if handler already exists
+            has_stream_handler = any(
+                isinstance(h, logging.StreamHandler) and h.stream == sys.stdout 
+                for h in root_logger.handlers
+            )
+            if not has_stream_handler:
+                handler = logging.StreamHandler(sys.stdout)
+                handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
+                root_logger.addHandler(handler)
+    except Exception:
+        # If we can't setup logging, that's okay - it will use NullHandler
+        pass
     # If stdout is not valid, logging will use NullHandler (no output)
     # This prevents AttributeError when trying to write to None
 

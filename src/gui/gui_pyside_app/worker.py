@@ -82,12 +82,27 @@ class Worker(QtCore.QThread):
             for handler in root_logger.handlers[:]:
                 if isinstance(handler, logging.StreamHandler):
                     try:
-                        # Check if stream is valid
-                        if handler.stream is None or (hasattr(handler.stream, 'write') and handler.stream.write is None):
+                        # Check if stream is valid by trying to access it
+                        stream = handler.stream
+                        if stream is None:
+                            root_logger.removeHandler(handler)
+                            handler.close()
+                        elif not hasattr(stream, 'write'):
                             root_logger.removeHandler(handler)
                             handler.close()
                         else:
-                            old_handlers.append(handler)
+                            # Try to call write to verify it's callable
+                            try:
+                                # Just check if it's callable, don't actually write
+                                if not callable(getattr(stream, 'write', None)):
+                                    root_logger.removeHandler(handler)
+                                    handler.close()
+                                else:
+                                    old_handlers.append(handler)
+                            except Exception:
+                                # If we can't verify, remove it to be safe
+                                root_logger.removeHandler(handler)
+                                handler.close()
                     except Exception:
                         # If we can't check, remove it to be safe
                         root_logger.removeHandler(handler)
@@ -123,9 +138,18 @@ class Worker(QtCore.QThread):
                 def flush(self):
                     pass
 
-            # Backup original stdout/stderr
-            old_stdout = sys.stdout if sys.stdout and hasattr(sys.stdout, 'write') else None
-            old_stderr = sys.stderr if sys.stderr and hasattr(sys.stderr, 'write') else None
+            # Backup original stdout/stderr - check if they're valid
+            def is_valid_stream(stream):
+                """Check if a stream is valid for writing."""
+                try:
+                    return (stream is not None and 
+                           hasattr(stream, 'write') and 
+                           callable(getattr(stream, 'write', None)))
+                except Exception:
+                    return False
+            
+            old_stdout = sys.stdout if is_valid_stream(sys.stdout) else None
+            old_stderr = sys.stderr if is_valid_stream(sys.stderr) else None
             
             # Only redirect if we have valid streams to restore
             if old_stdout is not None:
@@ -152,24 +176,52 @@ class Worker(QtCore.QThread):
                 else:
                     os.environ["MKV_SELECTED_FILES"] = selected_backup
             
-            # Remove our custom handler
-            if self.log_handler:
-                root_logger = logging.getLogger()
-                root_logger.removeHandler(self.log_handler)
-                self.log_handler.close()
-                self.log_handler = None
+            # Restore stdout/stderr FIRST before restoring handlers
+            # This ensures handlers have valid streams
+            def is_valid_stream(stream):
+                """Check if a stream is valid for writing."""
+                try:
+                    return (stream is not None and 
+                           hasattr(stream, 'write') and 
+                           callable(getattr(stream, 'write', None)))
+                except Exception:
+                    return False
             
-            # Restore old handlers
-            for handler in old_handlers:
-                root_logger.addHandler(handler)
-            
-            # Restore stdout/stderr safely
             if old_stdout is not None:
                 sys.stdout = old_stdout
-            elif sys.__stdout__ is not None and hasattr(sys.__stdout__, 'write'):
+            elif is_valid_stream(sys.__stdout__):
                 sys.stdout = sys.__stdout__
             
             if old_stderr is not None:
                 sys.stderr = old_stderr
-            elif sys.__stderr__ is not None and hasattr(sys.__stderr__, 'write'):
+            elif is_valid_stream(sys.__stderr__):
                 sys.stderr = sys.__stderr__
+            
+            # Remove our custom handler
+            root_logger = logging.getLogger()
+            if self.log_handler:
+                try:
+                    root_logger.removeHandler(self.log_handler)
+                    self.log_handler.close()
+                except Exception:
+                    pass  # Ignore errors when removing handler
+                self.log_handler = None
+            
+            # Restore old handlers - but only if they're still valid
+            for handler in old_handlers:
+                try:
+                    # Check if handler is still valid before restoring
+                    if isinstance(handler, logging.StreamHandler):
+                        # For StreamHandler, check if stream is valid
+                        stream = handler.stream
+                        if stream is not None and hasattr(stream, 'write') and callable(getattr(stream, 'write', None)):
+                            # Check if handler already exists
+                            if handler not in root_logger.handlers:
+                                root_logger.addHandler(handler)
+                    else:
+                        # For other handlers, just add if not exists
+                        if handler not in root_logger.handlers:
+                            root_logger.addHandler(handler)
+                except Exception:
+                    # Skip invalid handlers
+                    pass
