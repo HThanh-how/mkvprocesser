@@ -868,7 +868,7 @@ def main(input_folder=None, force_reprocess: Optional[bool] = None, dry_run: boo
                         vie_audio_tracks.sort(key=lambda x: x[1], reverse=True)
                         selected_track = vie_audio_tracks[0]
                         logger.info(f"Selected Vietnamese audio track index={selected_track[0]} with {selected_track[1]} channels")
-                        extract_video_with_audio(
+                        processing_success = extract_video_with_audio(
                             file_path,
                             vn_folder,
                             original_folder,
@@ -877,10 +877,13 @@ def main(input_folder=None, force_reprocess: Optional[bool] = None, dry_run: boo
                             file_signature=file_signature,
                             rename_enabled=rename_enabled,
                         )
-                        processed = True  # Mark file as processed
-                        processing_success = True
+                        if processing_success:
+                            processed = True  # Mark file as processed only if successful
+                        else:
+                            logger.warning("Video processing failed, file will not be marked as processed")
                 except Exception as e:
                     logger.error(f"Error processing audio: {e}")
+                    processing_success = False
 
             # Check rename_enabled option (re-read in case it changed)
             rename_enabled = file_opts.get("rename_enabled", False)

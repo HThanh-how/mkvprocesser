@@ -320,7 +320,7 @@ def extract_video_with_audio(
     probe_data: Dict,
     file_signature: Optional[str] = None,
     rename_enabled: bool = False,
-) -> None:
+) -> bool:
     """Extract video with audio as required.
     
     Args:
@@ -331,6 +331,9 @@ def extract_video_with_audio(
         probe_data: FFprobe metadata
         file_signature: Optional file signature
         rename_enabled: Whether to rename output files
+    
+    Returns:
+        True if processing succeeded, False otherwise
     """
     try:
         audio_streams = [stream for stream in probe_data['streams'] if stream['codec_type'] == 'audio']
@@ -350,7 +353,8 @@ def extract_video_with_audio(
                         "output_path": os.path.abspath(new_path),
                     },
                 )
-            return
+                return True
+            return False
 
         # Get first audio information to determine case
         first_audio = audio_streams[0]
@@ -376,14 +380,21 @@ def extract_video_with_audio(
             if non_vietnamese_tracks:
                 # Select non-Vietnamese audio with most channels
                 selected_track = non_vietnamese_tracks[0]
-                process_video(file_path, original_folder, selected_track, log_file, probe_data, file_signature=file_signature, rename_enabled=rename_enabled)
+                return process_video(file_path, original_folder, selected_track, log_file, probe_data, file_signature=file_signature, rename_enabled=rename_enabled)
+            else:
+                logger.warning(f"First audio is Vietnamese but no non-Vietnamese tracks found in {file_path}")
+                return False
         else:
             # Case 2: First audio is not Vietnamese
             if vietnamese_tracks:
                 # Select Vietnamese audio with most channels
                 selected_track = vietnamese_tracks[0]
-                process_video(file_path, vn_folder, selected_track, log_file, probe_data, file_signature=file_signature, rename_enabled=rename_enabled)
+                return process_video(file_path, vn_folder, selected_track, log_file, probe_data, file_signature=file_signature, rename_enabled=rename_enabled)
+            else:
+                logger.warning(f"First audio is not Vietnamese but no Vietnamese tracks found in {file_path}")
+                return False
 
     except Exception as e:
         logger.error(f"Exception while processing {file_path}: {e}")
+        return False
 
