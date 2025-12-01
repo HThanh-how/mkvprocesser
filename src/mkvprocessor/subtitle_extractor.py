@@ -39,8 +39,10 @@ def extract_subtitle(
         Path to extracted subtitle file, or None if extraction fails
     """
     try:
-        # Create ./Subtitles folder if it doesn't exist
-        sub_root_folder = os.path.join(".", "Subtitles")
+        # Create subtitle folder using i18n translation
+        from .i18n import t
+        subtitle_folder_name = t("folders.subtitles")
+        sub_root_folder = os.path.join(".", subtitle_folder_name)
         create_folder(sub_root_folder)
         
         index, language, title, codec = subtitle_info

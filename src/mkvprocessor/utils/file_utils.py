@@ -28,6 +28,24 @@ def sanitize_filename(name: str) -> str:
     return re.sub(r'[<>:"/\\|?*\n\r\t]', '_', name)
 
 
+def sanitize_folder_name(name: str) -> str:
+    """Sanitize folder name by replacing problematic characters.
+    
+    Args:
+        name: Original folder name
+    
+    Returns:
+        Sanitized folder name with spaces and special characters replaced
+    """
+    # Replace spaces and problematic characters with underscore
+    # Keep Vietnamese characters but replace spaces and special chars
+    name = re.sub(r'[<>:"/\\|?*\n\r\t]', '_', name)  # Invalid filesystem chars
+    name = re.sub(r'\s+', '_', name)  # Replace spaces with underscore
+    name = re.sub(r'-+', '_', name)  # Replace dashes with underscore
+    name = re.sub(r'_+', '_', name)  # Replace multiple underscores with single
+    return name.strip('_')  # Remove leading/trailing underscores
+
+
 def get_file_size_gb(file_path: Union[str, Path]) -> float:
     """Get file size in GB.
     

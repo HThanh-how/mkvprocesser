@@ -248,7 +248,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.start_btn.clicked.connect(self.start_processing)
         self.stop_btn = QtWidgets.QPushButton("⏹ Dừng")
         self.stop_btn.setObjectName("dangerButton")
-        self.stop_btn.setEnabled(False)
+        self.stop_btn.setVisible(False)  # Ẩn nút Dừng ban đầu
         self.stop_btn.clicked.connect(self.stop_processing)
 
         controls_layout.addWidget(self.start_btn)
@@ -1520,8 +1520,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.progress.setValue(0)
         self.progress.setFormat("%v/%m")
         self.progress.setVisible(True)
-        self.start_btn.setEnabled(False)
-        self.stop_btn.setEnabled(True)
+        self.start_btn.setVisible(False)  # Ẩn nút Bắt đầu
+        self.stop_btn.setVisible(True)    # Hiện nút Dừng
         self.status_bar.showMessage(f"Processing 0/{len(selected)} files…")
 
     def stop_processing(self):
@@ -1529,8 +1529,8 @@ class MainWindow(QtWidgets.QMainWindow):
             self.worker.requestInterruption()
             self.worker.terminate()
         self.progress.setVisible(False)
-        self.start_btn.setEnabled(True)
-        self.stop_btn.setEnabled(False)
+        self.start_btn.setVisible(True)   # Hiện nút Bắt đầu
+        self.stop_btn.setVisible(False)  # Ẩn nút Dừng
         self.status_bar.showMessage("Đã dừng", 3000)
 
     def update_progress(self, current: int, total: int, filename: str):
@@ -1543,8 +1543,8 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def finish_processing(self, success: bool):
         self.progress.setVisible(False)
-        self.start_btn.setEnabled(True)
-        self.stop_btn.setEnabled(False)
+        self.start_btn.setVisible(True)   # Hiện nút Bắt đầu
+        self.stop_btn.setVisible(False)  # Ẩn nút Dừng
         os.environ.pop("MKV_FILE_OPTIONS", None)
         self.refresh_file_list()
         self.status_bar.showMessage("Completed" if success else "Error - see log", 5000)

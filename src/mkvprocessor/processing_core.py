@@ -568,6 +568,7 @@ def main(input_folder=None, force_reprocess: Optional[bool] = None, dry_run: boo
     
     # Use i18n for folder names
     from .i18n import t
+    
     vn_folder = t("folders.vietnamese_audio")
     original_folder = t("folders.original")
     subtitle_folder = os.path.join(".", t("folders.subtitles"))
@@ -631,7 +632,8 @@ def main(input_folder=None, force_reprocess: Optional[bool] = None, dry_run: boo
     if force_reprocess is not None:
         settings["force_reprocess"] = force_reprocess
 
-    logs_dir = Path(settings.get("logs_dir", "logs"))
+    # Logs directory should be inside Subtitles folder
+    logs_dir = Path(subtitle_folder) / "logs"
 
     # Initialize GitHub sync if configured
     from .log_manager import set_remote_sync
@@ -885,8 +887,27 @@ def main(input_folder=None, force_reprocess: Optional[bool] = None, dry_run: boo
             file_already_processed = mkv_file in processed_files or (file_signature and file_signature in processed_signatures)
             should_rename = rename_enabled and (force_reprocess_file or not file_already_processed)
             
+            # If file was processed (has VIE audio) and should_rename = True, rename original file
+            if processed and should_rename:
+                logger.info(f"\nFile processed. Renaming original file as requested...")
+                try:
+                    new_path = rename_simple(file_path)
+                    log_processed_file(
+                        log_file,
+                        mkv_file,
+                        os.path.basename(new_path),
+                        signature=file_signature,
+                        metadata={
+                            "category": "video",
+                            "source_path": file_path,
+                            "output_path": os.path.abspath(new_path),
+                        },
+                    )
+                    logger.info(t("messages.renamed_file", old=mkv_file, new=os.path.basename(new_path)))
+                except Exception as rename_err:
+                    logger.error(f"Cannot rename: {rename_err}")
             # If only extract SRT (no VIE audio) and should_rename = True, rename video file
-            if not processed and has_vie_subtitle and not has_vie_audio and should_rename:
+            elif not processed and has_vie_subtitle and not has_vie_audio and should_rename:
                 logger.info(f"\nExtracted subtitle. Renaming video file as requested...")
                 try:
                     new_path = rename_simple(file_path)

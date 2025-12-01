@@ -90,14 +90,30 @@ def t(key: str, **kwargs) -> str:
     """Translate a key to the current language.
     
     Args:
-        key: Translation key (e.g., 'ui.start_processing')
+        key: Translation key (e.g., 'ui.start_processing' or 'folders.vietnamese_audio')
         **kwargs: Format arguments for the translation string
     
     Returns:
         Translated string, or key if translation not found
     """
     translations = load_translations(_current_language)
-    text = translations.get(key, key)
+    
+    # Handle nested keys (e.g., 'folders.vietnamese_audio')
+    keys = key.split('.')
+    text = translations
+    for k in keys:
+        if isinstance(text, dict):
+            text = text.get(k)
+            if text is None:
+                # Key not found, return original key
+                return key
+        else:
+            # Not a dict, can't continue
+            return key
+    
+    # If text is still a dict, it means we didn't find the final value
+    if isinstance(text, dict):
+        return key
     
     # Format with kwargs if provided
     if kwargs:

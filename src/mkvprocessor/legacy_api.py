@@ -706,6 +706,7 @@ def main(input_folder=None, force_reprocess: Optional[bool] = None, dry_run: boo
     
     # Use i18n for folder names
     from .i18n import t
+    
     vn_folder = t("folders.vietnamese_audio")
     original_folder = t("folders.original")
     subtitle_folder = os.path.join(".", t("folders.subtitles"))
@@ -769,7 +770,8 @@ def main(input_folder=None, force_reprocess: Optional[bool] = None, dry_run: boo
     if force_reprocess is not None:
         settings["force_reprocess"] = force_reprocess
 
-    logs_dir = Path(settings.get("logs_dir", "logs"))
+    # Logs directory should be inside Subtitles folder
+    logs_dir = Path(subtitle_folder) / "logs"
 
     # Initialize GitHub sync if configured
     from .log_manager import set_remote_sync
