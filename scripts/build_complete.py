@@ -391,6 +391,15 @@ def build_executable():
         ])
         print("✅ Sẽ bundle gui package vào executable")
     
+    # QUAN TRỌNG: Bundle translation files
+    translations_dir = project_root / "src" / "mkvprocessor" / "i18n" / "translations"
+    if translations_dir.exists():
+        # Bundle translation files
+        pyinstaller_args.extend([
+            "--add-data", f"{translations_dir.absolute()}{os.pathsep}mkvprocessor/i18n/translations"
+        ])
+        print("✅ Sẽ bundle translation files vào executable")
+    
     # Dùng GUI PySide6 mới
     gui_pyside_path = Path(__file__).parent.parent / "gui_pyside.py"
     pyinstaller_args.append(str(gui_pyside_path))

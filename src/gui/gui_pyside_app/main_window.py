@@ -453,12 +453,27 @@ class MainWindow(QtWidgets.QMainWindow):
         
         session_header = QtWidgets.QHBoxLayout()
         session_header.addStretch()
-        for text, slot in [("📋", self.copy_log), ("🗑", self.clear_log), ("📂", self.open_logs_folder)]:
-            btn = QtWidgets.QToolButton()
-            btn.setObjectName("tinyButton")
-            btn.setText(text)
-            btn.clicked.connect(slot)
-            session_header.addWidget(btn)
+        # Copy button - lưu reference để đổi icon sau khi copy
+        self.copy_log_btn = QtWidgets.QToolButton()
+        self.copy_log_btn.setObjectName("tinyButton")
+        self.copy_log_btn.setText("📋")
+        self.copy_log_btn.clicked.connect(self.copy_log)
+        session_header.addWidget(self.copy_log_btn)
+        
+        # Clear button
+        clear_btn = QtWidgets.QToolButton()
+        clear_btn.setObjectName("tinyButton")
+        clear_btn.setText("🗑")
+        clear_btn.clicked.connect(self.clear_log)
+        session_header.addWidget(clear_btn)
+        
+        # Open folder button
+        open_folder_btn = QtWidgets.QToolButton()
+        open_folder_btn.setObjectName("tinyButton")
+        open_folder_btn.setText("📂")
+        open_folder_btn.clicked.connect(self.open_logs_folder)
+        session_header.addWidget(open_folder_btn)
+        
         session_layout.addLayout(session_header)
         
         self.log_view = QtWidgets.QPlainTextEdit()
@@ -1592,6 +1607,11 @@ class MainWindow(QtWidgets.QMainWindow):
     def copy_log(self):
         if self.log_view:
             QtWidgets.QApplication.clipboard().setText(self.log_view.toPlainText())
+            # Đổi icon để báo đã copy
+            if hasattr(self, 'copy_log_btn'):
+                self.copy_log_btn.setText("✅")
+                # Đổi lại sau 2 giây
+                QtCore.QTimer.singleShot(2000, lambda: self.copy_log_btn.setText("📋"))
 
     def clear_log(self):
         if self.log_view:

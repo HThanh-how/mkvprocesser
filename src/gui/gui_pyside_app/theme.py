@@ -271,10 +271,15 @@ QHeaderView::section {
 /* Log view */
 #logView, #errorsView, #srtView {
     background: #0d1117;
+    color: #c9d1d9;
     border: 1px solid #30363d;
     border-radius: 6px;
     padding: 8px;
     font-family: Consolas, monospace;
+}
+
+#logView {
+    color: #c9d1d9;
 }
 
 #errorsView {
@@ -373,6 +378,26 @@ QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
 /* Form */
 QFormLayout {
     spacing: 8px;
+}
+
+/* Context menu (right-click menu) */
+QMenu {
+    background: #161b22;
+    color: #c9d1d9;
+    border: 1px solid #30363d;
+    border-radius: 6px;
+    padding: 4px;
+}
+QMenu::item {
+    padding: 6px 24px;
+    border-radius: 4px;
+}
+QMenu::item:selected {
+    background: #1f6feb;
+    color: white;
+}
+QMenu::item:disabled {
+    color: #6e7681;
 }
 """
 
