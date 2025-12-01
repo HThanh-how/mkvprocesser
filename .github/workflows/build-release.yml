@@ -13,6 +13,7 @@ on:
     branches:
       - main
       - master
+      - develop
 
 jobs:
   build-windows-x64:
