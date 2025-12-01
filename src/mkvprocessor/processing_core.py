@@ -166,7 +166,7 @@ from contextlib import contextmanager
 
 def auto_commit_subtitles(subtitle_folder, settings: Optional[Dict[str, Any]] = None):
     """Automatically commit subtitle files and logs to git."""
-    git_cmd = check_git_available()
+    git_cmd = find_git_executable()
     if not git_cmd:
         return False
     
@@ -547,6 +547,9 @@ def main(input_folder=None, force_reprocess: Optional[bool] = None, dry_run: boo
     language = settings.get("language", "vi")
     set_language(language)
     
+    # Import t after set_language to ensure translations are loaded
+    from .i18n import t
+    
     if not check_ffmpeg_available():
         logger.error(t("errors.ffmpeg_not_found"))
         return
@@ -565,9 +568,6 @@ def main(input_folder=None, force_reprocess: Optional[bool] = None, dry_run: boo
         os.chdir(input_folder)
         need_restore_cwd = True
         logger.info(f"Changed to directory: {input_folder}")
-    
-    # Use i18n for folder names
-    from .i18n import t
     
     vn_folder = t("folders.vietnamese_audio")
     original_folder = t("folders.original")
@@ -728,9 +728,12 @@ def main(input_folder=None, force_reprocess: Optional[bool] = None, dry_run: boo
             file_opts = file_options_map.get(file_abs_path, {})
             rename_enabled = file_opts.get("rename_enabled", False)
             force_rename = file_opts.get("force_process", False) or rename_enabled
+            export_subtitles = file_opts.get("export_subtitles", True)  # Default True
+            export_subtitle_indices = file_opts.get("export_subtitle_indices", [])
             
             # If file already processed but only needs rename (no force_reprocess), still continue
             skip_file = False
+            skip_extract = False  # Default: don't skip extract
             if not force_reprocess and not force_rename:
                 if mkv_file in processed_files:
                     logger.info(f"File {mkv_file} already processed as {processed_files[mkv_file]['new_name']} at {processed_files[mkv_file]['time']}. Skipping.")
@@ -739,12 +742,12 @@ def main(input_folder=None, force_reprocess: Optional[bool] = None, dry_run: boo
                     logger.info(f"File {mkv_file} has same content as already processed file {processed_signatures[file_signature]['new_name']}. Skipping.")
                     skip_file = True
             elif mkv_file in processed_files and rename_enabled:
-                # File already processed but only needs rename, skip extract but still rename
+                # File already processed but only needs rename
+                # Still extract subtitles if export_subtitles is enabled
                 logger.info(f"File {mkv_file} already processed. Only performing rename as requested...")
                 skip_file = False  # Don't skip, will rename at end
-                skip_extract = True  # Skip extract, only rename
-            else:
-                skip_extract = False
+                # Only skip extract if export_subtitles is disabled
+                skip_extract = not export_subtitles
             
             if skip_file:
                 continue
@@ -834,9 +837,9 @@ def main(input_folder=None, force_reprocess: Optional[bool] = None, dry_run: boo
             has_vie_audio = any(stream.get('tags', {}).get('language', 'und') == 'vie' 
                                for stream in audio_streams)
 
-            # If only need rename (file already processed), skip extract
+            # Extract subtitles if enabled
             if not skip_extract:
-                # Process Vietnamese subtitles
+                # Default: Always extract Vietnamese subtitles if export_subtitles is enabled
                 vie_subtitle_streams = [stream for stream in subtitle_streams
                                         if stream.get('tags', {}).get('language', 'und') == 'vie']
                 if vie_subtitle_streams:
