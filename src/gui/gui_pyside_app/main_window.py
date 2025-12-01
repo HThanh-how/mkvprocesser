@@ -1926,18 +1926,26 @@ class MainWindow(QtWidgets.QMainWindow):
     def auto_check_for_updates(self):
         """Silently check for updates on startup (non-blocking)."""
         if not self.update_manager:
+            print("[UPDATE] UpdateManager not available")
             return
         
         # Check in background thread to avoid blocking UI
         def check_in_background():
             try:
-                has_update, release_info = self.update_manager.check_for_updates(timeout=5)
+                print("[UPDATE] Checking for updates...")
+                has_update, release_info = self.update_manager.check_for_updates(timeout=10)
+                print(f"[UPDATE] Check result: has_update={has_update}, release_info={release_info is not None}")
                 if has_update and release_info:
+                    print(f"[UPDATE] Update available: {release_info.get('version', 'unknown')}")
                     # Update UI in main thread using signal
                     QtCore.QTimer.singleShot(0, lambda: self._show_update_notification(release_info))
-            except Exception:
-                # Silent fail - don't show error on auto-check
-                pass
+                else:
+                    print("[UPDATE] No update available or already up to date")
+            except Exception as e:
+                # Log error but don't show to user (silent fail)
+                print(f"[UPDATE] Error during auto-check: {e}")
+                import traceback
+                traceback.print_exc()
         
         # Run in background
         import threading

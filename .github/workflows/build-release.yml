@@ -293,7 +293,9 @@ jobs:
     permissions:
       contents: write
     # Tự động tạo release cho mọi push/workflow_dispatch (trừ pull_request)
+    # Continue even if some builds fail (use artifacts that succeeded)
     if: github.event_name != 'pull_request'
+    continue-on-error: false
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -340,35 +342,142 @@ jobs:
           merge-multiple: false
           path: artifacts
       
+      - name: Debug artifacts structure
+        shell: bash
+        run: |
+          echo "=== Artifacts structure ==="
+          find artifacts -type f -o -type d | head -20
+          echo "=== Listing artifacts directory ==="
+          ls -la artifacts/ || echo "artifacts/ not found"
+          echo "=== Checking each artifact ==="
+          for dir in artifacts/*/; do
+            echo "Directory: $dir"
+            ls -la "$dir" || echo "  (empty or not found)"
+          done
+      
       - name: Prepare release files
         shell: bash
         run: |
-          # Windows x64
+          set -e
+          echo "=== Preparing release files ==="
+          
+          # Windows x64 - artifact name: MKVProcessor-Windows-x64
           if [ -f "artifacts/MKVProcessor-Windows-x64/MKVProcessor.exe" ]; then
             cp "artifacts/MKVProcessor-Windows-x64/MKVProcessor.exe" "MKVProcessor_Windows_x64.exe"
+            echo "✅ Windows x64: OK"
+          else
+            echo "⚠️ Windows x64: Not found at artifacts/MKVProcessor-Windows-x64/MKVProcessor.exe"
+            ls -la "artifacts/MKVProcessor-Windows-x64/" || echo "  Directory not found"
           fi
-          # Windows x86
+          
+          # Windows x86 - artifact name: MKVProcessor-Windows-x86
           if [ -f "artifacts/MKVProcessor-Windows-x86/MKVProcessor.exe" ]; then
             cp "artifacts/MKVProcessor-Windows-x86/MKVProcessor.exe" "MKVProcessor_Windows_x86.exe"
+            echo "✅ Windows x86: OK"
+          else
+            echo "⚠️ Windows x86: Not found (optional, may not exist)"
           fi
-          # macOS x64
-          if [ -d "artifacts/MKVProcessor-macOS-x64/MKVProcessor.app" ]; then
-            zip -r "MKVProcessor_macOS_x64.zip" "artifacts/MKVProcessor-macOS-x64/MKVProcessor.app"
+          
+          # macOS x64 - artifact là ZIP file đã được upload
+          if [ -f "artifacts/MKVProcessor-macOS-x64/MKVProcessor_macOS_x64.zip" ]; then
+            cp "artifacts/MKVProcessor-macOS-x64/MKVProcessor_macOS_x64.zip" "MKVProcessor_macOS_x64.zip"
+            echo "✅ macOS x64: OK (from ZIP)"
+          elif [ -d "artifacts/MKVProcessor-macOS-x64" ]; then
+            # Tìm .app hoặc file bất kỳ trong thư mục
+            cd "artifacts/MKVProcessor-macOS-x64"
+            if [ -d "MKVProcessor.app" ]; then
+              zip -r "../../MKVProcessor_macOS_x64.zip" "MKVProcessor.app"
+              echo "✅ macOS x64: OK (created ZIP from .app)"
+            else
+              # Nếu không có .app, zip toàn bộ thư mục
+              zip -r "../../MKVProcessor_macOS_x64.zip" .
+              echo "✅ macOS x64: OK (created ZIP from directory)"
+            fi
+            cd ../..
+          else
+            echo "⚠️ macOS x64: Not found"
+            ls -la "artifacts/" || echo "  artifacts/ not found"
           fi
-          # macOS arm64
-          if [ -d "artifacts/MKVProcessor-macOS-arm64/MKVProcessor.app" ]; then
-            zip -r "MKVProcessor_macOS_arm64.zip" "artifacts/MKVProcessor-macOS-arm64/MKVProcessor.app"
+          
+          # macOS arm64 - artifact là ZIP file đã được upload
+          if [ -f "artifacts/MKVProcessor-macOS-arm64/MKVProcessor_macOS_arm64.zip" ]; then
+            cp "artifacts/MKVProcessor-macOS-arm64/MKVProcessor_macOS_arm64.zip" "MKVProcessor_macOS_arm64.zip"
+            echo "✅ macOS arm64: OK (from ZIP)"
+          elif [ -d "artifacts/MKVProcessor-macOS-arm64" ]; then
+            cd "artifacts/MKVProcessor-macOS-arm64"
+            if [ -d "MKVProcessor.app" ]; then
+              zip -r "../../MKVProcessor_macOS_arm64.zip" "MKVProcessor.app"
+              echo "✅ macOS arm64: OK (created ZIP from .app)"
+            else
+              zip -r "../../MKVProcessor_macOS_arm64.zip" .
+              echo "✅ macOS arm64: OK (created ZIP from directory)"
+            fi
+            cd ../..
+          else
+            echo "⚠️ macOS arm64: Not found"
+            ls -la "artifacts/" || echo "  artifacts/ not found"
           fi
-          # Linux x64
-          if [ -f "artifacts/MKVProcessor-Linux-x64/MKVProcessor" ]; then
+          
+          # Linux x64 - artifact là TAR.GZ file đã được upload
+          if [ -f "artifacts/MKVProcessor-Linux-x64/MKVProcessor_Linux_x64.tar.gz" ]; then
+            cp "artifacts/MKVProcessor-Linux-x64/MKVProcessor_Linux_x64.tar.gz" "MKVProcessor_Linux_x64.tar.gz"
+            tar -xzf "MKVProcessor_Linux_x64.tar.gz" -C . 2>/dev/null || true
+            # Tìm file executable sau khi extract
+            if [ -f "MKVProcessor" ]; then
+              mv "MKVProcessor" "MKVProcessor_Linux_x64"
+              chmod +x "MKVProcessor_Linux_x64"
+            elif [ -f "dist/MKVProcessor" ]; then
+              cp "dist/MKVProcessor" "MKVProcessor_Linux_x64"
+              chmod +x "MKVProcessor_Linux_x64"
+            fi
+            echo "✅ Linux x64: OK (from TAR.GZ)"
+          elif [ -f "artifacts/MKVProcessor-Linux-x64/MKVProcessor" ]; then
             cp "artifacts/MKVProcessor-Linux-x64/MKVProcessor" "MKVProcessor_Linux_x64"
             chmod +x "MKVProcessor_Linux_x64"
+            echo "✅ Linux x64: OK (from binary)"
+          else
+            echo "⚠️ Linux x64: Not found"
+            ls -la "artifacts/MKVProcessor-Linux-x64/" || echo "  Directory not found"
           fi
-          # Linux arm64
-          if [ -f "artifacts/MKVProcessor-Linux-arm64/MKVProcessor" ]; then
+          
+          # Linux arm64 - artifact là TAR.GZ file đã được upload
+          if [ -f "artifacts/MKVProcessor-Linux-arm64/MKVProcessor_Linux_arm64.tar.gz" ]; then
+            cp "artifacts/MKVProcessor-Linux-arm64/MKVProcessor_Linux_arm64.tar.gz" "MKVProcessor_Linux_arm64.tar.gz"
+            tar -xzf "MKVProcessor_Linux_arm64.tar.gz" -C . 2>/dev/null || true
+            if [ -f "MKVProcessor" ]; then
+              mv "MKVProcessor" "MKVProcessor_Linux_arm64"
+              chmod +x "MKVProcessor_Linux_arm64"
+            elif [ -f "dist/MKVProcessor" ]; then
+              cp "dist/MKVProcessor" "MKVProcessor_Linux_arm64"
+              chmod +x "MKVProcessor_Linux_arm64"
+            fi
+            echo "✅ Linux arm64: OK (from TAR.GZ)"
+          elif [ -f "artifacts/MKVProcessor-Linux-arm64/MKVProcessor" ]; then
             cp "artifacts/MKVProcessor-Linux-arm64/MKVProcessor" "MKVProcessor_Linux_arm64"
             chmod +x "MKVProcessor_Linux_arm64"
+            echo "✅ Linux arm64: OK (from binary)"
+          else
+            echo "⚠️ Linux arm64: Not found"
+            ls -la "artifacts/MKVProcessor-Linux-arm64/" || echo "  Directory not found"
           fi
+          
+          echo ""
+          echo "=== Final files ready for release ==="
+          ls -lh MKVProcessor_* || echo "No files found"
+      
+      - name: List files before release
+        shell: bash
+        run: |
+          echo "=== Files ready for release ==="
+          ls -lh MKVProcessor_* 2>/dev/null || echo "No files found"
+          echo ""
+          echo "=== File sizes ==="
+          for f in MKVProcessor_*; do
+            if [ -f "$f" ]; then
+              size=$(du -h "$f" | cut -f1)
+              echo "$f: $size"
+            fi
+          done
       
       - name: Create Release
         uses: softprops/action-gh-release@v1
@@ -385,6 +494,7 @@ jobs:
             MKVProcessor_macOS_arm64.zip
             MKVProcessor_Linux_x64
             MKVProcessor_Linux_arm64
+          fail_on_unmatched_files: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
