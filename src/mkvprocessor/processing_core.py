@@ -854,6 +854,7 @@ def main(input_folder=None, force_reprocess: Optional[bool] = None, dry_run: boo
                     extract_subtitle(file_path, subtitle_info, log_file, probe_data, file_signature=file_signature)
 
             # Process video if has Vietnamese audio
+            processing_success = False
             if has_vie_audio:
                 try:
                     logger.info("\nDetected Vietnamese audio. Starting processing...")
@@ -877,18 +878,25 @@ def main(input_folder=None, force_reprocess: Optional[bool] = None, dry_run: boo
                             rename_enabled=rename_enabled,
                         )
                         processed = True  # Mark file as processed
+                        processing_success = True
                 except Exception as e:
                     logger.error(f"Error processing audio: {e}")
 
-            # Check rename_enabled option
+            # Check rename_enabled option (re-read in case it changed)
             rename_enabled = file_opts.get("rename_enabled", False)
             force_reprocess_file = file_opts.get("force_process", False)
             
-            # Only rename when:
-            # 1. force_reprocess = True (force reprocess) AND rename_enabled = True
-            # 2. File not processed AND rename_enabled = True
+            # Rename original file if:
+            # 1. File was just processed successfully (processing_success = True) AND rename_enabled = True
+            # 2. OR force_reprocess = True AND rename_enabled = True  
+            # 3. OR file not in processed_files yet AND rename_enabled = True
+            # Note: Always rename if file was just processed successfully, regardless of previous processing status
             file_already_processed = mkv_file in processed_files or (file_signature and file_signature in processed_signatures)
-            should_rename = rename_enabled and (force_reprocess_file or not file_already_processed)
+            # If file was just processed successfully, always rename if rename_enabled is True
+            if processing_success and rename_enabled:
+                should_rename = True
+            else:
+                should_rename = rename_enabled and (force_reprocess_file or not file_already_processed)
             
             # If file was processed (has VIE audio) and should_rename = True, rename original file
             if processed and should_rename:
