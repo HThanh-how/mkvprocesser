@@ -23,7 +23,7 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "git_sparse_paths": ["logs"],
     "git_user_name": "MKV Processor Bot",
     "git_user_email": "bot@example.com",
-    "language": "en",  # Language code: 'en' for English, 'vi' for Vietnamese
+    "language": "vi",  # Language code: 'en' for English, 'vi' for Vietnamese
 }
 
 

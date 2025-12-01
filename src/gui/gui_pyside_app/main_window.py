@@ -326,7 +326,8 @@ class MainWindow(QtWidgets.QMainWindow):
             from mkvprocessor.i18n import get_supported_languages, set_language, t
             languages = get_supported_languages()
             self.language_combo = QtWidgets.QComboBox()
-            current_lang = self.config.get("language", "en")
+            self.language_combo.setObjectName("languageCombo")
+            current_lang = self.config.get("language", "vi")
             for lang_code, lang_name in languages.items():
                 self.language_combo.addItem(f"{lang_name} ({lang_code})", lang_code)
                 if lang_code == current_lang:

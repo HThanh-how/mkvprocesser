@@ -544,7 +544,7 @@ def main(input_folder=None, force_reprocess: Optional[bool] = None, dry_run: boo
     """
     # Load user config and set language
     settings = load_user_config()
-    language = settings.get("language", "en")
+    language = settings.get("language", "vi")
     set_language(language)
     
     if not check_ffmpeg_available():

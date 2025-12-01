@@ -12,7 +12,7 @@ from typing import Dict, Optional
 logger = logging.getLogger(__name__)
 
 # Default language
-DEFAULT_LANGUAGE = "en"
+DEFAULT_LANGUAGE = "vi"
 
 # Supported languages
 SUPPORTED_LANGUAGES = {

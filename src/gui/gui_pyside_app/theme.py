@@ -44,6 +44,66 @@ QLineEdit#pillInput {
     padding: 4px 12px;
 }
 
+/* ComboBox */
+QComboBox {
+    background: #0d1117;
+    color: #c9d1d9;
+    border: 1px solid #30363d;
+    border-radius: 6px;
+    padding: 6px 10px;
+    min-width: 150px;
+}
+QComboBox:hover {
+    border-color: #58a6ff;
+    background: #161b22;
+}
+QComboBox:focus {
+    border-color: #58a6ff;
+    background: #161b22;
+}
+QComboBox::drop-down {
+    border: none;
+    width: 20px;
+    background: transparent;
+}
+QComboBox::down-arrow {
+    image: none;
+    border-left: 4px solid transparent;
+    border-right: 4px solid transparent;
+    border-top: 6px solid #8b949e;
+    width: 0;
+    height: 0;
+    margin-right: 8px;
+}
+QComboBox::down-arrow:hover {
+    border-top-color: #c9d1d9;
+}
+QComboBox QAbstractItemView {
+    background: #161b22;
+    color: #c9d1d9;
+    border: 1px solid #30363d;
+    border-radius: 6px;
+    selection-background-color: #1f6feb;
+    selection-color: white;
+    padding: 4px;
+}
+QComboBox QAbstractItemView::item {
+    padding: 6px 12px;
+    border-radius: 4px;
+}
+QComboBox QAbstractItemView::item:hover {
+    background: #21262d;
+}
+QComboBox QAbstractItemView::item:selected {
+    background: #1f6feb;
+    color: white;
+}
+#languageCombo {
+    background: #161b22;
+    color: #c9d1d9;
+    font-weight: 500;
+}
+
 /* Buttons */
 QPushButton {
     background: #21262d;
