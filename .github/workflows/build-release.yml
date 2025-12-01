@@ -293,9 +293,13 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-    # Tự động tạo release cho mọi push/workflow_dispatch (trừ pull_request)
-    # Continue even if some builds fail (use artifacts that succeeded)
-    if: github.event_name != 'pull_request'
+    # Chỉ tạo release cho push/workflow_dispatch (không tạo cho pull_request)
+    # Và chỉ cho 3 nhánh: main, master, develop
+    if: >
+      github.event_name != 'pull_request' &&
+      (github.ref == 'refs/heads/main' ||
+       github.ref == 'refs/heads/master' ||
+       github.ref == 'refs/heads/develop')
     continue-on-error: false
     steps:
       - name: Checkout repository
@@ -322,13 +326,18 @@ jobs:
           YEAR_SEG=$((YEAR - 2024))
           BUILD_SEG=${GITHUB_RUN_NUMBER}
           if [[ "${GITHUB_REF}" == "refs/heads/main" || "${GITHUB_REF}" == "refs/heads/master" ]]; then
+            # Stable release cho main/master
             VERSION="${YEAR_SEG}.${DATE_SEG}.${BUILD_SEG}"
             PRERELEASE=false
             NAME="Release ${VERSION}"
-          else
+          elif [[ "${GITHUB_REF}" == "refs/heads/develop" ]]; then
+            # Beta prerelease cho develop
             VERSION="${YEAR_SEG}.${DATE_SEG}.beta-${BUILD_SEG}"
             PRERELEASE=true
             NAME="Beta ${VERSION}"
+          else
+            echo "Unsupported ref for release: ${GITHUB_REF}"
+            exit 1
           fi
           {
             echo "version=${VERSION}"
