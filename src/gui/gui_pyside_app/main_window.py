@@ -33,10 +33,12 @@ try:
     from .file_options import FileOptions
     from .theme import DARK_THEME, get_status_color
     from .worker import Worker
+    from .metadata_loader import MetadataLoader
 except ImportError:
     from file_options import FileOptions  # type: ignore
     from theme import DARK_THEME, get_status_color  # type: ignore
     from worker import Worker  # type: ignore
+    from metadata_loader import MetadataLoader  # type: ignore
 
 
 class DraggableListWidget(QtWidgets.QListWidget):
@@ -84,6 +86,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.session_log_file: Path | None = None
         self.log_view: QtWidgets.QPlainTextEdit | None = None
         self.current_selected_path: str | None = None
+        self.metadata_loader_thread: QtCore.QThread | None = None  # Thread để load metadata background
         
         # Lazy import UpdateManager - chỉ import khi cần check updates
         self.update_manager = None
@@ -1295,6 +1298,23 @@ if __name__ == "__main__":
                 ph.setText(0, "Loading...")
 
             self.file_count_label.setText(f"{len(processed_files)}/{len(mkv_files)}")
+            
+            # Start background metadata loader sau khi hiển thị file list
+            # Lấy danh sách file paths cần load metadata
+            files_to_load_metadata = []
+            for i in range(self.file_tree.topLevelItemCount()):
+                item = self.file_tree.topLevelItem(i)
+                if item is None:
+                    continue
+                path = item.data(0, QtCore.Qt.UserRole)
+                if path and isinstance(path, str) and path not in ("placeholder", "options"):
+                    options = self.file_options.get(path)
+                    if options and not options.metadata_ready:
+                        files_to_load_metadata.append(path)
+            
+            # Start background loader nếu có file cần load
+            if files_to_load_metadata:
+                self._start_metadata_loader(files_to_load_metadata)
 
         except Exception as e:
             import traceback
@@ -1310,6 +1330,50 @@ if __name__ == "__main__":
                 self.reload_btn.setEnabled(True)
                 self.reload_btn.setText("🔄")
                 self.reload_btn.setToolTip("Làm mới")
+    
+    def _start_metadata_loader(self, file_paths: list[str]):
+        """Start background thread để load metadata cho các file."""
+        # Stop loader cũ nếu đang chạy
+        if self.metadata_loader_thread and self.metadata_loader_thread.isRunning():
+            self.metadata_loader_thread.requestInterruption()
+            self.metadata_loader_thread.wait(1000)  # Đợi tối đa 1 giây
+        
+        # Tạo loader mới
+        self.metadata_loader_thread = MetadataLoader(file_paths)
+        self.metadata_loader_thread.metadata_loaded_signal.connect(self._on_metadata_loaded)
+        self.metadata_loader_thread.start()
+    
+    def _on_metadata_loaded(self, file_path: str, success: bool):
+        """Callback khi metadata đã được load xong trong background."""
+        if not file_path or file_path not in self.file_options:
+            return
+        
+        options = self.file_options[file_path]
+        
+        # Nếu chưa có metadata, load lại để cập nhật vào options
+        if not options.metadata_ready:
+            try:
+                self.ensure_options_metadata(file_path, options)
+            except Exception as e:
+                print(f"[WARNING] Không thể cập nhật metadata cho {os.path.basename(file_path)}: {e}")
+                return
+        
+        # Tìm item trong tree và cập nhật summary
+        normalized_filepath = os.path.normpath(os.path.abspath(file_path))
+        for i in range(self.file_tree.topLevelItemCount()):
+            item = self.file_tree.topLevelItem(i)
+            if item is None:
+                continue
+            path = item.data(0, QtCore.Qt.UserRole)
+            if not path or not isinstance(path, str):
+                continue
+            
+            item_normalized = os.path.normpath(os.path.abspath(path))
+            if item_normalized == normalized_filepath:
+                # Cập nhật summary khi metadata đã ready
+                if options.metadata_ready:
+                    item.setText(1, self.get_file_config_summary(options))
+                break
 
     def on_file_item_clicked(self, item, column):
         """Single click - mở config khi click vào column 1 (Cấu hình)"""
