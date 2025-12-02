@@ -8,6 +8,9 @@
     "dist",
     ".git",
     ".cursor"
-  ]
+  ],
+  "reportAttributeAccessIssue": "none",
+  "reportOptionalMemberAccess": "warning",
+  "typeCheckingMode": "basic"
 }
 

@@ -102,7 +102,15 @@ class MainWindow(QtWidgets.QMainWindow):
         try:
             from mkvprocessor.update_manager import UpdateManager
             self.update_manager = UpdateManager()
-        except ImportError:
+        except ImportError as e:
+            # ImportError có thể do thiếu module requests hoặc lỗi import khác
+            print(f"[WARNING] UpdateManager không khả dụng: {e}")
+            self.update_manager = None
+        except Exception as e:
+            # Bắt mọi exception khác để tránh crash
+            print(f"[WARNING] Lỗi khởi tạo UpdateManager: {e}")
+            import traceback
+            traceback.print_exc()
             self.update_manager = None
 
         self.build_ui()
@@ -316,6 +324,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.file_tree.blockSignals(True)
         for i in range(self.file_tree.topLevelItemCount()):
             item = self.file_tree.topLevelItem(i)
+            if item is None:
+                continue
             item.setCheckState(0, QtCore.Qt.Checked if checked else QtCore.Qt.Unchecked)
             path = item.data(0, QtCore.Qt.UserRole)
             if isinstance(path, str) and path in self.file_options:
@@ -331,7 +341,9 @@ class MainWindow(QtWidgets.QMainWindow):
             self.select_all_cb.blockSignals(False)
             return
         
-        checked = sum(1 for i in range(total) if self.file_tree.topLevelItem(i).checkState(0) == QtCore.Qt.Checked)
+        checked = sum(1 for i in range(total) 
+                     if (item := self.file_tree.topLevelItem(i)) is not None 
+                     and item.checkState(0) == QtCore.Qt.Checked)
         
         self.select_all_cb.blockSignals(True)
         if checked == 0:
@@ -562,8 +574,9 @@ class MainWindow(QtWidgets.QMainWindow):
             self.update_progress_bar.setVisible(False)
             updates_layout.addWidget(self.update_progress_bar)
         else:
-            no_update_label = QtWidgets.QLabel("Update manager not available")
+            no_update_label = QtWidgets.QLabel("⚠️ Update manager không khả dụng (có thể do thiếu thư viện requests)")
             no_update_label.setObjectName("settingsUpdatesHint")
+            no_update_label.setWordWrap(True)
             updates_layout.addWidget(no_update_label)
 
         card_layout.addWidget(updates_frame)
@@ -1375,6 +1388,15 @@ if __name__ == "__main__":
         export_header.addWidget(export_none_btn)
         export_layout.addLayout(export_header)
 
+        # Tạo scroll area cho export list để tránh scroll giật khi có nhiều subtitle
+        export_scroll = QtWidgets.QScrollArea()
+        export_scroll.setWidgetResizable(True)
+        export_scroll.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
+        export_scroll.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAsNeeded)
+        export_scroll.setMaximumHeight(300)  # Giới hạn chiều cao tối đa
+        export_scroll.setMinimumHeight(80)
+        export_scroll.setFrameShape(QtWidgets.QFrame.NoFrame)
+        
         export_list = QtWidgets.QWidget()
         export_list_layout = QtWidgets.QVBoxLayout(export_list)
         export_list_layout.setSpacing(2)
@@ -1392,7 +1414,9 @@ if __name__ == "__main__":
             export_list_layout.addWidget(cb)
             export_cbs.append(cb)
         
-        export_layout.addWidget(export_list)
+        export_list_layout.addStretch()  # Thêm stretch để các checkbox không bị kéo dãn
+        export_scroll.setWidget(export_list)
+        export_layout.addWidget(export_scroll)
         
         def select_all_export():
             for cb in export_cbs:
@@ -1449,10 +1473,9 @@ if __name__ == "__main__":
 
         audio_list = DraggableListWidget()
         audio_list.setObjectName("audioList")
-        # Tính chiều cao dựa trên số audio tracks (mỗi item ~36px)
-        audio_height = max(80, min(350, len(audios) * 36 + 20))
-        audio_list.setMinimumHeight(audio_height)
-        audio_list.setMaximumHeight(audio_height)
+        # Giới hạn chiều cao để tránh scroll giật, sử dụng scrollbar tự động khi cần
+        audio_list.setMaximumHeight(300)
+        audio_list.setMinimumHeight(80)
 
         # Order: selected first, then others
         ordered = []
@@ -1497,6 +1520,15 @@ if __name__ == "__main__":
         srt_mux_header.addWidget(srt_mux_none_btn)
         srt_col_layout.addLayout(srt_mux_header)
 
+        # Tạo scroll area cho srt mux list để tránh scroll giật khi có nhiều subtitle
+        srt_mux_scroll = QtWidgets.QScrollArea()
+        srt_mux_scroll.setWidgetResizable(True)
+        srt_mux_scroll.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
+        srt_mux_scroll.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAsNeeded)
+        srt_mux_scroll.setMaximumHeight(300)  # Giới hạn chiều cao tối đa
+        srt_mux_scroll.setMinimumHeight(80)
+        srt_mux_scroll.setFrameShape(QtWidgets.QFrame.NoFrame)
+        
         srt_mux_list = QtWidgets.QWidget()
         srt_mux_list_layout = QtWidgets.QVBoxLayout(srt_mux_list)
         srt_mux_list_layout.setSpacing(2)
@@ -1514,10 +1546,12 @@ if __name__ == "__main__":
             srt_mux_list_layout.addWidget(cb)
             srt_mux_cbs.append(cb)
         
-        srt_col_layout.addWidget(srt_mux_list)
+        srt_mux_list_layout.addStretch()  # Thêm stretch để các checkbox không bị kéo dãn
+        srt_mux_scroll.setWidget(srt_mux_list)
+        srt_col_layout.addWidget(srt_mux_scroll)
         
         # Enable/disable dựa trên mux_audio (không cần check mux_subtitles vì đã bỏ checkbox riêng)
-        srt_mux_list.setEnabled(options.mux_audio)
+        srt_mux_scroll.setEnabled(options.mux_audio)
         
         # Thêm 2 cột vào layout
         mux_columns.addWidget(audio_col, 1)
@@ -1527,7 +1561,7 @@ if __name__ == "__main__":
         def on_mux_audio_toggle(c):
             options.mux_audio = c
             audio_list.setEnabled(c)
-            srt_mux_list.setEnabled(c)
+            srt_mux_scroll.setEnabled(c)
             # Nếu tắt mux, bỏ chọn tất cả audio và SRT
             if not c:
                 for i in range(audio_list.count()):
@@ -1547,13 +1581,13 @@ if __name__ == "__main__":
                 mux_audio_cb.setChecked(False)
                 options.mux_audio = False
                 audio_list.setEnabled(False)
-                srt_mux_list.setEnabled(False)
+                srt_mux_scroll.setEnabled(False)
             elif selected_count > 0 and not options.mux_audio:
                 # Tự động bật mux nếu có audio được chọn
                 mux_audio_cb.setChecked(True)
                 options.mux_audio = True
                 audio_list.setEnabled(True)
-                srt_mux_list.setEnabled(True)
+                srt_mux_scroll.setEnabled(True)
             self.update_item_summary(file_path, parent_item)
             update_force_process_state()
 
@@ -1963,7 +1997,15 @@ if __name__ == "__main__":
     def check_for_updates(self):
         """Manually check for updates."""
         if not self.update_manager:
-            QtWidgets.QMessageBox.warning(self, "Error", "Update manager not available")
+            QtWidgets.QMessageBox.warning(
+                self, 
+                "Update Manager", 
+                "Update manager không khả dụng.\n\n"
+                "Có thể do:\n"
+                "- Thiếu thư viện requests (pip install requests)\n"
+                "- Lỗi import module\n\n"
+                "Vui lòng kiểm tra console để xem chi tiết lỗi."
+            )
             return
         
         self.check_update_btn.setEnabled(False)
