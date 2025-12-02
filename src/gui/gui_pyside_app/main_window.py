@@ -1876,6 +1876,7 @@ if __name__ == "__main__":
             if item.checkState(0) == QtCore.Qt.Checked and path and os.path.exists(path):
                 selected.append(path)
                 if path in self.file_options:
+                    # Lấy options hiện tại (có thể chưa có metadata, backend sẽ tự đọc khi cần)
                     options_data[path] = self.file_options[path].to_dict()
 
         if not selected:
