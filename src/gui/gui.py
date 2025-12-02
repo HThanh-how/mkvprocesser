@@ -646,7 +646,7 @@ class MKVProcessorGUI:
         self.log_text.grid(row=2, column=0, sticky="nsew")
 
     def refresh_mkv_list(self):
-        """Cập nhật danh sách file video (MKV/MP4) trong listbox."""
+        """Cập nhật danh sách file MKV trong listbox."""
         if not hasattr(self, "mkv_listbox"):
             return
         folder = self.current_folder.get()
@@ -658,7 +658,7 @@ class MKVProcessorGUI:
         try:
             mkv_files = [
                 f for f in os.listdir(folder)
-                if f.lower().endswith((".mkv", ".mp4"))
+                if f.lower().endswith(".mkv")
             ]
         except Exception as exc:
             self.mkv_count_label.config(text=f"Lỗi đọc thư mục: {exc}")
@@ -676,9 +676,9 @@ class MKVProcessorGUI:
 
         count = len(mkv_files)
         if count:
-            self.mkv_count_label.config(text=f"{count} file video (MKV/MP4) sẵn sàng xử lý")
+            self.mkv_count_label.config(text=f"{count} file MKV sẵn sàng xử lý")
         else:
-            self.mkv_count_label.config(text="Không tìm thấy file video (MKV/MP4) nào")
+            self.mkv_count_label.config(text="Không tìm thấy file MKV nào")
 
     def update_hero_summary(self):
         """Đồng bộ thông tin hero pills."""

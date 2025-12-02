@@ -55,11 +55,9 @@ def rename_simple(file_path: Union[str, Path]) -> Union[str, Path]:
         else:
             lang_part = language_abbr
         
-        base_name, ext = os.path.splitext(os.path.basename(file_path))
-        if not ext:
-            ext = ".mkv"
+        base_name = os.path.splitext(os.path.basename(file_path))[0]
         
-        new_name = f"{resolution_label}_{lang_part}_{base_name}{ext}"
+        new_name = f"{resolution_label}_{lang_part}_{base_name}.mkv"
         new_name = sanitize_filename(new_name)
         
         dir_path = os.path.dirname(file_path)
@@ -98,9 +96,7 @@ def rename_file(file_path: Union[str, Path], audio_info: Tuple[int, int, str, st
         else:
             lang_part = language_abbr
         
-        base_name, ext = os.path.splitext(os.path.basename(file_path))
-        if not ext:
-            ext = ".mkv"
+        base_name = os.path.splitext(os.path.basename(file_path))[0]
         
         # Format: Resolution_Language_Year_BaseName.mkv
         if year:
@@ -177,8 +173,8 @@ def process_video(
             if year:
                 source_name += f"_{year}"
                 output_name += f"_{year}"
-            source_name += f"_{base_name}{ext}"
-            output_name += f"_{base_name}{ext}"
+            source_name += f"_{base_name}.mkv"
+            output_name += f"_{base_name}.mkv"
             
             # Final output path
             final_output_path = os.path.join(output_folder, sanitize_filename(output_name))
