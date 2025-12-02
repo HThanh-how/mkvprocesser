@@ -309,12 +309,37 @@ jobs:
 
       - name: Generate changelog from commit history
         run: |
-          {
-            echo "## Changelog ($(date -u +"%Y-%m-%d %H:%M:%S") UTC)"
-            echo
-            git log -n 50 --pretty=format:"- %s (%h)"
-          } > release_notes.md
-          if [ ! -s release_notes.md ]; then
+          echo "## Changelog ($(date -u +"%Y-%m-%d %H:%M:%S") UTC)" > release_notes.md
+          echo "" >> release_notes.md
+          
+          # Xác định loại release dựa trên branch
+          if [[ "${GITHUB_REF}" == "refs/heads/develop" ]]; then
+            # Beta release: tìm beta tag gần nhất (có "beta" trong tên)
+            LATEST_TAG=$(git tag --sort=-creatordate | grep "beta" | head -n 1 || echo "")
+            RELEASE_TYPE="beta"
+          elif [[ "${GITHUB_REF}" == "refs/heads/main" || "${GITHUB_REF}" == "refs/heads/master" ]]; then
+            # Stable release: tìm stable tag gần nhất (không có "beta")
+            LATEST_TAG=$(git tag --sort=-creatordate | grep -v "beta" | head -n 1 || echo "")
+            RELEASE_TYPE="stable"
+          else
+            # Fallback: tìm bất kỳ tag nào gần nhất
+            LATEST_TAG=$(git tag --sort=-creatordate | head -n 1 || echo "")
+            RELEASE_TYPE="unknown"
+          fi
+          
+          if [ -n "$LATEST_TAG" ]; then
+            echo "📌 Lấy changelog từ ${RELEASE_TYPE} release gần nhất: $LATEST_TAG đến HEAD" >> release_notes.md
+            echo "" >> release_notes.md
+            git log "${LATEST_TAG}..HEAD" --pretty=format:"- %s (%h)" >> release_notes.md 2>/dev/null || {
+              echo "- Không có commits mới từ $LATEST_TAG" >> release_notes.md
+            }
+          else
+            echo "📌 Không tìm thấy release trước đó, lấy tất cả commits gần đây:" >> release_notes.md
+            echo "" >> release_notes.md
+            git log -n 50 --pretty=format:"- %s (%h)" >> release_notes.md
+          fi
+          
+          if [ ! -s release_notes.md ] || [ "$(wc -l < release_notes.md)" -lt 3 ]; then
             echo "- No commits found." > release_notes.md
           fi
 
@@ -497,6 +522,7 @@ jobs:
           name: ${{ steps.release_meta.outputs.name }}
           body_path: release_notes.md
           prerelease: ${{ steps.release_meta.outputs.prerelease }}
+          draft: false
           files: |
             MKVProcessor_Windows_x64.exe
             MKVProcessor_Windows_x86.exe
