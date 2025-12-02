@@ -697,7 +697,8 @@ def main(input_folder=None, force_reprocess: Optional[bool] = None, dry_run: boo
             logger.warning("[GUI] Cannot parse file options. Will use defaults.")
 
     try:
-        mkv_files = [f for f in os.listdir(input_folder) if f.lower().endswith(".mkv")]
+        # Hỗ trợ cả .mkv và .mp4
+        mkv_files = [f for f in os.listdir(input_folder) if f.lower().endswith((".mkv", ".mp4"))]
         selected_env = os.environ.get("MKV_SELECTED_FILES")
         if selected_env:
             try:

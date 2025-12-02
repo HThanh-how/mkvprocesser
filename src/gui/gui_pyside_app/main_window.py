@@ -925,12 +925,15 @@ class MainWindow(QtWidgets.QMainWindow):
                     except (json.JSONDecodeError, IOError) as e:
                         print(f"[WARNING] Không thể đọc {json_file}: {e}")
 
-            # Đọc danh sách file MKV từ thư mục
+            # Đọc danh sách file video (MKV/MP4) từ thư mục
             try:
                 all_files = os.listdir(folder)
                 print(f"[DEBUG] Tìm thấy {len(all_files)} file trong thư mục: {folder}")
-                mkv_files = sorted(f for f in all_files if f.lower().endswith(".mkv"))
-                print(f"[DEBUG] Tìm thấy {len(mkv_files)} file MKV")
+                mkv_files = sorted(
+                    f for f in all_files
+                    if f.lower().endswith((".mkv", ".mp4"))
+                )
+                print(f"[DEBUG] Tìm thấy {len(mkv_files)} file video (MKV/MP4)")
             except PermissionError as e:
                 QtWidgets.QMessageBox.warning(
                     self, 
