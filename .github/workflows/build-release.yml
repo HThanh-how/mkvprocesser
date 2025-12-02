@@ -328,14 +328,10 @@ jobs:
           fi
           
           if [ -n "$LATEST_TAG" ]; then
-            echo "📌 Lấy changelog từ ${RELEASE_TYPE} release gần nhất: $LATEST_TAG đến HEAD" >> release_notes.md
-            echo "" >> release_notes.md
             git log "${LATEST_TAG}..HEAD" --pretty=format:"- %s (%h)" >> release_notes.md 2>/dev/null || {
               echo "- Không có commits mới từ $LATEST_TAG" >> release_notes.md
             }
           else
-            echo "📌 Không tìm thấy release trước đó, lấy tất cả commits gần đây:" >> release_notes.md
-            echo "" >> release_notes.md
             git log -n 50 --pretty=format:"- %s (%h)" >> release_notes.md
           fi
           
