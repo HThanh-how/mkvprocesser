@@ -241,13 +241,13 @@ class MainWindow(QtWidgets.QMainWindow):
         self.file_count_label.setObjectName("fileCountLabel")
         file_header.addWidget(self.file_count_label)
         
-        reload_btn = QtWidgets.QToolButton()
-        reload_btn.setObjectName("tinyButton")
-        reload_btn.setText("🔄")
-        reload_btn.setToolTip("Làm mới")
+        self.reload_btn = QtWidgets.QToolButton()
+        self.reload_btn.setObjectName("tinyButton")
+        self.reload_btn.setText("🔄")
+        self.reload_btn.setToolTip("Làm mới")
         # Dùng lambda để tránh lỗi AttributeError trong giai đoạn khởi tạo
-        reload_btn.clicked.connect(lambda: self.refresh_file_list())
-        file_header.addWidget(reload_btn)
+        self.reload_btn.clicked.connect(lambda: self.refresh_file_list())
+        file_header.addWidget(self.reload_btn)
         
         file_layout.addLayout(file_header)
 
@@ -1052,10 +1052,30 @@ if __name__ == "__main__":
         return " | ".join(parts)
 
     def refresh_file_list(self):
+        # Disable nút và hiển thị đang refresh
+        if hasattr(self, 'reload_btn'):
+            self.reload_btn.setEnabled(False)
+            self.reload_btn.setText("⏳")
+            self.reload_btn.setToolTip("Đang làm mới...")
+        
+        # Cập nhật file count label để hiển thị đang refresh
+        if hasattr(self, 'file_count_label'):
+            old_text = self.file_count_label.text()
+            self.file_count_label.setText("Đang tải...")
+            # Force update UI ngay lập tức
+            QtWidgets.QApplication.processEvents()
+        
         folder = self.folder_edit.text().strip()
         if not folder or not os.path.exists(folder):
             self.file_tree.clear()
             self.update_select_all_state()
+            # Re-enable nút
+            if hasattr(self, 'reload_btn'):
+                self.reload_btn.setEnabled(True)
+                self.reload_btn.setText("🔄")
+                self.reload_btn.setToolTip("Làm mới")
+            if hasattr(self, 'file_count_label'):
+                self.file_count_label.setText("0 file")
             return
 
         try:
@@ -1238,6 +1258,11 @@ if __name__ == "__main__":
         finally:
             self.file_tree.blockSignals(False)
             self.update_select_all_state()
+            # Re-enable nút và khôi phục icon
+            if hasattr(self, 'reload_btn'):
+                self.reload_btn.setEnabled(True)
+                self.reload_btn.setText("🔄")
+                self.reload_btn.setToolTip("Làm mới")
 
     def on_file_item_clicked(self, item, column):
         """Single click - mở config khi click vào column 1 (Cấu hình)"""
@@ -1728,8 +1753,15 @@ if __name__ == "__main__":
         self.worker = Worker(folder, selected)
         self.worker.log_signal.connect(self.log_message)
         self.worker.progress_signal.connect(self.update_progress)
+        self.worker.file_status_signal.connect(self.update_file_status)
         self.worker.finished_signal.connect(self.finish_processing)
         self.worker.start()
+        
+        # Lưu mapping filename -> filepath để cập nhật UI
+        self.processing_files_map = {}  # filename -> filepath
+        for filepath in selected:
+            filename = os.path.basename(filepath)
+            self.processing_files_map[filename] = filepath
         
         # Setup progress bar với range thực tế
         self.progress.setRange(0, len(selected))
@@ -1750,20 +1782,76 @@ if __name__ == "__main__":
         self.status_bar.showMessage("Đã dừng", 3000)
 
     def update_progress(self, current: int, total: int, filename: str):
-        """Cập nhật thanh tiến độ"""
+        """Cập nhật thanh tiến độ và UI của file đang xử lý"""
         self.progress.setRange(0, total)
         self.progress.setValue(current)
         # Rút gọn tên file nếu quá dài
         short_name = filename if len(filename) <= 40 else filename[:37] + "..."
         self.status_bar.showMessage(f"[{current}/{total}] {short_name}")
+        
+        # Cập nhật UI của file đang xử lý (màu cam)
+        filepath = self.processing_files_map.get(filename)
+        if filepath:
+            self.update_file_status(filepath, "started")
 
     def finish_processing(self, success: bool):
         self.progress.setVisible(False)
         self.start_btn.setVisible(True)   # Hiện nút Bắt đầu
         self.stop_btn.setVisible(False)  # Ẩn nút Dừng
         os.environ.pop("MKV_FILE_OPTIONS", None)
-        self.refresh_file_list()
+        # Đánh dấu tất cả file đã chọn là completed
+        for filepath in self.processing_files_map.values():
+            self.update_file_status(filepath, "completed")
+        self.processing_files_map.clear()
+        # Refresh để cập nhật danh sách (file đã xử lý sẽ chuyển sang màu xanh)
+        QtCore.QTimer.singleShot(500, self.refresh_file_list)  # Delay một chút để đảm bảo file đã được ghi log
         self.status_bar.showMessage("Completed" if success else "Error - see log", 5000)
+    
+    def update_file_status(self, filepath: str, status: str):
+        """Cập nhật trạng thái hiển thị của file trong tree"""
+        if not filepath or not os.path.exists(filepath):
+            return
+        
+        # Tìm item trong tree theo filepath
+        for i in range(self.file_tree.topLevelItemCount()):
+            item = self.file_tree.topLevelItem(i)
+            if item is None:
+                continue
+            path = item.data(0, QtCore.Qt.UserRole)
+            if path == filepath:
+                if status == "started":
+                    # Màu cam cho file đang xử lý
+                    fg = QtGui.QColor("#fb923c")  # Cam
+                    bg = QtGui.QColor("#431407")  # Nền cam đậm
+                    # Thêm icon ⏳ vào đầu tên file
+                    text = item.text(0)
+                    if not text.startswith("⏳"):
+                        if text.startswith("✓"):
+                            text = text[1:].strip()
+                        item.setText(0, f"⏳ {text}")
+                elif status == "completed":
+                    # Màu xanh cho file đã xử lý
+                    fg = QtGui.QColor("#bbf7d0")  # Xanh lá
+                    bg = QtGui.QColor("#0f2f1a")  # Nền xanh đậm
+                    # Thêm icon ✓ vào đầu tên file
+                    text = item.text(0)
+                    if text.startswith("⏳"):
+                        text = text[1:].strip()
+                    if not text.startswith("✓"):
+                        item.setText(0, f"✓ {text}")
+                    # Bỏ chọn file đã xử lý
+                    item.setCheckState(0, QtCore.Qt.Unchecked)
+                    if path in self.file_options:
+                        self.file_options[path].process_enabled = False
+                
+                # Áp dụng màu sắc
+                for col in range(2):
+                    item.setForeground(col, fg)
+                    item.setBackground(col, bg)
+                
+                # Force update UI
+                self.file_tree.viewport().update()
+                break
 
     def log_message(self, text: str, level: str = "INFO"):
         if self.session_log_file:

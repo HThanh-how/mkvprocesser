@@ -42,6 +42,7 @@ class Worker(QtCore.QThread):
 
     log_signal = QtCore.Signal(str, str)  # text, level
     progress_signal = QtCore.Signal(int, int, str)  # current, total, filename
+    file_status_signal = QtCore.Signal(str, str)  # filepath, status (started/completed)
     finished_signal = QtCore.Signal(bool)  # success
 
     def __init__(self, folder: str, selected_files: list[str] | None = None):
@@ -49,6 +50,7 @@ class Worker(QtCore.QThread):
         self.folder = folder
         self.selected_files = selected_files or []
         self.log_handler = None
+        self._current_processing_file = None  # Track file đang xử lý
 
     def run(self):
         selected_backup = None
@@ -124,16 +126,35 @@ class Worker(QtCore.QThread):
                     text = text.strip()
                     if text:
                         self.signal.emit(text, self.level)
+                        import re
                         # Detect progress from log
                         if text.startswith("Processing file") or text.startswith("Đang xử lý file"):
                             # Parse "Processing file X/Y: filename"
-                            import re
                             match = re.search(r"(\d+)/(\d+):\s*(.+)", text)
                             if match:
                                 current = int(match.group(1))
                                 total = int(match.group(2))
                                 filename = match.group(3)
                                 worker_ref.progress_signal.emit(current, total, filename)
+                        # Detect file started processing
+                        elif "PROCESSING FILE:" in text:
+                            # Parse "===== PROCESSING FILE: /path/to/file.mkv ====="
+                            match = re.search(r"PROCESSING FILE:\s*(.+)", text)
+                            if match:
+                                filepath = match.group(1).strip()
+                                worker_ref.file_status_signal.emit(filepath, "started")
+                                # Nếu có file trước đó đang xử lý, đánh dấu nó đã xong
+                                if hasattr(worker_ref, '_current_processing_file'):
+                                    if worker_ref._current_processing_file:
+                                        worker_ref.file_status_signal.emit(worker_ref._current_processing_file, "completed")
+                                worker_ref._current_processing_file = filepath
+                        # Detect overall completion
+                        elif "PROCESSING COMPLETED" in text:
+                            # Đánh dấu file cuối cùng đã xong
+                            if hasattr(worker_ref, '_current_processing_file'):
+                                if worker_ref._current_processing_file:
+                                    worker_ref.file_status_signal.emit(worker_ref._current_processing_file, "completed")
+                                    worker_ref._current_processing_file = None
 
                 def flush(self):
                     pass
