@@ -27,6 +27,44 @@ QLabel {
     border-radius: 6px;
 }
 
+/* Settings card & layout */
+#settingsCard {
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 10px;
+}
+#settingsTitle {
+    font-size: 18px;
+    font-weight: 600;
+    color: #f0f6fc;
+}
+#settingsSubtitle {
+    font-size: 12px;
+    color: #8b949e;
+}
+#settingsGroup {
+    background: #0d1117;
+    border-radius: 8px;
+    border: 1px solid #21262d;
+}
+#settingsGroupTitle {
+    font-size: 13px;
+    font-weight: 600;
+    color: #c9d1d9;
+}
+#settingsFieldLabel {
+    color: #8b949e;
+    font-size: 12px;
+}
+#settingsStatusLabel {
+    font-size: 12px;
+    color: #a5b4fc;
+}
+#settingsUpdatesHint {
+    font-size: 12px;
+    color: #94a3b8;
+}
+
 /* Inputs */
 QLineEdit {
     background: #0d1117;
