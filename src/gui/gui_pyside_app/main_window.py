@@ -88,6 +88,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self.current_selected_path: str | None = None
         self.metadata_loader_thread: QtCore.QThread | None = None  # Thread để load metadata background
         
+        # Khởi tạo processing_files_map để tránh AttributeError
+        self.processing_files_map: dict[str, str] = {}  # normalized_filepath -> original_filepath
+        
         # Lazy import UpdateManager - chỉ import khi cần check updates
         self.update_manager = None
         self._update_manager_imported = False
@@ -171,10 +174,8 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.build_processing_tab()
         self.settings_tab_index = self.build_settings_tab()
-        # Gọi build_log_tab một cách an toàn để tránh crash nếu có lỗi không quan trọng
-        build_log = getattr(self, "build_log_tab", None)
-        if callable(build_log):
-            build_log()
+        # Build log tab - đảm bảo luôn được tạo
+        self.build_log_tab()
         
         # Track update badge state
         self._has_update_badge = False
@@ -285,6 +286,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.file_tree.setExpandsOnDoubleClick(False)
         self.file_tree.setAnimated(True)
         self.file_tree.setUniformRowHeights(False)  # Cho phép row có chiều cao khác nhau
+        # Tắt auto-fill background để màu sắc được hiển thị đúng
+        self.file_tree.setAutoFillBackground(False)
         # Kết nối signal bằng lambda để tránh lỗi AttributeError nếu hàm được định nghĩa phía sau
         self.file_tree.itemChanged.connect(lambda item, col: self.on_file_item_changed(item, col))
         self.file_tree.itemClicked.connect(lambda item, col: self.on_file_item_clicked(item, col))
@@ -1238,6 +1241,9 @@ if __name__ == "__main__":
                 fg = QtGui.QColor("#facc15")
                 bg = QtGui.QColor("#2f1b09")
                 for col in range(2):
+                    # Sử dụng setData trước để đảm bảo màu được áp dụng
+                    item.setData(col, QtCore.Qt.ForegroundRole, fg)
+                    item.setData(col, QtCore.Qt.BackgroundRole, bg)
                     item.setForeground(col, fg)
                     item.setBackground(col, bg)
                 
@@ -1289,6 +1295,9 @@ if __name__ == "__main__":
                 fg = QtGui.QColor("#bbf7d0")
                 bg = QtGui.QColor("#0f2f1a")
                 for col in range(2):
+                    # Sử dụng setData trước để đảm bảo màu được áp dụng
+                    item.setData(col, QtCore.Qt.ForegroundRole, fg)
+                    item.setData(col, QtCore.Qt.BackgroundRole, bg)
                     item.setForeground(col, fg)
                     item.setBackground(col, bg)
                 
@@ -1904,10 +1913,13 @@ if __name__ == "__main__":
         
         # Lưu mapping filepath (normalized) -> filepath để cập nhật UI
         # Dùng filepath thay vì filename để tránh collision khi có file cùng tên ở folder khác
-        self.processing_files_map = {}  # normalized_filepath -> original_filepath
+        self.processing_files_map.clear()  # Clear trước khi thêm mới
         for filepath in selected:
-            normalized = os.path.normpath(os.path.abspath(filepath))
-            self.processing_files_map[normalized] = filepath
+            try:
+                normalized = os.path.normpath(os.path.abspath(filepath))
+                self.processing_files_map[normalized] = filepath
+            except Exception as e:
+                print(f"[ERROR] Không thể normalize path {filepath}: {e}")
         
         # Setup progress bar với range thực tế
         self.progress.setRange(0, len(selected))
@@ -1939,20 +1951,29 @@ if __name__ == "__main__":
         # Ưu tiên file đang trong processing_files_map
         matched_filepath = None
         for normalized_path, original_path in self.processing_files_map.items():
-            if os.path.basename(original_path) == filename:
-                matched_filepath = original_path
-                break
+            try:
+                if os.path.basename(original_path) == filename:
+                    matched_filepath = original_path
+                    break
+            except Exception as e:
+                print(f"[ERROR] Lỗi khi so sánh filename {original_path}: {e}")
+                continue
         
         # Nếu không tìm thấy, thử tìm trong tree
         if not matched_filepath:
             folder = self.folder_edit.text().strip()
             if folder:
-                potential_path = os.path.normpath(os.path.abspath(os.path.join(folder, filename)))
-                if potential_path in self.processing_files_map:
-                    matched_filepath = self.processing_files_map[potential_path]
+                try:
+                    potential_path = os.path.normpath(os.path.abspath(os.path.join(folder, filename)))
+                    if potential_path in self.processing_files_map:
+                        matched_filepath = self.processing_files_map[potential_path]
+                except Exception as e:
+                    print(f"[ERROR] Lỗi khi tìm file {filename} trong folder {folder}: {e}")
         
         if matched_filepath:
             self.update_file_status(matched_filepath, "started")
+        else:
+            print(f"[WARNING] Không tìm thấy filepath cho filename: {filename}")
 
     def finish_processing(self, success: bool):
         self.progress.setVisible(False)
@@ -1992,13 +2013,19 @@ if __name__ == "__main__":
             return
         
         # Normalize filepath để so sánh chính xác
-        normalized_filepath = os.path.normpath(os.path.abspath(filepath))
+        try:
+            normalized_filepath = os.path.normpath(os.path.abspath(filepath))
+        except Exception as e:
+            print(f"[ERROR] Không thể normalize path {filepath}: {e}")
+            return
         
         # Nếu file không tồn tại và status là completed, vẫn cho phép (file có thể đã được rename)
         if status != "completed" and not os.path.exists(filepath):
+            print(f"[WARNING] File không tồn tại: {filepath}")
             return
         
         # Tìm item trong tree theo filepath (so sánh normalized paths)
+        found_item = None
         for i in range(self.file_tree.topLevelItemCount()):
             item = self.file_tree.topLevelItem(i)
             if item is None:
@@ -2008,59 +2035,103 @@ if __name__ == "__main__":
                 continue
             
             # Normalize path từ tree để so sánh
-            normalized_path = os.path.normpath(os.path.abspath(path))
-            if normalized_path == normalized_filepath:
-                if status == "started":
-                    # Màu cam cho file đang xử lý
-                    fg = QtGui.QColor("#fb923c")  # Cam
-                    bg = QtGui.QColor("#431407")  # Nền cam đậm
-                    # Thêm icon ⏳ vào đầu tên file
-                    text = item.text(0)
-                    if not text.startswith("⏳"):
-                        # Loại bỏ các icon cũ
-                        text = text.lstrip("✓❌⏳").strip()
-                        item.setText(0, f"⏳ {text}")
-                elif status == "completed":
-                    # Màu xanh cho file đã xử lý
-                    fg = QtGui.QColor("#bbf7d0")  # Xanh lá
-                    bg = QtGui.QColor("#0f2f1a")  # Nền xanh đậm
-                    # Thêm icon ✓ vào đầu tên file
-                    text = item.text(0)
-                    # Loại bỏ các icon cũ
-                    text = text.lstrip("✓❌⏳").strip()
-                    if not text.startswith("✓"):
-                        item.setText(0, f"✓ {text}")
-                    # Bỏ chọn file đã xử lý
-                    item.setCheckState(0, QtCore.Qt.Unchecked)
-                    if path in self.file_options:
-                        self.file_options[path].process_enabled = False
-                elif status == "failed":
-                    # Màu đỏ cho file xử lý lỗi
-                    fg = QtGui.QColor("#f87171")  # Đỏ
-                    bg = QtGui.QColor("#431407")  # Nền đỏ đậm
-                    # Thêm icon ❌ vào đầu tên file
-                    text = item.text(0)
-                    # Loại bỏ các icon cũ
-                    text = text.lstrip("✓❌⏳").strip()
-                    if not text.startswith("❌"):
-                        item.setText(0, f"❌ {text}")
+            try:
+                normalized_path = os.path.normpath(os.path.abspath(path))
+            except Exception as e:
+                print(f"[ERROR] Không thể normalize path từ tree {path}: {e}")
+                continue
                 
-                # Áp dụng màu sắc
-                for col in range(2):
-                    item.setForeground(col, fg)
-                    item.setBackground(col, bg)
-                
-                # Force update UI
-                self.file_tree.viewport().update()
+            # So sánh cả normalized path và filename để tìm chính xác
+            if normalized_path == normalized_filepath or path == filepath:
+                found_item = item
                 break
+        
+        # Nếu không tìm thấy bằng path, thử tìm bằng filename
+        if found_item is None:
+            filename = os.path.basename(filepath)
+            for i in range(self.file_tree.topLevelItemCount()):
+                item = self.file_tree.topLevelItem(i)
+                if item is None:
+                    continue
+                item_text = item.text(0)
+                # Loại bỏ icon và size để so sánh filename
+                item_filename = item_text.lstrip("✓❌⏳").strip()
+                if " (" in item_filename:
+                    item_filename = item_filename.split(" (")[0]
+                if item_filename == filename or item_filename.endswith(filename):
+                    found_item = item
+                    break
+        
+        if found_item is None:
+            print(f"[WARNING] Không tìm thấy file trong tree: {filepath}")
+            return
+        
+        item = found_item
+        path = item.data(0, QtCore.Qt.UserRole)
+        
+        if status == "started":
+            # Màu cam cho file đang xử lý
+            fg = QtGui.QColor("#fb923c")  # Cam
+            bg = QtGui.QColor("#431407")  # Nền cam đậm
+            # Thêm icon ⏳ vào đầu tên file
+            text = item.text(0)
+            if not text.startswith("⏳"):
+                # Loại bỏ các icon cũ
+                text = text.lstrip("✓❌⏳").strip()
+                item.setText(0, f"⏳ {text}")
+        elif status == "completed":
+            # Màu xanh cho file đã xử lý
+            fg = QtGui.QColor("#bbf7d0")  # Xanh lá
+            bg = QtGui.QColor("#0f2f1a")  # Nền xanh đậm
+            # Thêm icon ✓ vào đầu tên file
+            text = item.text(0)
+            # Loại bỏ các icon cũ
+            text = text.lstrip("✓❌⏳").strip()
+            if not text.startswith("✓"):
+                item.setText(0, f"✓ {text}")
+            # Bỏ chọn file đã xử lý
+            item.setCheckState(0, QtCore.Qt.Unchecked)
+            if path and isinstance(path, str) and path in self.file_options:
+                self.file_options[path].process_enabled = False
+        elif status == "failed":
+            # Màu đỏ cho file xử lý lỗi
+            fg = QtGui.QColor("#f87171")  # Đỏ
+            bg = QtGui.QColor("#431407")  # Nền đỏ đậm
+            # Thêm icon ❌ vào đầu tên file
+            text = item.text(0)
+            # Loại bỏ các icon cũ
+            text = text.lstrip("✓❌⏳").strip()
+            if not text.startswith("❌"):
+                item.setText(0, f"❌ {text}")
+        
+        # Áp dụng màu sắc - đảm bảo override theme
+        # Sử dụng setData trước để đảm bảo màu được áp dụng
+        for col in range(2):
+            item.setData(col, QtCore.Qt.ForegroundRole, fg)
+            item.setData(col, QtCore.Qt.BackgroundRole, bg)
+            item.setForeground(col, fg)
+            item.setBackground(col, bg)
+        
+        # Bỏ selection của item này để màu riêng được hiển thị (tránh bị override bởi selected style)
+        # Chỉ clear selection nếu item này đang được selected
+        current_item = self.file_tree.currentItem()
+        if current_item == item:
+            self.file_tree.setCurrentItem(None)
+        
+        # Force update UI - cần repaint để màu hiển thị
+        item.setData(0, QtCore.Qt.UserRole, path)  # Giữ lại path
+        self.file_tree.viewport().update()
+        self.file_tree.repaint()
+        QtWidgets.QApplication.processEvents()
 
     def log_message(self, text: str, level: str = "INFO"):
         if self.session_log_file:
             try:
                 with self.session_log_file.open("a", encoding="utf-8") as f:
                     f.write(f"[{level}] {text}\n")
-            except:
-                pass
+            except Exception as e:
+                # Log nhưng không crash nếu không thể ghi log
+                print(f"[WARNING] Không thể ghi log: {e}")
         
         # Phân loại log
         is_srt_log = text.endswith('.srt') or '.srt (' in text or '_vie)' in text or '_und)' in text
@@ -2262,7 +2333,8 @@ if __name__ == "__main__":
             ok = script.check_ffmpeg_available()
             self.status_labels["ffmpeg"].setText(f"FFmpeg: {'✓' if ok else '✗'}")
             self.status_labels["ffmpeg"].setStyleSheet(f"color: {get_status_color('success' if ok else 'warning')};")
-        except:
+        except Exception as e:
+            print(f"[WARNING] Không thể kiểm tra FFmpeg: {e}")
             self.status_labels["ffmpeg"].setText("FFmpeg: ?")
 
         try:
@@ -2270,7 +2342,8 @@ if __name__ == "__main__":
             ram = script.check_available_ram()
             self.status_labels["ram"].setText(f"RAM: {ram:.1f}GB")
             self.status_labels["ram"].setStyleSheet(f"color: {get_status_color('info')};")
-        except:
+        except Exception as e:
+            print(f"[WARNING] Không thể kiểm tra RAM: {e}")
             self.status_labels["ram"].setText("RAM: ?")
 
         has_config = get_config_path().exists()

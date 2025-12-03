@@ -262,9 +262,12 @@ QCheckBox::indicator:hover {
     padding: 4px;
     border-radius: 4px;
 }
+/* Chỉ apply màu selected khi item được chọn thủ công (không override màu đã set bằng code) */
 #fileTree::item:selected {
     background: #1f6feb;
+    color: white;
 }
+/* Hover chỉ khi không selected và không có màu riêng */
 #fileTree::item:hover {
     background: #21262d;
 }
