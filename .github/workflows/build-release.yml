@@ -326,17 +326,21 @@ jobs:
             LATEST_TAG=$(git tag --sort=-creatordate | head -n 1 || echo "")
             RELEASE_TYPE="unknown"
           fi
+          echo "Last tag detected: ${LATEST_TAG:-<none>}"
           
           if [ -n "$LATEST_TAG" ]; then
-            git log "${LATEST_TAG}..HEAD" --pretty=format:"- %s (%h)" >> release_notes.md 2>/dev/null || {
-              echo "- Không có commits mới từ $LATEST_TAG" >> release_notes.md
-            }
+            # Lấy danh sách commit kể từ tag gần nhất
+            COMMITS=$(git log "${LATEST_TAG}..HEAD" --pretty=format:"- %s (%h)" 2>/dev/null || echo "")
+            if [ -n "$COMMITS" ]; then
+              echo "$COMMITS" >> release_notes.md
+            else
+              # Không có commit mới kể từ tag -> vẫn hiển thị commit hiện tại
+              echo "- No new commits since ${LATEST_TAG}." >> release_notes.md
+              echo "- Current HEAD: $(git log -n 1 --pretty=format:'%s (%h)')" >> release_notes.md
+            fi
           else
+            # Không có tag nào -> lấy 50 commit gần nhất (nếu có)
             git log -n 50 --pretty=format:"- %s (%h)" >> release_notes.md
-          fi
-          
-          if [ ! -s release_notes.md ] || [ "$(wc -l < release_notes.md)" -lt 3 ]; then
-            echo "- No commits found." > release_notes.md
           fi
 
       - name: Set release metadata
