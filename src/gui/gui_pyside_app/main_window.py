@@ -174,8 +174,10 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.build_processing_tab()
         self.settings_tab_index = self.build_settings_tab()
-        # Build log tab - đảm bảo luôn được tạo
-        self.build_log_tab()
+        # Gọi build_log_tab một cách an toàn để tránh crash nếu build cũ không có hàm này
+        build_log = getattr(self, "build_log_tab", None)
+        if callable(build_log):
+            build_log()
         
         # Track update badge state
         self._has_update_badge = False
