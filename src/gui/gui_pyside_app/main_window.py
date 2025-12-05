@@ -7,14 +7,12 @@ from __future__ import annotations
 import importlib
 import json
 import os
+import sys
 from datetime import datetime
 from pathlib import Path
 
 import requests
 from PySide6 import QtCore, QtGui, QtWidgets
-
-import sys
-from pathlib import Path
 
 # Add src to sys.path to import mkvprocessor
 src_path = Path(__file__).parent.parent.parent
@@ -156,7 +154,37 @@ class MainWindow(QtWidgets.QMainWindow):
                     self._update_manager_imported = True
                     return None
                 
-                from mkvprocessor.update_manager import UpdateManager
+                # Try multiple import paths (support both source and exe)
+                UpdateManager = None
+                import_candidates = [
+                    "mkvprocessor.update_manager",
+                    "update_manager",
+                ]
+                
+                # If running from exe, also try direct import
+                if hasattr(sys, '_MEIPASS'):
+                    import_candidates.insert(0, "mkvprocessor.update_manager")
+                    # Try to add _MEIPASS to path if not already there
+                    meipass_path = Path(sys._MEIPASS)
+                    if str(meipass_path) not in sys.path:
+                        sys.path.insert(0, str(meipass_path))
+                    # Also try src path
+                    src_path = meipass_path / "src"
+                    if src_path.exists() and str(src_path) not in sys.path:
+                        sys.path.insert(0, str(src_path))
+                
+                for module_name in import_candidates:
+                    try:
+                        module = importlib.import_module(module_name)
+                        UpdateManager = getattr(module, 'UpdateManager', None)
+                        if UpdateManager:
+                            break
+                    except (ImportError, AttributeError):
+                        continue
+                
+                if not UpdateManager:
+                    raise ImportError(f"Cannot import UpdateManager from any of: {import_candidates}")
+                
                 self.update_manager = UpdateManager()
                 success_msg = "[INFO] UpdateManager đã được khởi tạo thành công"
                 print(success_msg)
@@ -1194,13 +1222,16 @@ class MainWindow(QtWidgets.QMainWindow):
         return " | ".join(parts)
 
     def refresh_file_list(self):
+        # Log start
+        log_msg = "[INFO] Bắt đầu refresh file list..."
+        print(log_msg)
+        if self.log_view:
+            self.log_view.appendPlainText(log_msg)
+        
         # Không refresh nếu đang xử lý (tránh mất trạng thái đang xử lý)
         if self.worker and self.worker.isRunning():
-            QtWidgets.QMessageBox.information(
-                self, 
-                "Đang xử lý", 
-                "Không thể làm mới danh sách khi đang xử lý file.\nVui lòng đợi hoàn thành hoặc dừng xử lý."
-            )
+            msg = "Không thể làm mới danh sách khi đang xử lý file.\nVui lòng đợi hoàn thành hoặc dừng xử lý."
+            QtWidgets.QMessageBox.information(self, "Đang xử lý", msg)
             return
         
         # Disable nút và hiển thị đang refresh
@@ -1217,7 +1248,16 @@ class MainWindow(QtWidgets.QMainWindow):
             QtWidgets.QApplication.processEvents()
         
         folder = self.folder_edit.text().strip()
-        if not folder or not os.path.exists(folder):
+        log_msg = f"[INFO] Folder được chọn: {folder}"
+        print(log_msg)
+        if self.log_view:
+            self.log_view.appendPlainText(log_msg)
+        
+        if not folder:
+            log_msg = "[WARNING] Chưa chọn folder"
+            print(log_msg)
+            if self.log_view:
+                self.log_view.appendPlainText(log_msg)
             self.file_tree.clear()
             self.update_select_all_state()
             # Re-enable nút
@@ -1227,6 +1267,23 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.reload_btn.setToolTip("Làm mới")
             if hasattr(self, 'file_count_label'):
                 self.file_count_label.setText("0 file")
+            return
+        
+        if not os.path.exists(folder):
+            log_msg = f"[ERROR] Folder không tồn tại: {folder}"
+            print(log_msg)
+            if self.log_view:
+                self.log_view.appendPlainText(log_msg)
+            self.file_tree.clear()
+            self.update_select_all_state()
+            # Re-enable nút
+            if hasattr(self, 'reload_btn'):
+                self.reload_btn.setEnabled(True)
+                self.reload_btn.setText("🔄")
+                self.reload_btn.setToolTip("Làm mới")
+            if hasattr(self, 'file_count_label'):
+                self.file_count_label.setText("0 file")
+            QtWidgets.QMessageBox.warning(self, "Lỗi", f"Folder không tồn tại:\n{folder}")
             return
 
         try:
@@ -1278,12 +1335,19 @@ class MainWindow(QtWidgets.QMainWindow):
             # Đọc danh sách file video từ thư mục
             try:
                 all_files = os.listdir(folder)
-                print(f"[DEBUG] Tìm thấy {len(all_files)} file trong thư mục: {folder}")
+                log_msg = f"[INFO] Tìm thấy {len(all_files)} file trong thư mục: {folder}"
+                print(log_msg)
+                if self.log_view:
+                    self.log_view.appendPlainText(log_msg)
+                
                 video_files = sorted(
                     f for f in all_files 
                     if any(f.lower().endswith(ext) for ext in self.SUPPORTED_VIDEO_EXTENSIONS)
                 )
-                print(f"[DEBUG] Tìm thấy {len(video_files)} file video ({', '.join(self.SUPPORTED_VIDEO_EXTENSIONS)})")
+                log_msg = f"[INFO] Tìm thấy {len(video_files)} file video (hỗ trợ: {', '.join(self.SUPPORTED_VIDEO_EXTENSIONS)})"
+                print(log_msg)
+                if self.log_view:
+                    self.log_view.appendPlainText(log_msg)
             except PermissionError as e:
                 QtWidgets.QMessageBox.warning(
                     self, 
