@@ -178,12 +178,13 @@ class MainWindow(QtWidgets.QMainWindow):
                     for update_manager_path in possible_paths:
                         if update_manager_path.exists():
                             try:
-                                import importlib.util
-                                spec = importlib.util.spec_from_file_location(
+                                # Use importlib.util from global scope, not import locally
+                                import importlib.util as importlib_util
+                                spec = importlib_util.spec_from_file_location(
                                     "update_manager", str(update_manager_path)
                                 )
                                 if spec and spec.loader:
-                                    module = importlib.util.module_from_spec(spec)
+                                    module = importlib_util.module_from_spec(spec)
                                     spec.loader.exec_module(module)
                                     UpdateManager = getattr(module, 'UpdateManager', None)
                                     if UpdateManager:
@@ -197,7 +198,7 @@ class MainWindow(QtWidgets.QMainWindow):
                                 print(log_msg)
                                 continue
                 
-                # If not loaded yet, try normal import
+                # If not loaded yet, try normal import (importlib is already imported at top)
                 if not UpdateManager:
                     import_candidates = [
                         "mkvprocessor.update_manager",
@@ -206,6 +207,7 @@ class MainWindow(QtWidgets.QMainWindow):
                     
                     for module_name in import_candidates:
                         try:
+                            # Use importlib from global scope (imported at top of file)
                             module = importlib.import_module(module_name)
                             UpdateManager = getattr(module, 'UpdateManager', None)
                             if UpdateManager:
@@ -1073,85 +1075,91 @@ class MainWindow(QtWidgets.QMainWindow):
             subs, audios = self.probe_tracks(file_path)
             print(f"[DEBUG] Tìm thấy {len(subs)} subtitle tracks và {len(audios)} audio tracks")
             
-            # Cache resolution
-            if not options.cached_resolution:
-                video_stream = None
-                # Try to find video stream
-                for stream in probe.get("streams", []):
-                    if stream.get("codec_type") == "video":
-                        video_stream = stream
-                        break
+            # Cache resolution - ALWAYS try to get it, even if cached_resolution exists
+            # (because it might be "?" from previous failed attempt)
+            video_stream = None
+            # Try to find video stream
+            for stream in probe.get("streams", []):
+                if stream.get("codec_type") == "video":
+                    video_stream = stream
+                    break
+            
+            if video_stream:
+                # Try multiple ways to get width/height
+                w = None
+                h = None
                 
-                if video_stream:
-                    # Try multiple ways to get width/height
-                    w = None
-                    h = None
-                    
-                    # Method 1: Direct width/height
-                    if "width" in video_stream and "height" in video_stream:
+                # Method 1: Direct width/height
+                if "width" in video_stream and "height" in video_stream:
+                    try:
+                        w = int(video_stream["width"])
+                        h = int(video_stream["height"])
+                    except (ValueError, TypeError) as e:
+                        log_msg = f"[DEBUG] Failed to parse width/height: {e}"
+                        print(log_msg)
+                
+                # Method 2: coded_width/coded_height (for some codecs)
+                if (w is None or h is None) and "coded_width" in video_stream and "coded_height" in video_stream:
+                    try:
+                        w = int(video_stream["coded_width"])
+                        h = int(video_stream["coded_height"])
+                    except (ValueError, TypeError):
+                        pass
+                
+                # Method 3: display_aspect_ratio and sample_aspect_ratio (fallback)
+                if w is None or h is None:
+                    # Try to get from tags or other metadata
+                    tags = video_stream.get("tags", {})
+                    if "width" in tags:
                         try:
-                            w = int(video_stream["width"])
-                            h = int(video_stream["height"])
+                            w = int(tags["width"])
                         except (ValueError, TypeError):
                             pass
-                    
-                    # Method 2: coded_width/coded_height (for some codecs)
-                    if w is None or h is None:
-                        if "coded_width" in video_stream and "coded_height" in video_stream:
-                            try:
-                                w = int(video_stream["coded_width"])
-                                h = int(video_stream["coded_height"])
-                            except (ValueError, TypeError):
-                                pass
-                    
-                    # Method 3: display_aspect_ratio and sample_aspect_ratio (fallback)
-                    if w is None or h is None:
-                        # Try to get from tags or other metadata
-                        tags = video_stream.get("tags", {})
-                        if "width" in tags:
-                            try:
-                                w = int(tags["width"])
-                            except (ValueError, TypeError):
-                                pass
-                        if "height" in tags:
-                            try:
-                                h = int(tags["height"])
-                            except (ValueError, TypeError):
-                                pass
-                    
-                    if w and h:
-                        if w >= 7680 or h >= 4320:
-                            options.cached_resolution = "8K"
-                        elif w >= 3840 or h >= 2160:
-                            options.cached_resolution = "4K"
-                        elif w >= 2560 or h >= 1440:
-                            options.cached_resolution = "2K"
-                        elif w >= 1920 or h >= 1080:
-                            options.cached_resolution = "FHD"
-                        elif w >= 1280 or h >= 720:
-                            options.cached_resolution = "HD"
-                        elif w >= 720 or h >= 480:
-                            options.cached_resolution = "480p"
-                        else:
-                            options.cached_resolution = f"{w}p"
+                    if "height" in tags:
+                        try:
+                            h = int(tags["height"])
+                        except (ValueError, TypeError):
+                            pass
+                
+                if w and h:
+                    if w >= 7680 or h >= 4320:
+                        options.cached_resolution = "8K"
+                    elif w >= 3840 or h >= 2160:
+                        options.cached_resolution = "4K"
+                    elif w >= 2560 or h >= 1440:
+                        options.cached_resolution = "2K"
+                    elif w >= 1920 or h >= 1080:
+                        options.cached_resolution = "FHD"
+                    elif w >= 1280 or h >= 720:
+                        options.cached_resolution = "HD"
+                    elif w >= 720 or h >= 480:
+                        options.cached_resolution = "480p"
                     else:
-                        # Log warning if can't get resolution
-                        print(f"[WARNING] Không thể lấy resolution từ {os.path.basename(file_path)}: width={w}, height={h}")
-                        if self.log_view:
-                            self.log_view.appendPlainText(
-                                f"[WARNING] Không thể lấy resolution từ {os.path.basename(file_path)}: "
-                                f"video_stream keys: {list(video_stream.keys())[:10]}"
-                            )
-                        options.cached_resolution = "unknown"
-                else:
-                    # No video stream found
-                    print(f"[WARNING] Không tìm thấy video stream trong {os.path.basename(file_path)}")
+                        options.cached_resolution = f"{w}p"
+                    log_msg = f"[INFO] Đã lấy resolution: {options.cached_resolution} ({w}x{h}) từ {os.path.basename(file_path)}"
+                    print(log_msg)
                     if self.log_view:
+                        self.log_view.appendPlainText(log_msg)
+                else:
+                    # Log warning if can't get resolution
+                    log_msg = f"[WARNING] Không thể lấy resolution từ {os.path.basename(file_path)}: width={w}, height={h}"
+                    print(log_msg)
+                    if self.log_view:
+                        self.log_view.appendPlainText(log_msg)
                         self.log_view.appendPlainText(
-                            f"[WARNING] Không tìm thấy video stream trong {os.path.basename(file_path)}. "
-                            f"Streams: {[s.get('codec_type') for s in probe.get('streams', [])]}"
+                            f"[DEBUG] video_stream keys: {list(video_stream.keys())[:20]}"
                         )
                     options.cached_resolution = "unknown"
+            else:
+                # No video stream found
+                log_msg = f"[WARNING] Không tìm thấy video stream trong {os.path.basename(file_path)}"
+                print(log_msg)
+                if self.log_view:
+                    self.log_view.appendPlainText(log_msg)
+                    self.log_view.appendPlainText(
+                        f"[DEBUG] Streams: {[s.get('codec_type') for s in probe.get('streams', [])]}"
+                    )
+                options.cached_resolution = "unknown"
             
             # Cache year
             if not options.cached_year:
@@ -1247,27 +1255,34 @@ class MainWindow(QtWidgets.QMainWindow):
         base_name = os.path.splitext(os.path.basename(options.file_path))[0]
         
         # Lấy audio đầu tiên được chọn
+        lang_part = None
         if options.selected_audio_indices and options.audio_meta:
             first_audio_idx = options.selected_audio_indices[0]
             audio_info = options.audio_meta.get(first_audio_idx)
             if audio_info:
                 lang = audio_info.get("lang", "und")
-                title = audio_info.get("title", "")
-                lang_abbr = self.get_language_abbreviation(lang)
-                if title and title != lang_abbr:
-                    lang_part = f"{lang_abbr}_{title}"
-                else:
-                    lang_part = lang_abbr
-            else:
-                lang_part = "UNK"
-        else:
-            lang_part = "UNK"
+                # Chỉ thêm lang_part nếu có language hợp lệ (không phải "und" hoặc "UNK")
+                if lang and lang.lower() != "und":
+                    title = audio_info.get("title", "")
+                    lang_abbr = self.get_language_abbreviation(lang)
+                    # Chỉ thêm nếu không phải UNK
+                    if lang_abbr != "UNK":
+                        if title and title != lang_abbr:
+                            lang_part = f"{lang_abbr}_{title}"
+                        else:
+                            lang_part = lang_abbr
         
         # Tạo tên file mới
-        new_name = f"{resolution}_{lang_part}"
+        parts = []
+        if resolution and resolution != "unknown" and resolution != "?":
+            parts.append(resolution)
+        if lang_part:
+            parts.append(lang_part)
         if year:
-            new_name += f"_{year}"
-        new_name += f"_{base_name}.mkv"
+            parts.append(year)
+        parts.append(base_name)
+        
+        new_name = "_".join(parts) + ".mkv"
         
         # Rút gọn nếu quá dài
         if len(new_name) > 50:
