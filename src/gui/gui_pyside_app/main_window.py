@@ -148,23 +148,39 @@ class MainWindow(QtWidgets.QMainWindow):
                 try:
                     import requests
                 except ImportError:
-                    print("[WARNING] Thư viện 'requests' chưa được cài đặt. Cài đặt bằng: pip install requests")
+                    error_msg = "[WARNING] Thư viện 'requests' chưa được cài đặt. Cài đặt bằng: pip install requests"
+                    print(error_msg)
+                    if self.log_view:
+                        self.log_view.appendPlainText(error_msg)
                     self.update_manager = None
                     self._update_manager_imported = True
                     return None
                 
                 from mkvprocessor.update_manager import UpdateManager
                 self.update_manager = UpdateManager()
-                print("[INFO] UpdateManager đã được khởi tạo thành công")
+                success_msg = "[INFO] UpdateManager đã được khởi tạo thành công"
+                print(success_msg)
+                if self.log_view:
+                    self.log_view.appendPlainText(success_msg)
             except ImportError as e:
-                print(f"[WARNING] UpdateManager không khả dụng (ImportError): {e}")
+                error_msg = f"[WARNING] UpdateManager không khả dụng (ImportError): {e}"
+                print(error_msg)
+                if self.log_view:
+                    self.log_view.appendPlainText(error_msg)
                 import traceback
                 traceback.print_exc()
+                if self.log_view:
+                    self.log_view.appendPlainText(traceback.format_exc())
                 self.update_manager = None
             except Exception as e:
-                print(f"[WARNING] Lỗi khởi tạo UpdateManager: {e}")
+                error_msg = f"[WARNING] Lỗi khởi tạo UpdateManager: {e}"
+                print(error_msg)
+                if self.log_view:
+                    self.log_view.appendPlainText(error_msg)
                 import traceback
                 traceback.print_exc()
+                if self.log_view:
+                    self.log_view.appendPlainText(traceback.format_exc())
                 self.update_manager = None
             finally:
                 self._update_manager_imported = True
@@ -188,11 +204,11 @@ class MainWindow(QtWidgets.QMainWindow):
         layout.addWidget(self.tabs, 1)
 
         self.build_processing_tab()
-        self.settings_tab_index = self.build_settings_tab()
-        # Gọi build_log_tab một cách an toàn để tránh crash nếu build cũ không có hàm này
+        # Build log tab TRƯỚC settings tab để log_view có sẵn khi build settings
         build_log = getattr(self, "build_log_tab", None)
         if callable(build_log):
             build_log()
+        self.settings_tab_index = self.build_settings_tab()
         
         # Track update badge state
         self._has_update_badge = False
@@ -597,13 +613,36 @@ class MainWindow(QtWidgets.QMainWindow):
             
             try:
                 current_version = update_manager.get_current_version()
-                is_current_beta = "beta" in current_version.lower()
+                if not current_version or current_version == "unknown":
+                    # Try to read from version.txt directly
+                    try:
+                        version_file = Path(__file__).parent.parent.parent.parent / "version.txt"
+                        if version_file.exists():
+                            current_version = version_file.read_text(encoding='utf-8').strip().lstrip('vV')
+                    except Exception:
+                        pass
+                
+                is_current_beta = "beta" in current_version.lower() if current_version else False
                 version_type = "Beta" if is_current_beta else "Stable"
+                version_display = current_version if current_version and current_version != "unknown" else "unknown"
                 self.current_version_label = QtWidgets.QLabel(
-                    f"📌 Bản hiện tại: <b style='color: #58a6ff;'>{current_version}</b> <span style='color: #8b949e;'>({version_type})</span>"
+                    f"📌 Bản hiện tại: <b style='color: #58a6ff;'>{version_display}</b> <span style='color: #8b949e;'>({version_type})</span>"
                 )
+                
+                # Log version to console and log view
+                version_msg = f"[INFO] Current version: {version_display} ({version_type})"
+                print(version_msg)
+                if self.log_view:
+                    self.log_view.appendPlainText(version_msg)
             except Exception as e:
-                print(f"[WARNING] Không thể lấy version: {e}")
+                error_msg = f"[WARNING] Không thể lấy version: {e}"
+                print(error_msg)
+                if self.log_view:
+                    self.log_view.appendPlainText(error_msg)
+                import traceback
+                traceback.print_exc()
+                if self.log_view:
+                    self.log_view.appendPlainText(traceback.format_exc())
                 self.current_version_label = QtWidgets.QLabel("📌 Bản hiện tại: <b>unknown</b>")
             
             self.latest_version_label = QtWidgets.QLabel("📥 Bản sắp update: <span style='color: #8b949e;'>Chưa kiểm tra</span>")
@@ -760,6 +799,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self.log_view.setReadOnly(True)
         self.log_view.setObjectName("logView")
         self.log_view.setFont(QtGui.QFont("Consolas", 9))
+        # Add initial welcome message
+        self.log_view.appendPlainText("=== MKV Processor Log ===")
+        self.log_view.appendPlainText("Chờ xử lý file...")
         session_layout.addWidget(self.log_view, 1)
         
         self.log_tabs.addTab(session_tab, "📝 Session")
