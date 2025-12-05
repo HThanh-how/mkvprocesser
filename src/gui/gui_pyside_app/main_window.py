@@ -625,14 +625,6 @@ class MainWindow(QtWidgets.QMainWindow):
         else:
             self.token_edit.setEchoMode(QtWidgets.QLineEdit.Password)
 
-
-if __name__ == "__main__":
-    # Cho phép chạy trực tiếp file này để mở UI
-    app = QtWidgets.QApplication(sys.argv)
-    window = MainWindow()
-    window.show()
-    sys.exit(app.exec())
-
     def on_language_changed(self, index: int):
         """Handle language selection change."""
         try:
@@ -1396,7 +1388,7 @@ if __name__ == "__main__":
                 # Đóng tất cả các item khác trước khi mở item này
                 for i in range(self.file_tree.topLevelItemCount()):
                     other_item = self.file_tree.topLevelItem(i)
-                    if other_item != item and other_item.isExpanded():
+                    if other_item is not None and other_item != item and other_item.isExpanded():
                         other_item.setExpanded(False)
                 
                 # Toggle expand (mở/đóng config)
@@ -1409,7 +1401,7 @@ if __name__ == "__main__":
             # Đóng tất cả các item khác trước khi mở item này
             for i in range(self.file_tree.topLevelItemCount()):
                 other_item = self.file_tree.topLevelItem(i)
-                if other_item != item and other_item.isExpanded():
+                if other_item is not None and other_item != item and other_item.isExpanded():
                     other_item.setExpanded(False)
             
             # Toggle expand (mở/đóng config)
@@ -2118,7 +2110,7 @@ if __name__ == "__main__":
         # Chỉ clear selection nếu item này đang được selected
         current_item = self.file_tree.currentItem()
         if current_item == item:
-            self.file_tree.setCurrentItem(None)
+            self.file_tree.clearSelection()
         
         # Force update UI - cần repaint để màu hiển thị
         item.setData(0, QtCore.Qt.UserRole, path)  # Giữ lại path
@@ -2593,3 +2585,11 @@ if __name__ == "__main__":
             self.tabs.setTabText(tab_index, current_text.replace(" ●", ""))
             self.tabs.tabBar().setTabTextColor(tab_index, QtGui.QColor())  # Reset to default
             self._has_update_badge = False
+
+
+if __name__ == "__main__":
+    # Cho phép chạy trực tiếp file này để mở UI
+    app = QtWidgets.QApplication(sys.argv)
+    window = MainWindow()
+    window.show()
+    sys.exit(app.exec())
