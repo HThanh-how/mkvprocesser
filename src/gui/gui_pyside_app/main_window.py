@@ -1567,6 +1567,7 @@ class MainWindow(QtWidgets.QMainWindow):
         export_scroll.setFrameShape(QtWidgets.QFrame.NoFrame)
         
         export_list = QtWidgets.QWidget()
+        export_list.setStyleSheet("background: #0d1117;")
         export_list_layout = QtWidgets.QVBoxLayout(export_list)
         export_list_layout.setSpacing(2)
         export_list_layout.setContentsMargins(0, 0, 0, 0)
@@ -1699,6 +1700,7 @@ class MainWindow(QtWidgets.QMainWindow):
         srt_mux_scroll.setFrameShape(QtWidgets.QFrame.NoFrame)
         
         srt_mux_list = QtWidgets.QWidget()
+        srt_mux_list.setStyleSheet("background: #0d1117;")
         srt_mux_list_layout = QtWidgets.QVBoxLayout(srt_mux_list)
         srt_mux_list_layout.setSpacing(2)
         srt_mux_list_layout.setContentsMargins(0, 0, 0, 0)

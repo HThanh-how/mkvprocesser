@@ -442,6 +442,16 @@ QHeaderView::section {
     font-size: 11px;
 }
 
+/* ScrollArea */
+QScrollArea {
+    background: #0d1117;
+    border: 1px solid #30363d;
+    border-radius: 6px;
+}
+QScrollArea > QWidget > QWidget {
+    background: #0d1117;
+}
+
 /* Scrollbars */
 QScrollBar:vertical {
     background: #0d1117;
