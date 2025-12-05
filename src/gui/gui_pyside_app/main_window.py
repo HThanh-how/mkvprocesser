@@ -254,6 +254,19 @@ class MainWindow(QtWidgets.QMainWindow):
                         except (ImportError, AttributeError):
                             continue
                 
+                # Final fallback: use embedded copy bundled with GUI
+                if not UpdateManager:
+                    try:
+                        from . import update_manager_fallback  # type: ignore
+                        UpdateManager = getattr(update_manager_fallback, "UpdateManager", None)
+                        if UpdateManager:
+                            log_msg = "[INFO] Loaded embedded update_manager_fallback"
+                            print(log_msg)
+                            if self.log_view:
+                                self.log_view.appendPlainText(log_msg)
+                    except Exception as e:
+                        print(f"[DEBUG] Failed to load embedded update_manager_fallback: {e}")
+                
                 if not UpdateManager:
                     # Log available paths for debugging
                     debug_info = "Cannot import UpdateManager. Available paths:\n"
