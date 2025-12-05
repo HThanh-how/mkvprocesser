@@ -36,6 +36,7 @@ class UpdateManager:
         self.api_url = GITHUB_API_URL
         self.releases_url = GITHUB_RELEASES_URL
         self._current_version = None  # Lazy load
+        self._prefer_beta = False  # Default to stable releases
         
     def _get_version_from_file(self) -> Optional[str]:
         """Try to get version from bundled version.txt file."""
@@ -189,12 +190,17 @@ class UpdateManager:
         else:
             return 0
     
-    def check_for_updates(self, timeout: int = 10) -> Tuple[bool, Optional[dict]]:
+    def set_prefer_beta(self, prefer_beta: bool):
+        """Set whether to prefer beta releases over stable."""
+        self._prefer_beta = prefer_beta
+    
+    def check_for_updates(self, timeout: int = 10, prefer_beta: Optional[bool] = None) -> Tuple[bool, Optional[dict]]:
         """
         Check for available updates from GitHub Releases.
         
         Args:
             timeout: Request timeout in seconds
+            prefer_beta: If True, check for beta releases. If None, use self._prefer_beta
             
         Returns:
             Tuple of (has_update, release_info)
@@ -202,9 +208,34 @@ class UpdateManager:
             - release_info: Dict with release info (tag_name, html_url, assets, etc.) or None
         """
         try:
-            response = requests.get(self.api_url, timeout=timeout)
-            response.raise_for_status()
-            release_data = response.json()
+            # Determine if we want beta or stable
+            want_beta = prefer_beta if prefer_beta is not None else self._prefer_beta
+            
+            if want_beta:
+                # Get all releases and find latest beta
+                response = requests.get(self.releases_url, timeout=timeout)
+                response.raise_for_status()
+                releases = response.json()
+                
+                # Filter for beta releases (contain "beta" in tag_name or name)
+                beta_releases = [
+                    r for r in releases 
+                    if "beta" in r.get("tag_name", "").lower() or "beta" in r.get("name", "").lower()
+                ]
+                
+                if not beta_releases:
+                    # No beta releases, fall back to latest stable
+                    response = requests.get(self.api_url, timeout=timeout)
+                    response.raise_for_status()
+                    release_data = response.json()
+                else:
+                    # Get latest beta (first in list, sorted by published_at desc)
+                    release_data = beta_releases[0]
+            else:
+                # Get latest stable release
+                response = requests.get(self.api_url, timeout=timeout)
+                response.raise_for_status()
+                release_data = response.json()
             
             latest_version = release_data.get("tag_name", "").lstrip('vV')
             
@@ -219,6 +250,7 @@ class UpdateManager:
             
             if comparison < 0:
                 # Newer version available
+                is_beta = "beta" in latest_version.lower() or "beta" in release_data.get("name", "").lower()
                 return True, {
                     "tag_name": release_data.get("tag_name", ""),
                     "version": latest_version,
@@ -227,6 +259,8 @@ class UpdateManager:
                     "html_url": release_data.get("html_url", ""),
                     "published_at": release_data.get("published_at", ""),
                     "assets": release_data.get("assets", []),
+                    "is_beta": is_beta,
+                    "prerelease": release_data.get("prerelease", False),
                 }
             else:
                 # Already up to date

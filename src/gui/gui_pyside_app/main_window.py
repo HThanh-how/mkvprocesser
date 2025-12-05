@@ -144,10 +144,22 @@ class MainWindow(QtWidgets.QMainWindow):
         """Lazy load UpdateManager - chỉ import khi cần"""
         if not self._update_manager_imported:
             try:
+                # Check if requests is available first
+                try:
+                    import requests
+                except ImportError:
+                    print("[WARNING] Thư viện 'requests' chưa được cài đặt. Cài đặt bằng: pip install requests")
+                    self.update_manager = None
+                    self._update_manager_imported = True
+                    return None
+                
                 from mkvprocessor.update_manager import UpdateManager
                 self.update_manager = UpdateManager()
+                print("[INFO] UpdateManager đã được khởi tạo thành công")
             except ImportError as e:
-                print(f"[WARNING] UpdateManager không khả dụng: {e}")
+                print(f"[WARNING] UpdateManager không khả dụng (ImportError): {e}")
+                import traceback
+                traceback.print_exc()
                 self.update_manager = None
             except Exception as e:
                 print(f"[WARNING] Lỗi khởi tạo UpdateManager: {e}")
@@ -579,10 +591,55 @@ class MainWindow(QtWidgets.QMainWindow):
 
         update_manager = self._get_update_manager()
         if update_manager:
-            # Current version
-            current_version = update_manager.get_current_version()
-            version_label = QtWidgets.QLabel(f"Current version: <b>{current_version}</b>")
-            updates_layout.addWidget(version_label)
+            # Version info section
+            version_info_layout = QtWidgets.QVBoxLayout()
+            version_info_layout.setSpacing(4)
+            
+            try:
+                current_version = update_manager.get_current_version()
+                is_current_beta = "beta" in current_version.lower()
+                version_type = "Beta" if is_current_beta else "Stable"
+                self.current_version_label = QtWidgets.QLabel(
+                    f"📌 Bản hiện tại: <b style='color: #58a6ff;'>{current_version}</b> <span style='color: #8b949e;'>({version_type})</span>"
+                )
+            except Exception as e:
+                print(f"[WARNING] Không thể lấy version: {e}")
+                self.current_version_label = QtWidgets.QLabel("📌 Bản hiện tại: <b>unknown</b>")
+            
+            self.latest_version_label = QtWidgets.QLabel("📥 Bản sắp update: <span style='color: #8b949e;'>Chưa kiểm tra</span>")
+            
+            version_info_layout.addWidget(self.current_version_label)
+            version_info_layout.addWidget(self.latest_version_label)
+            updates_layout.addLayout(version_info_layout)
+            
+            # Settings row: Beta/Stable switch + Auto download
+            settings_row = QtWidgets.QHBoxLayout()
+            settings_row.setSpacing(16)
+            
+            # Beta/Stable switch
+            beta_stable_row = QtWidgets.QHBoxLayout()
+            beta_stable_row.setSpacing(8)
+            beta_label = QtWidgets.QLabel("Release type:")
+            beta_label.setObjectName("settingsFieldLabel")
+            beta_stable_row.addWidget(beta_label)
+            
+            self.beta_stable_combo = QtWidgets.QComboBox()
+            self.beta_stable_combo.addItem("Stable", "stable")
+            self.beta_stable_combo.addItem("Beta", "beta")
+            prefer_beta = self.config.get("prefer_beta_updates", False)
+            self.beta_stable_combo.setCurrentIndex(1 if prefer_beta else 0)
+            self.beta_stable_combo.currentIndexChanged.connect(self.on_beta_stable_changed)
+            beta_stable_row.addWidget(self.beta_stable_combo)
+            settings_row.addLayout(beta_stable_row)
+            
+            # Auto download checkbox
+            self.auto_download_cb = QtWidgets.QCheckBox("Auto download updates")
+            self.auto_download_cb.setChecked(self.config.get("auto_download_updates", False))
+            self.auto_download_cb.toggled.connect(self.on_auto_download_changed)
+            settings_row.addWidget(self.auto_download_cb)
+            
+            settings_row.addStretch()
+            updates_layout.addLayout(settings_row)
 
             # Update status
             self.update_status_label = QtWidgets.QLabel("")
@@ -599,6 +656,12 @@ class MainWindow(QtWidgets.QMainWindow):
             self.download_update_btn.setEnabled(False)
             self.download_update_btn.clicked.connect(lambda: self.download_update())
             update_btn_row.addWidget(self.download_update_btn)
+            
+            self.restart_update_btn = QtWidgets.QPushButton("🔄 Restart & Update")
+            self.restart_update_btn.setEnabled(False)
+            self.restart_update_btn.setObjectName("primaryButton")
+            self.restart_update_btn.clicked.connect(lambda: self.restart_and_update())
+            update_btn_row.addWidget(self.restart_update_btn)
 
             update_btn_row.addStretch()
             updates_layout.addLayout(update_btn_row)
@@ -607,8 +670,19 @@ class MainWindow(QtWidgets.QMainWindow):
             self.update_progress_bar = QtWidgets.QProgressBar()
             self.update_progress_bar.setVisible(False)
             updates_layout.addWidget(self.update_progress_bar)
+            
+            # Track downloaded update file
+            self.downloaded_update_file: Path | None = None
         else:
-            no_update_label = QtWidgets.QLabel("⚠️ Update manager không khả dụng (có thể do thiếu thư viện requests)")
+            # Try to get more specific error message
+            error_msg = "⚠️ Update manager không khả dụng"
+            try:
+                import requests
+                error_msg += "\n\nCó thể do lỗi import module. Kiểm tra console để xem chi tiết."
+            except ImportError:
+                error_msg += "\n\nThiếu thư viện 'requests'.\nCài đặt bằng: pip install requests"
+            
+            no_update_label = QtWidgets.QLabel(error_msg)
             no_update_label.setObjectName("settingsUpdatesHint")
             no_update_label.setWordWrap(True)
             updates_layout.addWidget(no_update_label)
@@ -2308,6 +2382,8 @@ class MainWindow(QtWidgets.QMainWindow):
             "branch": self.branch_edit.text(),
             "token": self.token_edit.text(),
             "force_reprocess": self.force_reprocess_cb.isChecked(),
+            "prefer_beta_updates": self.beta_stable_combo.currentData() == "beta" if hasattr(self, 'beta_stable_combo') else False,
+            "auto_download_updates": self.auto_download_cb.isChecked() if hasattr(self, 'auto_download_cb') else False,
         })
         save_user_config(self.config)
         self.settings_status.setText("✅ Saved")
@@ -2381,10 +2457,25 @@ class MainWindow(QtWidgets.QMainWindow):
         self.check_update_btn.setText("Checking...")
         
         try:
-            has_update, release_info = update_manager.check_for_updates()
+            # Show checking status
+            self.update_status_label.setText("Đang kiểm tra...")
+            QtWidgets.QApplication.processEvents()
+            
+            # Get prefer_beta setting
+            prefer_beta = self.config.get("prefer_beta_updates", False)
+            update_manager.set_prefer_beta(prefer_beta)
+            
+            has_update, release_info = update_manager.check_for_updates(prefer_beta=prefer_beta)
             
             if has_update and release_info:
                 version = release_info.get("version", "new version")
+                is_beta = release_info.get("is_beta", False)
+                version_type = "Beta" if is_beta else "Stable"
+                
+                # Update latest version label
+                self.latest_version_label.setText(
+                    f"📥 Bản sắp update: <b style='color: #10b981;'>{version}</b> <span style='color: #8b949e;'>({version_type})</span>"
+                )
                 name = release_info.get("name", "")
                 body = release_info.get("body", "")
                 html_url = release_info.get("html_url", "")
@@ -2412,27 +2503,46 @@ class MainWindow(QtWidgets.QMainWindow):
                 if msg.exec() == QtWidgets.QMessageBox.Yes:
                     self.download_update()
             else:
+                # No update available
                 current_version = update_manager.get_current_version()
+                is_current_beta = "beta" in current_version.lower()
+                version_type = "Beta" if is_current_beta else "Stable"
                 self.update_status_label.setText(
-                    f"<b style='color: #94a3b8;'>You are using the latest version: {current_version}</b>"
+                    f"<b style='color: #10b981;'>Bạn đang dùng phiên bản mới nhất: {current_version} ({version_type})</b>"
+                )
+                self.latest_version_label.setText(
+                    f"📥 Bản sắp update: <span style='color: #8b949e;'>Không có bản mới</span>"
                 )
                 self.download_update_btn.setEnabled(False)
+                self.restart_update_btn.setEnabled(False)
                 QtWidgets.QMessageBox.information(
                     self, "Up to Date", 
-                    f"You are using the latest version: {current_version}"
+                    f"Bạn đang dùng phiên bản mới nhất: {current_version} ({version_type})"
                 )
                 
         except Exception as e:
+            error_msg = str(e)
+            print(f"[ERROR] Lỗi khi check updates: {error_msg}")
+            import traceback
+            traceback.print_exc()
+            
             self.update_status_label.setText(
-                f"<b style='color: #ef4444;'>Error checking for updates: {str(e)}</b>"
+                f"<b style='color: #ef4444;'>Lỗi: {error_msg}</b>"
             )
-            QtWidgets.QMessageBox.critical(self, "Error", f"Failed to check for updates:\n{str(e)}")
+            QtWidgets.QMessageBox.warning(
+                self, "Update Error",
+                f"Không thể kiểm tra cập nhật:\n{error_msg}\n\n"
+                "Kiểm tra:\n"
+                "- Kết nối internet\n"
+                "- GitHub API có thể truy cập\n"
+                "- Xem console để biết chi tiết lỗi"
+            )
         finally:
             self.check_update_btn.setEnabled(True)
             self.check_update_btn.setText("🔍 Check for Updates")
     
     def download_update(self):
-        """Download and install the update."""
+        """Download update file (but don't install yet - user will click Restart to install)."""
         update_manager = self._get_update_manager()
         if not update_manager or not hasattr(self, 'latest_release_info'):
             QtWidgets.QMessageBox.warning(self, "Error", "No update information available")
@@ -2455,21 +2565,23 @@ class MainWindow(QtWidgets.QMainWindow):
             )
             return
         
-        # Confirm download
-        file_name = exe_asset.get("name", "update.exe")
-        file_size = exe_asset.get("size", 0)
-        size_mb = file_size / 1024 / 1024
-        
-        reply = QtWidgets.QMessageBox.question(
-            self, "Download Update",
-            f"Download {file_name} ({size_mb:.1f} MB)?\n\n"
-            "The application will restart after installation.",
-            QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
-            QtWidgets.QMessageBox.Yes
-        )
-        
-        if reply != QtWidgets.QMessageBox.Yes:
-            return
+        # Confirm download (skip if auto download is enabled)
+        auto_download = self.config.get("auto_download_updates", False)
+        if not auto_download:
+            file_name = exe_asset.get("name", "update.exe")
+            file_size = exe_asset.get("size", 0)
+            size_mb = file_size / 1024 / 1024
+            
+            reply = QtWidgets.QMessageBox.question(
+                self, "Download Update",
+                f"Download {file_name} ({size_mb:.1f} MB)?\n\n"
+                "Sau khi download, nhấn nút 'Restart & Update' để cài đặt.",
+                QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
+                QtWidgets.QMessageBox.Yes
+            )
+            
+            if reply != QtWidgets.QMessageBox.Yes:
+                return
         
         # Download with progress
         self.download_update_btn.setEnabled(False)
@@ -2491,23 +2603,16 @@ class MainWindow(QtWidgets.QMainWindow):
             if not download_path:
                 raise Exception("Download failed")
             
-            # Install update
-            self.update_status_label.setText("Installing update...")
+            # Save downloaded file path for later installation
+            self.downloaded_update_file = download_path
+            self.update_status_label.setText(
+                f"<b style='color: #10b981;'>Download hoàn tất!</b><br/>"
+                f"File: {download_path.name}<br/>"
+                f"Nhấn nút 'Restart & Update' để cài đặt."
+            )
             self.update_progress_bar.setValue(100)
-            
-            if update_manager.install_update(download_path):
-                # Restart application
-                reply = QtWidgets.QMessageBox.question(
-                    self, "Update Installed",
-                    "Update installed successfully!\n\n"
-                    "The application will now restart.",
-                    QtWidgets.QMessageBox.Ok
-                )
-                
-                if reply == QtWidgets.QMessageBox.Ok:
-                    update_manager.restart_application()
-            else:
-                raise Exception("Installation failed")
+            self.restart_update_btn.setEnabled(True)
+            self.download_update_btn.setEnabled(False)
                 
         except Exception as e:
             self.update_status_label.setText(
@@ -2520,7 +2625,72 @@ class MainWindow(QtWidgets.QMainWindow):
             )
         finally:
             self.update_progress_bar.setVisible(False)
-            self.download_update_btn.setEnabled(True)
+            if not hasattr(self, 'downloaded_update_file') or self.downloaded_update_file is None:
+                self.download_update_btn.setEnabled(True)
+    
+    def restart_and_update(self):
+        """Install downloaded update and restart application."""
+        if not hasattr(self, 'downloaded_update_file') or self.downloaded_update_file is None:
+            QtWidgets.QMessageBox.warning(self, "Error", "No update file downloaded. Please download first.")
+            return
+        
+        update_manager = self._get_update_manager()
+        if not update_manager:
+            QtWidgets.QMessageBox.warning(self, "Error", "Update manager not available")
+            return
+        
+        # Confirm restart
+        reply = QtWidgets.QMessageBox.question(
+            self, "Restart & Update",
+            "Cài đặt update và khởi động lại ứng dụng?\n\n"
+            "Ứng dụng sẽ tự động đóng và khởi động lại.",
+            QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
+            QtWidgets.QMessageBox.Yes
+        )
+        
+        if reply != QtWidgets.QMessageBox.Yes:
+            return
+        
+        try:
+            self.update_status_label.setText("Đang cài đặt update...")
+            QtWidgets.QApplication.processEvents()
+            
+            if update_manager.install_update(self.downloaded_update_file):
+                self.update_status_label.setText(
+                    "<b style='color: #10b981;'>Cài đặt thành công! Đang khởi động lại...</b>"
+                )
+                QtWidgets.QApplication.processEvents()
+                
+                # Small delay to show message
+                QtCore.QTimer.singleShot(1000, lambda: update_manager.restart_application())
+            else:
+                raise Exception("Cài đặt thất bại")
+                
+        except Exception as e:
+            self.update_status_label.setText(
+                f"<b style='color: #ef4444;'>Lỗi: {str(e)}</b>"
+            )
+            QtWidgets.QMessageBox.critical(
+                self, "Update Error",
+                f"Không thể cài đặt update:\n{str(e)}\n\n"
+                "Vui lòng thử tải lại hoặc cài đặt thủ công."
+            )
+    
+    def on_beta_stable_changed(self, index: int):
+        """Handle beta/stable selection change."""
+        prefer_beta = self.beta_stable_combo.currentData() == "beta"
+        self.config["prefer_beta_updates"] = prefer_beta
+        save_user_config(self.config)
+        
+        # Update UpdateManager preference
+        update_manager = self._get_update_manager()
+        if update_manager:
+            update_manager.set_prefer_beta(prefer_beta)
+    
+    def on_auto_download_changed(self, checked: bool):
+        """Handle auto download checkbox change."""
+        self.config["auto_download_updates"] = checked
+        save_user_config(self.config)
     
     def auto_check_for_updates(self):
         """Silently check for updates on startup (non-blocking)."""
@@ -2533,12 +2703,26 @@ class MainWindow(QtWidgets.QMainWindow):
         def check_in_background():
             try:
                 print("[UPDATE] Checking for updates...")
-                has_update, release_info = update_manager.check_for_updates(timeout=10)
+                prefer_beta = self.config.get("prefer_beta_updates", False)
+                update_manager.set_prefer_beta(prefer_beta)
+                
+                has_update, release_info = update_manager.check_for_updates(timeout=10, prefer_beta=prefer_beta)
                 print(f"[UPDATE] Check result: has_update={has_update}, release_info={release_info is not None}")
+                
                 if has_update and release_info:
-                    print(f"[UPDATE] Update available: {release_info.get('version', 'unknown')}")
-                    # Update UI in main thread using signal
+                    version = release_info.get('version', 'unknown')
+                    is_beta = release_info.get('is_beta', False)
+                    version_type = "Beta" if is_beta else "Stable"
+                    print(f"[UPDATE] Update available: {version} ({version_type})")
+                    
+                    # Update UI in main thread
                     QtCore.QTimer.singleShot(0, lambda: self._show_update_notification(release_info))
+                    
+                    # Auto download if enabled
+                    auto_download = self.config.get("auto_download_updates", False)
+                    if auto_download:
+                        print("[UPDATE] Auto download enabled, starting download...")
+                        QtCore.QTimer.singleShot(1000, lambda: self._auto_download_update(release_info))
                 else:
                     print("[UPDATE] No update available or already up to date")
             except Exception as e:
@@ -2552,19 +2736,76 @@ class MainWindow(QtWidgets.QMainWindow):
         thread = threading.Thread(target=check_in_background, daemon=True)
         thread.start()
     
+    def _auto_download_update(self, release_info: dict):
+        """Auto download update in background."""
+        try:
+            self.latest_release_info = release_info
+            assets = release_info.get("assets", [])
+            if not assets:
+                return
+            
+            update_manager = self._get_update_manager()
+            if not update_manager:
+                return
+            
+            exe_asset = update_manager.find_exe_asset(assets)
+            if not exe_asset:
+                return
+            
+            # Download silently
+            def progress_callback(url, downloaded, total):
+                if total > 0:
+                    percent = int((downloaded / total) * 100)
+                    if hasattr(self, 'update_progress_bar'):
+                        self.update_progress_bar.setVisible(True)
+                        self.update_progress_bar.setValue(percent)
+                    if hasattr(self, 'update_status_label'):
+                        self.update_status_label.setText(
+                            f"Đang tự động tải: {downloaded / 1024 / 1024:.1f} MB / {total / 1024 / 1024:.1f} MB"
+                        )
+            
+            download_path = update_manager.download_update(exe_asset, progress_callback)
+            if download_path:
+                self.downloaded_update_file = download_path
+                if hasattr(self, 'restart_update_btn'):
+                    self.restart_update_btn.setEnabled(True)
+                if hasattr(self, 'update_status_label'):
+                    version = release_info.get("version", "unknown")
+                    self.update_status_label.setText(
+                        f"<b style='color: #10b981;'>Đã tải xong {version}!</b><br/>"
+                        f"Nhấn 'Restart & Update' để cài đặt."
+                    )
+                print(f"[UPDATE] Auto download completed: {download_path}")
+        except Exception as e:
+            print(f"[UPDATE] Error during auto download: {e}")
+            import traceback
+            traceback.print_exc()
+    
     def _show_update_notification(self, release_info: dict):
         """Show update notification (called from background thread)."""
         version = release_info.get("version", "new version")
+        is_beta = release_info.get("is_beta", False)
+        version_type = "Beta" if is_beta else "Stable"
         name = release_info.get("name", "")
         html_url = release_info.get("html_url", "")
         
+        # Update latest version label
+        if hasattr(self, 'latest_version_label'):
+            self.latest_version_label.setText(
+                f"📥 Bản sắp update: <b style='color: #10b981;'>{version}</b> <span style='color: #8b949e;'>({version_type})</span>"
+            )
+        
         # Update UI
-        self.update_status_label.setText(
-            f"<b style='color: #10b981;'>Update available: {version}</b><br/>"
-            f"{name}<br/>"
-            f"<a href='{html_url}'>View on GitHub</a>"
-        )
-        self.download_update_btn.setEnabled(True)
+        if hasattr(self, 'update_status_label'):
+            self.update_status_label.setText(
+                f"<b style='color: #10b981;'>Update available: {version} ({version_type})</b><br/>"
+                f"{name}<br/>"
+                f"<a href='{html_url}'>View on GitHub</a>"
+            )
+        
+        if hasattr(self, 'download_update_btn'):
+            self.download_update_btn.setEnabled(True)
+        
         self.latest_release_info = release_info
         
         # Show red dot badge on Settings tab
