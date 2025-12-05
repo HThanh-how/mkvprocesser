@@ -156,34 +156,75 @@ class MainWindow(QtWidgets.QMainWindow):
                 
                 # Try multiple import paths (support both source and exe)
                 UpdateManager = None
-                import_candidates = [
-                    "mkvprocessor.update_manager",
-                    "update_manager",
-                ]
                 
-                # If running from exe, also try direct import
+                # If running from exe, try to load file directly
                 if hasattr(sys, '_MEIPASS'):
-                    import_candidates.insert(0, "mkvprocessor.update_manager")
-                    # Try to add _MEIPASS to path if not already there
                     meipass_path = Path(sys._MEIPASS)
+                    # Try to add _MEIPASS to path if not already there
                     if str(meipass_path) not in sys.path:
                         sys.path.insert(0, str(meipass_path))
                     # Also try src path
                     src_path = meipass_path / "src"
                     if src_path.exists() and str(src_path) not in sys.path:
                         sys.path.insert(0, str(src_path))
+                    
+                    # Try to load update_manager.py directly from file
+                    possible_paths = [
+                        meipass_path / "mkvprocessor" / "update_manager.py",
+                        meipass_path / "src" / "mkvprocessor" / "update_manager.py",
+                        meipass_path / "update_manager.py",
+                    ]
+                    
+                    for update_manager_path in possible_paths:
+                        if update_manager_path.exists():
+                            try:
+                                import importlib.util
+                                spec = importlib.util.spec_from_file_location(
+                                    "update_manager", str(update_manager_path)
+                                )
+                                if spec and spec.loader:
+                                    module = importlib.util.module_from_spec(spec)
+                                    spec.loader.exec_module(module)
+                                    UpdateManager = getattr(module, 'UpdateManager', None)
+                                    if UpdateManager:
+                                        log_msg = f"[INFO] Loaded UpdateManager from: {update_manager_path}"
+                                        print(log_msg)
+                                        if self.log_view:
+                                            self.log_view.appendPlainText(log_msg)
+                                        break
+                            except Exception as e:
+                                log_msg = f"[DEBUG] Failed to load from {update_manager_path}: {e}"
+                                print(log_msg)
+                                continue
                 
-                for module_name in import_candidates:
-                    try:
-                        module = importlib.import_module(module_name)
-                        UpdateManager = getattr(module, 'UpdateManager', None)
-                        if UpdateManager:
-                            break
-                    except (ImportError, AttributeError):
-                        continue
+                # If not loaded yet, try normal import
+                if not UpdateManager:
+                    import_candidates = [
+                        "mkvprocessor.update_manager",
+                        "update_manager",
+                    ]
+                    
+                    for module_name in import_candidates:
+                        try:
+                            module = importlib.import_module(module_name)
+                            UpdateManager = getattr(module, 'UpdateManager', None)
+                            if UpdateManager:
+                                break
+                        except (ImportError, AttributeError):
+                            continue
                 
                 if not UpdateManager:
-                    raise ImportError(f"Cannot import UpdateManager from any of: {import_candidates}")
+                    # Log available paths for debugging
+                    debug_info = "Cannot import UpdateManager. Available paths:\n"
+                    if hasattr(sys, '_MEIPASS'):
+                        debug_info += f"  _MEIPASS: {sys._MEIPASS}\n"
+                        meipass_path = Path(sys._MEIPASS)
+                        debug_info += f"  Files in _MEIPASS: {list(meipass_path.iterdir())[:10]}\n"
+                    debug_info += f"  sys.path: {sys.path[:5]}\n"
+                    print(debug_info)
+                    if self.log_view:
+                        self.log_view.appendPlainText(debug_info)
+                    raise ImportError(f"Cannot import UpdateManager")
                 
                 self.update_manager = UpdateManager()
                 success_msg = "[INFO] UpdateManager đã được khởi tạo thành công"
@@ -1034,24 +1075,82 @@ class MainWindow(QtWidgets.QMainWindow):
             
             # Cache resolution
             if not options.cached_resolution:
-                video_stream = next((s for s in probe["streams"] if s["codec_type"] == "video"), None)
-                if video_stream and "width" in video_stream and "height" in video_stream:
-                    w, h = int(video_stream["width"]), int(video_stream["height"])
-                    if w >= 7680 or h >= 4320:
-                        options.cached_resolution = "8K"
-                    elif w >= 3840 or h >= 2160:
-                        options.cached_resolution = "4K"
-                    elif w >= 2560 or h >= 1440:
-                        options.cached_resolution = "2K"
-                    elif w >= 1920 or h >= 1080:
-                        options.cached_resolution = "FHD"
-                    elif w >= 1280 or h >= 720:
-                        options.cached_resolution = "HD"
-                    elif w >= 720 or h >= 480:
-                        options.cached_resolution = "480p"
+                video_stream = None
+                # Try to find video stream
+                for stream in probe.get("streams", []):
+                    if stream.get("codec_type") == "video":
+                        video_stream = stream
+                        break
+                
+                if video_stream:
+                    # Try multiple ways to get width/height
+                    w = None
+                    h = None
+                    
+                    # Method 1: Direct width/height
+                    if "width" in video_stream and "height" in video_stream:
+                        try:
+                            w = int(video_stream["width"])
+                            h = int(video_stream["height"])
+                        except (ValueError, TypeError):
+                            pass
+                    
+                    # Method 2: coded_width/coded_height (for some codecs)
+                    if w is None or h is None:
+                        if "coded_width" in video_stream and "coded_height" in video_stream:
+                            try:
+                                w = int(video_stream["coded_width"])
+                                h = int(video_stream["coded_height"])
+                            except (ValueError, TypeError):
+                                pass
+                    
+                    # Method 3: display_aspect_ratio and sample_aspect_ratio (fallback)
+                    if w is None or h is None:
+                        # Try to get from tags or other metadata
+                        tags = video_stream.get("tags", {})
+                        if "width" in tags:
+                            try:
+                                w = int(tags["width"])
+                            except (ValueError, TypeError):
+                                pass
+                        if "height" in tags:
+                            try:
+                                h = int(tags["height"])
+                            except (ValueError, TypeError):
+                                pass
+                    
+                    if w and h:
+                        if w >= 7680 or h >= 4320:
+                            options.cached_resolution = "8K"
+                        elif w >= 3840 or h >= 2160:
+                            options.cached_resolution = "4K"
+                        elif w >= 2560 or h >= 1440:
+                            options.cached_resolution = "2K"
+                        elif w >= 1920 or h >= 1080:
+                            options.cached_resolution = "FHD"
+                        elif w >= 1280 or h >= 720:
+                            options.cached_resolution = "HD"
+                        elif w >= 720 or h >= 480:
+                            options.cached_resolution = "480p"
+                        else:
+                            options.cached_resolution = f"{w}p"
                     else:
-                        options.cached_resolution = f"{w}p"
+                        # Log warning if can't get resolution
+                        print(f"[WARNING] Không thể lấy resolution từ {os.path.basename(file_path)}: width={w}, height={h}")
+                        if self.log_view:
+                            self.log_view.appendPlainText(
+                                f"[WARNING] Không thể lấy resolution từ {os.path.basename(file_path)}: "
+                                f"video_stream keys: {list(video_stream.keys())[:10]}"
+                            )
+                        options.cached_resolution = "unknown"
                 else:
+                    # No video stream found
+                    print(f"[WARNING] Không tìm thấy video stream trong {os.path.basename(file_path)}")
+                    if self.log_view:
+                        self.log_view.appendPlainText(
+                            f"[WARNING] Không tìm thấy video stream trong {os.path.basename(file_path)}. "
+                            f"Streams: {[s.get('codec_type') for s in probe.get('streams', [])]}"
+                        )
                     options.cached_resolution = "unknown"
             
             # Cache year
