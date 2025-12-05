@@ -233,9 +233,9 @@ class UpdateManager:
                     release_data = beta_releases[0]
             else:
                 # Get latest stable release
-                response = requests.get(self.api_url, timeout=timeout)
-                response.raise_for_status()
-                release_data = response.json()
+            response = requests.get(self.api_url, timeout=timeout)
+            response.raise_for_status()
+            release_data = response.json()
             
             latest_version = release_data.get("tag_name", "").lstrip('vV')
             

@@ -167,11 +167,19 @@ class MainWindow(QtWidgets.QMainWindow):
                     src_path = meipass_path / "src"
                     if src_path.exists() and str(src_path) not in sys.path:
                         sys.path.insert(0, str(src_path))
+                    # Try package folder directly (common in PyInstaller onefile)
+                    meipass_mkv = meipass_path / "mkvprocessor"
+                    if meipass_mkv.exists() and str(meipass_mkv) not in sys.path:
+                        sys.path.insert(0, str(meipass_mkv))
+                    meipass_lib_mkv = meipass_path / "lib" / "mkvprocessor"
+                    if meipass_lib_mkv.exists() and str(meipass_lib_mkv) not in sys.path:
+                        sys.path.insert(0, str(meipass_lib_mkv))
                     
                     # Try to load update_manager.py directly from file
                     possible_paths = [
                         meipass_path / "mkvprocessor" / "update_manager.py",
                         meipass_path / "src" / "mkvprocessor" / "update_manager.py",
+                        meipass_path / "lib" / "mkvprocessor" / "update_manager.py",
                         meipass_path / "update_manager.py",
                     ]
                     
