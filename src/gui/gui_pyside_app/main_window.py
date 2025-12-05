@@ -175,6 +175,37 @@ class MainWindow(QtWidgets.QMainWindow):
                     if meipass_lib_mkv.exists() and str(meipass_lib_mkv) not in sys.path:
                         sys.path.insert(0, str(meipass_lib_mkv))
                     
+                    # Try loading from base_library.zip if present
+                    base_zip = meipass_path / "base_library.zip"
+                    if base_zip.exists():
+                        try:
+                            import zipfile, tempfile
+                            with zipfile.ZipFile(base_zip, "r") as zf:
+                                for candidate in [
+                                    "mkvprocessor/update_manager.py",
+                                    "mkvprocessor/update_manager.pyc",
+                                    "update_manager.py",
+                                    "update_manager.pyc",
+                                ]:
+                                    if candidate in zf.namelist():
+                                        with tempfile.NamedTemporaryFile(delete=False, suffix=Path(candidate).suffix) as tmp:
+                                            tmp.write(zf.read(candidate))
+                                            tmp_path = Path(tmp.name)
+                                        import importlib.util as importlib_util
+                                        spec = importlib_util.spec_from_file_location("update_manager", str(tmp_path))
+                                        if spec and spec.loader:
+                                            module = importlib_util.module_from_spec(spec)
+                                            spec.loader.exec_module(module)
+                                            UpdateManager = getattr(module, 'UpdateManager', None)
+                                            if UpdateManager:
+                                                log_msg = f"[INFO] Loaded UpdateManager from base_library.zip:{candidate}"
+                                                print(log_msg)
+                                                if self.log_view:
+                                                    self.log_view.appendPlainText(log_msg)
+                                                break
+                        except Exception as e:
+                            print(f"[DEBUG] Failed to load UpdateManager from base_library.zip: {e}")
+                    
                     # Try to load update_manager.py directly from file
                     possible_paths = [
                         meipass_path / "mkvprocessor" / "update_manager.py",
