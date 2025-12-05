@@ -58,6 +58,9 @@ class DraggableListWidget(QtWidgets.QListWidget):
 
 class MainWindow(QtWidgets.QMainWindow):
     """Cửa sổ chính của ứng dụng"""
+    
+    # Supported video file extensions
+    SUPPORTED_VIDEO_EXTENSIONS = (".mkv", ".mp4", ".avi", ".mov", ".m4v", ".flv", ".wmv", ".webm")
 
     def __init__(self):
         super().__init__()
@@ -256,7 +259,7 @@ class MainWindow(QtWidgets.QMainWindow):
         file_header = QtWidgets.QHBoxLayout()
         file_header.setSpacing(8)
         
-        self.select_all_cb = QtWidgets.QCheckBox("MKV Files")
+        self.select_all_cb = QtWidgets.QCheckBox("Video Files")
         self.select_all_cb.setObjectName("selectAllCheckbox")
         self.select_all_cb.setTristate(True)
         # Dùng clicked thay vì stateChanged để xử lý user click trực tiếp
@@ -1156,12 +1159,15 @@ class MainWindow(QtWidgets.QMainWindow):
                     except (json.JSONDecodeError, IOError) as e:
                         print(f"[WARNING] Không thể đọc {json_file}: {e}")
 
-            # Đọc danh sách file MKV từ thư mục
+            # Đọc danh sách file video từ thư mục
             try:
                 all_files = os.listdir(folder)
                 print(f"[DEBUG] Tìm thấy {len(all_files)} file trong thư mục: {folder}")
-                mkv_files = sorted(f for f in all_files if f.lower().endswith(".mkv"))
-                print(f"[DEBUG] Tìm thấy {len(mkv_files)} file MKV")
+                video_files = sorted(
+                    f for f in all_files 
+                    if any(f.lower().endswith(ext) for ext in self.SUPPORTED_VIDEO_EXTENSIONS)
+                )
+                print(f"[DEBUG] Tìm thấy {len(video_files)} file video ({', '.join(self.SUPPORTED_VIDEO_EXTENSIONS)})")
             except PermissionError as e:
                 QtWidgets.QMessageBox.warning(
                     self, 
@@ -1180,15 +1186,15 @@ class MainWindow(QtWidgets.QMainWindow):
             # Phân loại: đã xử lý (có tiền tố HOẶC có trong log) vs chưa xử lý
             processed_files = []
             pending_files = []
-            for mkv in mkv_files:
+            for video_file in video_files:
                 # Check: có tiền tố resolution HOẶC có trong log (cả old_name và new_name)
-                has_prefix = self.is_already_processed_by_name(mkv)
-                in_log = mkv in processed_old_names or mkv in processed_new_names
+                has_prefix = self.is_already_processed_by_name(video_file)
+                in_log = video_file in processed_old_names or video_file in processed_new_names
                 
                 if has_prefix or in_log:
-                    processed_files.append(mkv)
+                    processed_files.append(video_file)
                 else:
-                    pending_files.append(mkv)
+                    pending_files.append(video_file)
 
             self.file_tree.blockSignals(True)
             self.file_tree.clear()
@@ -1196,8 +1202,8 @@ class MainWindow(QtWidgets.QMainWindow):
             # Hiển thị file chưa xử lý trước (màu vàng)
             # Tối ưu: Không đọc metadata ngay, chỉ hiển thị file list nhanh
             # Metadata sẽ được đọc lazy khi user expand item
-            for mkv in pending_files:
-                file_path = os.path.abspath(os.path.join(folder, mkv))
+            for video_file in pending_files:
+                file_path = os.path.abspath(os.path.join(folder, video_file))
                 if not os.path.exists(file_path):
                     print(f"[WARNING] File không tồn tại: {file_path}")
                     continue
@@ -1216,14 +1222,14 @@ class MainWindow(QtWidgets.QMainWindow):
                 try:
                     size = self.format_file_size(os.path.getsize(file_path))
                 except Exception as e:
-                    print(f"[WARNING] Không thể đọc kích thước file {mkv}: {e}")
+                    print(f"[WARNING] Không thể đọc kích thước file {video_file}: {e}")
                     size = "?"
                 
                 item = QtWidgets.QTreeWidgetItem(self.file_tree)
                 item.setFlags(item.flags() | QtCore.Qt.ItemIsUserCheckable)
                 item.setCheckState(0, QtCore.Qt.Checked if options.process_enabled else QtCore.Qt.Unchecked)
                 
-                item.setText(0, f"{mkv} ({size})")
+                item.setText(0, f"{video_file} ({size})")
                 # Hiển thị summary đơn giản nếu chưa có metadata
                 if options.metadata_ready:
                     item.setText(1, self.get_file_config_summary(options))
@@ -1248,8 +1254,8 @@ class MainWindow(QtWidgets.QMainWindow):
 
             # Hiển thị file đã xử lý sau (màu xanh)
             # Tối ưu: Không đọc metadata ngay, chỉ hiển thị file list nhanh
-            for mkv in processed_files:
-                file_path = os.path.abspath(os.path.join(folder, mkv))
+            for video_file in processed_files:
+                file_path = os.path.abspath(os.path.join(folder, video_file))
                 if not os.path.exists(file_path):
                     print(f"[WARNING] File không tồn tại: {file_path}")
                     continue
@@ -1268,7 +1274,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 try:
                     size = self.format_file_size(os.path.getsize(file_path))
                 except Exception as e:
-                    print(f"[WARNING] Không thể đọc kích thước file {mkv}: {e}")
+                    print(f"[WARNING] Không thể đọc kích thước file {video_file}: {e}")
                     size = "?"
                 
                 item = QtWidgets.QTreeWidgetItem(self.file_tree)
@@ -1277,7 +1283,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 options.process_enabled = False
                 item.setCheckState(0, QtCore.Qt.Unchecked)
                 
-                item.setText(0, f"✓ {mkv} ({size})")
+                item.setText(0, f"✓ {video_file} ({size})")
                 # Hiển thị summary đơn giản nếu chưa có metadata
                 if options.metadata_ready:
                     item.setText(1, self.get_file_config_summary(options))
@@ -1300,7 +1306,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 ph.setData(0, QtCore.Qt.UserRole, "placeholder")
                 ph.setText(0, "Loading...")
 
-            self.file_count_label.setText(f"{len(processed_files)}/{len(mkv_files)}")
+            self.file_count_label.setText(f"{len(processed_files)}/{len(video_files)}")
             
             # Start background metadata loader sau khi hiển thị file list
             # Lấy danh sách file paths cần load metadata
