@@ -719,21 +719,20 @@ class MainWindow(QtWidgets.QMainWindow):
         card_layout.addWidget(github_group)
 
         # === Updates section (footer trong card) ===
-        updates_frame = QtWidgets.QFrame()
-        updates_layout = QtWidgets.QVBoxLayout(updates_frame)
-        updates_layout.setContentsMargins(4, 8, 4, 0)
-        updates_layout.setSpacing(4)
-
-        update_label = QtWidgets.QLabel("🔄 Updates")
-        update_label.setObjectName("settingsGroupTitle")
-        updates_layout.addWidget(update_label)
+        # === Updates section (grouped for better readability) ===
+        updates_group = QtWidgets.QGroupBox("🔄 Updates")
+        updates_group.setObjectName("settingsGroup")
+        updates_group_layout = QtWidgets.QVBoxLayout(updates_group)
+        updates_group_layout.setContentsMargins(12, 10, 12, 12)
+        updates_group_layout.setSpacing(8)
 
         update_manager = self._get_update_manager()
         if update_manager:
-            # Version info section
-            version_info_layout = QtWidgets.QVBoxLayout()
-            version_info_layout.setSpacing(4)
-            
+            # Version info section (two lines)
+            version_info_layout = QtWidgets.QGridLayout()
+            version_info_layout.setHorizontalSpacing(12)
+            version_info_layout.setVerticalSpacing(6)
+
             try:
                 current_version = update_manager.get_current_version()
                 if not current_version or current_version == "unknown":
@@ -748,8 +747,12 @@ class MainWindow(QtWidgets.QMainWindow):
                 is_current_beta = "beta" in current_version.lower() if current_version else False
                 version_type = "Beta" if is_current_beta else "Stable"
                 version_display = current_version if current_version and current_version != "unknown" else "unknown"
-                self.current_version_label = QtWidgets.QLabel(
-                    f"📌 Bản hiện tại: <b style='color: #58a6ff;'>{version_display}</b> <span style='color: #8b949e;'>({version_type})</span>"
+                self.current_version_label = QtWidgets.QLabel()
+                self.current_version_label.setTextFormat(QtCore.Qt.RichText)
+                self.current_version_label.setText(
+                    f"<span style='color:#9ca3af;'>Current:</span> "
+                    f"<b style='color:#58a6ff;'>{version_display}</b> "
+                    f"<span style='color:#8b949e;'>({version_type})</span>"
                 )
                 
                 # Log version to console and log view
@@ -766,24 +769,29 @@ class MainWindow(QtWidgets.QMainWindow):
                 traceback.print_exc()
                 if self.log_view:
                     self.log_view.appendPlainText(traceback.format_exc())
-                self.current_version_label = QtWidgets.QLabel("📌 Bản hiện tại: <b>unknown</b>")
+                self.current_version_label = QtWidgets.QLabel(
+                    "<span style='color:#9ca3af;'>Current:</span> <b>unknown</b>"
+                )
             
-            self.latest_version_label = QtWidgets.QLabel("📥 Bản sắp update: <span style='color: #8b949e;'>Chưa kiểm tra</span>")
+            self.latest_version_label = QtWidgets.QLabel()
+            self.latest_version_label.setTextFormat(QtCore.Qt.RichText)
+            self.latest_version_label.setText(
+                "<span style='color:#9ca3af;'>Latest:</span> "
+                "<span style='color:#8b949e;'>Chưa kiểm tra</span>"
+            )
+
+            version_info_layout.addWidget(self.current_version_label, 0, 0)
+            version_info_layout.addWidget(self.latest_version_label, 1, 0)
+            version_info_layout.setColumnStretch(0, 1)
+            updates_group_layout.addLayout(version_info_layout)
             
-            version_info_layout.addWidget(self.current_version_label)
-            version_info_layout.addWidget(self.latest_version_label)
-            updates_layout.addLayout(version_info_layout)
-            
-            # Settings row: Beta/Stable switch + Auto download
+            # Settings row: Release type + Auto download
             settings_row = QtWidgets.QHBoxLayout()
-            settings_row.setSpacing(16)
+            settings_row.setSpacing(12)
             
-            # Beta/Stable switch
-            beta_stable_row = QtWidgets.QHBoxLayout()
-            beta_stable_row.setSpacing(8)
             beta_label = QtWidgets.QLabel("Release type:")
             beta_label.setObjectName("settingsFieldLabel")
-            beta_stable_row.addWidget(beta_label)
+            settings_row.addWidget(beta_label)
             
             self.beta_stable_combo = QtWidgets.QComboBox()
             self.beta_stable_combo.addItem("Stable", "stable")
@@ -791,22 +799,21 @@ class MainWindow(QtWidgets.QMainWindow):
             prefer_beta = self.config.get("prefer_beta_updates", False)
             self.beta_stable_combo.setCurrentIndex(1 if prefer_beta else 0)
             self.beta_stable_combo.currentIndexChanged.connect(self.on_beta_stable_changed)
-            beta_stable_row.addWidget(self.beta_stable_combo)
-            settings_row.addLayout(beta_stable_row)
+            settings_row.addWidget(self.beta_stable_combo)
             
-            # Auto download checkbox
-            self.auto_download_cb = QtWidgets.QCheckBox("Auto download updates")
+            self.auto_download_cb = QtWidgets.QCheckBox("Auto download")
             self.auto_download_cb.setChecked(self.config.get("auto_download_updates", False))
             self.auto_download_cb.toggled.connect(self.on_auto_download_changed)
             settings_row.addWidget(self.auto_download_cb)
             
             settings_row.addStretch()
-            updates_layout.addLayout(settings_row)
+            updates_group_layout.addLayout(settings_row)
 
             # Update status
             self.update_status_label = QtWidgets.QLabel("")
             self.update_status_label.setWordWrap(True)
-            updates_layout.addWidget(self.update_status_label)
+            self.update_status_label.setStyleSheet("color: #9ca3af;")
+            updates_group_layout.addWidget(self.update_status_label)
 
             # Buttons
             update_btn_row = QtWidgets.QHBoxLayout()
@@ -825,13 +832,27 @@ class MainWindow(QtWidgets.QMainWindow):
             self.restart_update_btn.clicked.connect(lambda: self.restart_and_update())
             update_btn_row.addWidget(self.restart_update_btn)
 
+            # Helper to toggle button states (only one active at a time)
+            def _set_update_buttons(download_enabled: bool, restart_enabled: bool):
+                self.download_update_btn.setVisible(True)
+                self.restart_update_btn.setVisible(True)
+                self.download_update_btn.setEnabled(download_enabled)
+                self.restart_update_btn.setEnabled(restart_enabled)
+                # Hide the inactive action for clarity
+                self.download_update_btn.setVisible(download_enabled)
+                self.restart_update_btn.setVisible(restart_enabled)
+
+            # Initial state: only Check enabled, others disabled/hidden
+            _set_update_buttons(download_enabled=False, restart_enabled=False)
+            self._set_update_buttons = _set_update_buttons  # store for later use
+
             update_btn_row.addStretch()
-            updates_layout.addLayout(update_btn_row)
+            updates_group_layout.addLayout(update_btn_row)
 
             # Progress bar
             self.update_progress_bar = QtWidgets.QProgressBar()
             self.update_progress_bar.setVisible(False)
-            updates_layout.addWidget(self.update_progress_bar)
+            updates_group_layout.addWidget(self.update_progress_bar)
             
             # Track downloaded update file
             self.downloaded_update_file: Path | None = None
@@ -847,9 +868,9 @@ class MainWindow(QtWidgets.QMainWindow):
             no_update_label = QtWidgets.QLabel(error_msg)
             no_update_label.setObjectName("settingsUpdatesHint")
             no_update_label.setWordWrap(True)
-            updates_layout.addWidget(no_update_label)
+            updates_group_layout.addWidget(no_update_label)
 
-        card_layout.addWidget(updates_frame)
+        card_layout.addWidget(updates_group)
 
         root_layout.addWidget(card)
         root_layout.addStretch()
@@ -2758,7 +2779,10 @@ class MainWindow(QtWidgets.QMainWindow):
                     f"{name}<br/>"
                     f"<a href='{html_url}'>View on GitHub</a>"
                 )
-                self.download_update_btn.setEnabled(True)
+                if hasattr(self, '_set_update_buttons'):
+                    self._set_update_buttons(download_enabled=True, restart_enabled=False)
+                else:
+                    self.download_update_btn.setEnabled(True)
                 self.latest_release_info = release_info
                 
                 # Show message box
@@ -2786,7 +2810,10 @@ class MainWindow(QtWidgets.QMainWindow):
                     f"📥 Bản sắp update: <span style='color: #8b949e;'>Không có bản mới</span>"
                 )
                 self.download_update_btn.setEnabled(False)
-                self.restart_update_btn.setEnabled(False)
+                if hasattr(self, '_set_update_buttons'):
+                    self._set_update_buttons(download_enabled=False, restart_enabled=False)
+                else:
+                    self.restart_update_btn.setEnabled(False)
                 QtWidgets.QMessageBox.information(
                     self, "Up to Date", 
                     f"Bạn đang dùng phiên bản mới nhất: {current_version} ({version_type})"
@@ -2883,8 +2910,11 @@ class MainWindow(QtWidgets.QMainWindow):
                 f"Nhấn nút 'Restart & Update' để cài đặt."
             )
             self.update_progress_bar.setValue(100)
-            self.restart_update_btn.setEnabled(True)
-            self.download_update_btn.setEnabled(False)
+            if hasattr(self, '_set_update_buttons'):
+                self._set_update_buttons(download_enabled=False, restart_enabled=True)
+            else:
+                self.restart_update_btn.setEnabled(True)
+                self.download_update_btn.setEnabled(False)
                 
         except Exception as e:
             self.update_status_label.setText(
@@ -2898,7 +2928,10 @@ class MainWindow(QtWidgets.QMainWindow):
         finally:
             self.update_progress_bar.setVisible(False)
             if not hasattr(self, 'downloaded_update_file') or self.downloaded_update_file is None:
-                self.download_update_btn.setEnabled(True)
+                if hasattr(self, '_set_update_buttons'):
+                    self._set_update_buttons(download_enabled=True, restart_enabled=False)
+                else:
+                    self.download_update_btn.setEnabled(True)
     
     def restart_and_update(self):
         """Install downloaded update and restart application."""
@@ -3039,7 +3072,9 @@ class MainWindow(QtWidgets.QMainWindow):
             download_path = update_manager.download_update(exe_asset, progress_callback)
             if download_path:
                 self.downloaded_update_file = download_path
-                if hasattr(self, 'restart_update_btn'):
+                if hasattr(self, '_set_update_buttons'):
+                    self._set_update_buttons(download_enabled=False, restart_enabled=True)
+                elif hasattr(self, 'restart_update_btn'):
                     self.restart_update_btn.setEnabled(True)
                 if hasattr(self, 'update_status_label'):
                     version = release_info.get("version", "unknown")
