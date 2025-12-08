@@ -31,6 +31,37 @@ def _clear_conflicting_gui_module() -> None:
         sys.modules.pop("gui", None)
 
 
+def _load_tk_gui():
+    """
+    Load giao diện tkinter làm phương án dự phòng nếu PySide6 lỗi.
+    Ưu tiên bản trong package gui (src/gui/gui.py) đã bundle vào _MEIPASS.
+    """
+    tk_candidates = []
+    if hasattr(sys, "_MEIPASS"):
+        base_dir = Path(sys._MEIPASS)
+        tk_candidates.extend([
+            base_dir / "gui" / "gui.py",
+            base_dir / "src" / "gui" / "gui.py",
+        ])
+    else:
+        base_dir = Path(__file__).resolve().parent
+        tk_candidates.append(base_dir / "src" / "gui" / "gui.py")
+
+    for path in tk_candidates:
+        if not path.exists():
+            continue
+        spec = importlib.util.spec_from_file_location("gui.tk_gui", str(path))
+        if spec and spec.loader:
+            module = importlib.util.module_from_spec(spec)
+            sys.modules["gui.tk_gui"] = module
+            spec.loader.exec_module(module)
+            main = getattr(module, "main", None)
+            if callable(main):
+                return main
+    searched = "\n".join(f"  - {p}" for p in tk_candidates)
+    raise ImportError(f"Cannot load tkinter fallback. Searched:\n{searched}")
+
+
 def _configure_sys_path() -> None:
     """
     Bổ sung đường dẫn khi chạy cả từ source lẫn PyInstaller.
@@ -115,28 +146,30 @@ def _load_gui_module():
                     sys.modules[module_name] = module
                     spec.loader.exec_module(module)
                     return module.main
-        
-        # Nếu không tìm thấy, list tất cả files trong _MEIPASS để debug
-        debug_info = f"Cannot find GUI module. Searched in:\n"
-        for path in possible_paths:
-            debug_info += f"  - {path}\n"
-        debug_info += f"\n_MEIPASS: {base_dir}\n"
-        if base_dir.exists():
-            debug_info += f"Contents (first 30):\n"
-            for item in list(base_dir.iterdir())[:30]:
-                debug_info += f"  - {item.name} ({'DIR' if item.is_dir() else 'FILE'})\n"
-                if item.is_dir() and item.name == "gui":
-                    # List contents of gui directory
-                    try:
-                        for subitem in list(item.iterdir())[:10]:
-                            debug_info += f"    - {subitem.name}\n"
-                    except Exception:
-                        pass
-        raise ImportError(debug_info)
     else:
-        # Từ source, import phải work
-        from gui.gui_pyside_app import main
-        return main
+        # Từ source, import PySide phải work nếu đã cài deps
+        try:
+            from gui.gui_pyside_app import main
+            return main
+        except ImportError:
+            pass
+
+    # PySide thất bại, chuyển sang tkinter fallback
+    try:
+        return _load_tk_gui()
+    except ImportError as tk_err:
+        # Nếu vẫn lỗi, cung cấp debug chi tiết
+        debug_info = "Cannot find GUI module (PySide) and tkinter fallback.\n"
+        if hasattr(sys, "_MEIPASS"):
+            base_dir = Path(sys._MEIPASS)
+            debug_info += f"_MEIPASS: {base_dir}\n"
+            if base_dir.exists():
+                debug_info += "Contents (first 20):\n"
+                for item in list(base_dir.iterdir())[:20]:
+                    kind = "DIR" if item.is_dir() else "FILE"
+                    debug_info += f"  - {item.name} ({kind})\n"
+        debug_info += f"Tk fallback error: {tk_err}"
+        raise ImportError(debug_info)
 
 
 # Load GUI module
