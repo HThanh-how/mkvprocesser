@@ -10,20 +10,25 @@ Cấu trúc khi chạy từ PyInstaller bundle:
   - _MEIPASS/mkvprocessor/
 """
 import sys
+import importlib
 import importlib.util
 import types
 from pathlib import Path
 
-# QUAN TRỌNG: Import này giúp PyInstaller phát hiện và bundle gui package
-# PyInstaller phân tích code tĩnh, nên import này PHẢI được thấy ngay
-# (không được wrap trong if/else vì PyInstaller không chạy code)
-# Khi chạy thực tế, nếu import fail sẽ được xử lý trong _load_gui_module()
-try:
-    from gui.gui_pyside_app import main as _gui_main_preload
-except ImportError:
-    # Import fail là bình thường khi chạy từ bundle hoặc chưa config sys.path
-    # Sẽ được xử lý lại trong _load_gui_module() sau khi config sys.path
-    _gui_main_preload = None
+# Hint cho PyInstaller về dependency gui_pyside_app mà không thực thi import
+if False:  # pragma: no cover
+    from gui.gui_pyside_app import main as _pyi_hint  # noqa: F401
+
+
+def _clear_conflicting_gui_module() -> None:
+    """
+    Loại bỏ module gui bị shadow bởi file gui.py ở root (_MEIPASS).
+    Nếu module gui không phải package (không có __path__), xóa để ưu tiên
+    package thật trong src/gui khi import sau đó.
+    """
+    existing = sys.modules.get("gui")
+    if existing is not None and not hasattr(existing, "__path__"):
+        sys.modules.pop("gui", None)
 
 
 def _configure_sys_path() -> None:
@@ -75,16 +80,14 @@ def _configure_sys_path() -> None:
 def _load_gui_module():
     """Load GUI module với fallback cho cả source và bundle."""
     _configure_sys_path()
+    _clear_conflicting_gui_module()
     
-    # Nếu đã import thành công ở trên, dùng luôn
-    if _gui_main_preload is not None:
-        return _gui_main_preload
-    
-    # Thử import lại sau khi đã config sys.path
+    # Thử import chuẩn sau khi đã config sys.path
     try:
         from gui.gui_pyside_app import main
         return main
     except ImportError:
+        # Sẽ fallback ở bước dưới
         pass
     
     # Fallback: load trực tiếp bằng importlib
