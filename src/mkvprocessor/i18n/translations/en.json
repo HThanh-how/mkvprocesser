@@ -27,7 +27,7 @@
     "processing_started": "Processing started",
     "processing_completed": "Processing completed",
     "processing_error": "Processing error occurred",
-    "no_files_found": "No MKV files found",
+    "no_files_found": "No supported video files found",
     "ffmpeg_not_found": "FFmpeg not found. Please install FFmpeg.",
     "insufficient_ram": "Insufficient RAM available",
     "insufficient_disk_space": "Insufficient disk space",

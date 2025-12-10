@@ -90,6 +90,17 @@ def setup_logging():
 setup_logging()
 logger = logging.getLogger(__name__)
 
+SUPPORTED_VIDEO_EXTENSIONS = (
+    ".mkv",
+    ".mp4",
+    ".avi",
+    ".mov",
+    ".m4v",
+    ".flv",
+    ".wmv",
+    ".webm",
+)
+
 # Global variables - these are now managed by log_manager and git_utils
 # REMOTE_SYNC is managed by log_manager.set_remote_sync()
 # GIT_CACHED_PATH is managed by git_utils
@@ -697,26 +708,50 @@ def main(input_folder=None, force_reprocess: Optional[bool] = None, dry_run: boo
             logger.warning("[GUI] Cannot parse file options. Will use defaults.")
 
     try:
-        mkv_files = [f for f in os.listdir(input_folder) if f.lower().endswith(".mkv")]
+        video_files = [
+            f
+            for f in os.listdir(input_folder)
+            if f.lower().endswith(SUPPORTED_VIDEO_EXTENSIONS)
+        ]
         selected_env = os.environ.get("MKV_SELECTED_FILES")
         if selected_env:
             try:
                 selected_paths = json.loads(selected_env)
                 selected_abs = {os.path.abspath(path) for path in selected_paths}
-                mkv_files = [
-                    f for f in mkv_files
+                video_files = [
+                    f
+                    for f in video_files
                     if os.path.abspath(os.path.join(input_folder, f)) in selected_abs
                 ]
+                unsupported_selected = [
+                    path
+                    for path in selected_abs
+                    if not path.lower().endswith(SUPPORTED_VIDEO_EXTENSIONS)
+                ]
+                if unsupported_selected:
+                    names = ", ".join(
+                        os.path.basename(path) for path in unsupported_selected
+                    )
+                    logger.warning(
+                        f"[GUI] Skipping unsupported files from selection: {names}"
+                    )
             except json.JSONDecodeError:
                 logger.warning("[GUI] Cannot parse selected file list. Will process all.")
-        if not mkv_files:
+        if not video_files:
             logger.warning(t("messages.no_files_found"))
             return
 
-        total_files = len(mkv_files)
-        for file_idx, mkv_file in enumerate(mkv_files, 1):
-            file_path = os.path.join(input_folder, mkv_file)
-            logger.info(t("messages.processing_file", current=file_idx, total=total_files, filename=mkv_file))
+        total_files = len(video_files)
+        for file_idx, video_file in enumerate(video_files, 1):
+            file_path = os.path.join(input_folder, video_file)
+            logger.info(
+                t(
+                    "messages.processing_file",
+                    current=file_idx,
+                    total=total_files,
+                    filename=video_file,
+                )
+            )
             logger.info(f"\n===== PROCESSING FILE: {file_path} =====")
             
             # Hiển thị kích thước file
@@ -735,16 +770,16 @@ def main(input_folder=None, force_reprocess: Optional[bool] = None, dry_run: boo
             skip_file = False
             skip_extract = False  # Default: don't skip extract
             if not force_reprocess and not force_rename:
-                if mkv_file in processed_files:
-                    logger.info(f"File {mkv_file} already processed as {processed_files[mkv_file]['new_name']} at {processed_files[mkv_file]['time']}. Skipping.")
+                if video_file in processed_files:
+                    logger.info(f"File {video_file} already processed as {processed_files[video_file]['new_name']} at {processed_files[video_file]['time']}. Skipping.")
                     skip_file = True
                 elif file_signature and file_signature in processed_signatures:
-                    logger.info(f"File {mkv_file} has same content as already processed file {processed_signatures[file_signature]['new_name']}. Skipping.")
+                    logger.info(f"File {video_file} has same content as already processed file {processed_signatures[file_signature]['new_name']}. Skipping.")
                     skip_file = True
-            elif mkv_file in processed_files and rename_enabled:
+            elif video_file in processed_files and rename_enabled:
                 # File already processed but only needs rename
                 # Still extract subtitles if export_subtitles is enabled
-                logger.info(f"File {mkv_file} already processed. Only performing rename as requested...")
+                logger.info(f"File {video_file} already processed. Only performing rename as requested...")
                 skip_file = False  # Don't skip, will rename at end
                 # Only skip extract if export_subtitles is disabled
                 skip_extract = not export_subtitles
@@ -810,7 +845,7 @@ def main(input_folder=None, force_reprocess: Optional[bool] = None, dry_run: boo
                         new_path = rename_simple(file_path)
                         log_processed_file(
                             log_file,
-                            mkv_file,
+                            video_file,
                             os.path.basename(new_path),
                             signature=file_signature,
                             metadata={
@@ -894,7 +929,9 @@ def main(input_folder=None, force_reprocess: Optional[bool] = None, dry_run: boo
             # 2. OR force_reprocess = True AND rename_enabled = True  
             # 3. OR file not in processed_files yet AND rename_enabled = True
             # Note: Always rename if file was just processed successfully, regardless of previous processing status
-            file_already_processed = mkv_file in processed_files or (file_signature and file_signature in processed_signatures)
+            file_already_processed = video_file in processed_files or (
+                file_signature and file_signature in processed_signatures
+            )
             # If file was just processed successfully, always rename if rename_enabled is True
             if processing_success and rename_enabled:
                 should_rename = True
@@ -908,7 +945,7 @@ def main(input_folder=None, force_reprocess: Optional[bool] = None, dry_run: boo
                     new_path = rename_simple(file_path)
                     log_processed_file(
                         log_file,
-                        mkv_file,
+                        video_file,
                         os.path.basename(new_path),
                         signature=file_signature,
                         metadata={
@@ -917,7 +954,13 @@ def main(input_folder=None, force_reprocess: Optional[bool] = None, dry_run: boo
                             "output_path": os.path.abspath(new_path),
                         },
                     )
-                    logger.info(t("messages.renamed_file", old=mkv_file, new=os.path.basename(new_path)))
+                    logger.info(
+                        t(
+                            "messages.renamed_file",
+                            old=video_file,
+                            new=os.path.basename(new_path),
+                        )
+                    )
                 except Exception as rename_err:
                     logger.error(f"Cannot rename: {rename_err}")
             # If only extract SRT (no VIE audio) and should_rename = True, rename video file
@@ -927,7 +970,7 @@ def main(input_folder=None, force_reprocess: Optional[bool] = None, dry_run: boo
                     new_path = rename_simple(file_path)
                     log_processed_file(
                         log_file,
-                        mkv_file,
+                        video_file,
                         os.path.basename(new_path),
                         signature=file_signature,
                         metadata={
@@ -936,7 +979,13 @@ def main(input_folder=None, force_reprocess: Optional[bool] = None, dry_run: boo
                             "output_path": os.path.abspath(new_path),
                         },
                     )
-                    logger.info(t("messages.renamed_file", old=mkv_file, new=os.path.basename(new_path)))
+                    logger.info(
+                        t(
+                            "messages.renamed_file",
+                            old=video_file,
+                            new=os.path.basename(new_path),
+                        )
+                    )
                 except Exception as rename_err:
                     logger.error(f"Cannot rename: {rename_err}")
             # If no Vietnamese subtitle and audio OR audio processing failed
@@ -948,7 +997,7 @@ def main(input_folder=None, force_reprocess: Optional[bool] = None, dry_run: boo
                         new_path = rename_simple(file_path)
                         log_processed_file(
                             log_file,
-                            mkv_file,
+                            video_file,
                             os.path.basename(new_path),
                             signature=file_signature,
                             metadata={

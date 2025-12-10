@@ -360,7 +360,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.folder_edit = QtWidgets.QLineEdit(self.config.get("input_folder", "."))
         self.folder_edit.setObjectName("pillInput")
         self.folder_edit.setReadOnly(True)
-        self.folder_edit.setPlaceholderText("Chọn thư mục chứa MKV…")
+        self.folder_edit.setPlaceholderText("Chọn thư mục chứa video…")
         self.folder_edit.editingFinished.connect(self.on_folder_edit_finished)
         self.folder_edit.setMaximumWidth(400)
         header_layout.addWidget(self.folder_edit)
@@ -399,7 +399,7 @@ class MainWindow(QtWidgets.QMainWindow):
         header_layout.addStretch()
         tab_layout.addWidget(header_card)
 
-        # Card 2: Danh sách file MKV (chiếm phần lớn diện tích)
+        # Card 2: Danh sách file video (chiếm phần lớn diện tích)
         file_card = QtWidgets.QFrame()
         file_card.setObjectName("card")
         file_layout = QtWidgets.QVBoxLayout(file_card)
