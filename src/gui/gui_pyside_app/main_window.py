@@ -118,6 +118,17 @@ class MainWindow(QtWidgets.QMainWindow):
             lambda: getattr(self, "auto_check_for_updates", lambda: None)()
         )
     
+    def show_info_message(self, title: str, message: str) -> None:
+        """Show information dialog with high-contrast text."""
+        msg_box = QtWidgets.QMessageBox(self)
+        msg_box.setIcon(QtWidgets.QMessageBox.Information)
+        msg_box.setWindowTitle(title)
+        msg_box.setText(
+            f"<span style='color: #111827;'>{message}</span>"
+        )
+        msg_box.setStandardButtons(QtWidgets.QMessageBox.Ok)
+        msg_box.exec()
+    
     def _get_script_module(self):
         """Lazy load processing_core module - chỉ import khi cần"""
         if self.script is None:
@@ -1418,7 +1429,7 @@ class MainWindow(QtWidgets.QMainWindow):
         # Không refresh nếu đang xử lý (tránh mất trạng thái đang xử lý)
         if self.worker and self.worker.isRunning():
             msg = "Không thể làm mới danh sách khi đang xử lý file.\nVui lòng đợi hoàn thành hoặc dừng xử lý."
-            QtWidgets.QMessageBox.information(self, "Đang xử lý", msg)
+            self.show_info_message("Đang xử lý", msg)
             return
         
         # Disable nút và hiển thị đang refresh
@@ -2258,7 +2269,7 @@ class MainWindow(QtWidgets.QMainWindow):
                     options_data[path] = self.file_options[path].to_dict()
 
         if not selected:
-            QtWidgets.QMessageBox.information(self, "Info", "Chọn ít nhất 1 file.")
+            self.show_info_message("Info", "Chọn ít nhất 1 file.")
             return
 
         if self.log_view:
@@ -2691,7 +2702,7 @@ class MainWindow(QtWidgets.QMainWindow):
             r = requests.get(f"https://api.github.com/repos/{repo}", 
                            headers={"Authorization": f"Bearer {token}"}, timeout=10)
             if r.status_code == 200:
-                QtWidgets.QMessageBox.information(self, "OK", "Token hợp lệ!")
+                self.show_info_message("OK", "Token hợp lệ!")
             else:
                 QtWidgets.QMessageBox.critical(self, "Error", f"Status code {r.status_code}")
         except Exception as e:
@@ -2814,9 +2825,10 @@ class MainWindow(QtWidgets.QMainWindow):
                     self._set_update_buttons(download_enabled=False, restart_enabled=False)
                 else:
                     self.restart_update_btn.setEnabled(False)
-                QtWidgets.QMessageBox.information(
-                    self, "Up to Date", 
-                    f"Bạn đang dùng phiên bản mới nhất: {current_version} ({version_type})"
+                self.show_info_message(
+                    "Up to Date",
+                    f"Bạn đang dùng phiên bản mới nhất: "
+                    f"{current_version} ({version_type})"
                 )
                 
         except Exception as e:
