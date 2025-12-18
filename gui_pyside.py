@@ -9,6 +9,7 @@ Cấu trúc khi chạy từ PyInstaller bundle:
   - _MEIPASS/gui/
   - _MEIPASS/mkvprocessor/
 """
+import os
 import sys
 import importlib
 import importlib.util
@@ -123,23 +124,28 @@ def _load_gui_module():
     _configure_sys_path()
     _clear_conflicting_gui_module()
     
+    # Check if debug mode is enabled
+    DEBUG_MODE = os.environ.get("MKV_DEBUG", "").lower() in ("1", "true", "yes")
+    
     # Thử import chuẩn sau khi đã config sys.path
     try:
         from gui.gui_pyside_app import main
         return main
     except ImportError as e:
-        # Debug: log lỗi import
-        print(f"[DEBUG] Standard import failed: {e}")
+        # Debug: log lỗi import chỉ khi debug mode
+        if DEBUG_MODE:
+            print(f"[DEBUG] Standard import failed: {e}")
         pass
     
     # Fallback: load trực tiếp bằng importlib
     if hasattr(sys, "_MEIPASS"):
         base_dir = Path(sys._MEIPASS)
         
-        # Debug: liệt kê tất cả thư mục để tìm gui
-        all_dirs = [item for item in base_dir.iterdir() if item.is_dir()]
-        print(f"[DEBUG] _MEIPASS: {base_dir}")
-        print(f"[DEBUG] Directories in _MEIPASS: {[d.name for d in all_dirs]}")
+        # Debug: liệt kê tất cả thư mục để tìm gui (chỉ khi debug)
+        if DEBUG_MODE:
+            all_dirs = [item for item in base_dir.iterdir() if item.is_dir()]
+            print(f"[DEBUG] _MEIPASS: {base_dir}")
+            print(f"[DEBUG] Directories in _MEIPASS: {[d.name for d in all_dirs]}")
         
         # Thử các path có thể (theo thứ tự ưu tiên)
         possible_paths = [
@@ -147,12 +153,14 @@ def _load_gui_module():
             base_dir / "src" / "gui" / "gui_pyside_app" / "__init__.py",  # Nếu bundle vào src/
         ]
         
-        # Debug: kiểm tra từng path
+        # Debug: kiểm tra từng path (chỉ khi debug)
         for gui_module_path in possible_paths:
-            print(f"[DEBUG] Checking path: {gui_module_path}")
-            print(f"[DEBUG] Path exists: {gui_module_path.exists()}")
+            if DEBUG_MODE:
+                print(f"[DEBUG] Checking path: {gui_module_path}")
+                print(f"[DEBUG] Path exists: {gui_module_path.exists()}")
             if gui_module_path.exists():
-                print(f"[DEBUG] Found GUI module at: {gui_module_path}")
+                if DEBUG_MODE:
+                    print(f"[DEBUG] Found GUI module at: {gui_module_path}")
                 # Tạo module name đúng
                 module_name = "gui.gui_pyside_app"
                 spec = importlib.util.spec_from_file_location(module_name, str(gui_module_path))
@@ -169,27 +177,32 @@ def _load_gui_module():
                         module = importlib.util.module_from_spec(spec)
                         sys.modules[module_name] = module
                         spec.loader.exec_module(module)
-                        print(f"[DEBUG] Successfully loaded module: {module_name}")
+                        if DEBUG_MODE:
+                            print(f"[DEBUG] Successfully loaded module: {module_name}")
                         return module.main
                     except Exception as load_err:
-                        print(f"[DEBUG] Failed to load module: {load_err}")
-                        import traceback
-                        traceback.print_exc()
+                        if DEBUG_MODE:
+                            print(f"[DEBUG] Failed to load module: {load_err}")
+                            import traceback
+                            traceback.print_exc()
                         continue
                 else:
-                    print(f"[DEBUG] Failed to create spec for: {gui_module_path}")
+                    if DEBUG_MODE:
+                        print(f"[DEBUG] Failed to create spec for: {gui_module_path}")
         
         # Nếu không tìm thấy, thử tìm thư mục gui và liệt kê nội dung
         gui_dir = base_dir / "gui"
         if gui_dir.exists() and gui_dir.is_dir():
-            print(f"[DEBUG] Found gui directory: {gui_dir}")
-            print(f"[DEBUG] Contents of gui/: {list(gui_dir.iterdir())}")
+            if DEBUG_MODE:
+                print(f"[DEBUG] Found gui directory: {gui_dir}")
+                print(f"[DEBUG] Contents of gui/: {list(gui_dir.iterdir())}")
             # Thử tìm gui_pyside_app trong gui/
             gui_pyside_app_dir = gui_dir / "gui_pyside_app"
             if gui_pyside_app_dir.exists():
                 init_file = gui_pyside_app_dir / "__init__.py"
                 if init_file.exists():
-                    print(f"[DEBUG] Found gui_pyside_app/__init__.py: {init_file}")
+                    if DEBUG_MODE:
+                        print(f"[DEBUG] Found gui_pyside_app/__init__.py: {init_file}")
                     # Thử load lại với path đúng
                     module_name = "gui.gui_pyside_app"
                     spec = importlib.util.spec_from_file_location(module_name, str(init_file))
@@ -205,12 +218,14 @@ def _load_gui_module():
                             module = importlib.util.module_from_spec(spec)
                             sys.modules[module_name] = module
                             spec.loader.exec_module(module)
-                            print(f"[DEBUG] Successfully loaded module: {module_name}")
+                            if DEBUG_MODE:
+                                print(f"[DEBUG] Successfully loaded module: {module_name}")
                             return module.main
                         except Exception as load_err:
-                            print(f"[DEBUG] Failed to load module: {load_err}")
-                            import traceback
-                            traceback.print_exc()
+                            if DEBUG_MODE:
+                                print(f"[DEBUG] Failed to load module: {load_err}")
+                                import traceback
+                                traceback.print_exc()
     else:
         # Từ source, import PySide phải work nếu đã cài deps
         try:
