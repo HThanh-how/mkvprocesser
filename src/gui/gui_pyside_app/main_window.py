@@ -54,6 +54,34 @@ class DraggableListWidget(QtWidgets.QListWidget):
         self.orderChanged.emit()
 
 
+class UpdateDownloadWorker(QtCore.QThread):
+    """Worker thread để download update trong background."""
+    
+    progress_signal = QtCore.Signal(int, int, int)  # downloaded, total, percent
+    finished_signal = QtCore.Signal(object)  # download_path or None
+    error_signal = QtCore.Signal(str)  # error message
+    
+    def __init__(self, update_manager, exe_asset, parent=None):
+        super().__init__(parent)
+        self.update_manager = update_manager
+        self.exe_asset = exe_asset
+    
+    def run(self):
+        """Download update file in background thread."""
+        try:
+            def progress_callback(url, downloaded, total):
+                if total > 0:
+                    percent = int((downloaded / total) * 100)
+                    # Emit signal to update UI (thread-safe)
+                    self.progress_signal.emit(downloaded, total, percent)
+            
+            download_path = self.update_manager.download_update(self.exe_asset, progress_callback)
+            self.finished_signal.emit(download_path)
+        except Exception as e:
+            self.error_signal.emit(str(e))
+            self.finished_signal.emit(None)
+
+
 class MainWindow(QtWidgets.QMainWindow):
     """Cửa sổ chính của ứng dụng"""
     
@@ -95,6 +123,9 @@ class MainWindow(QtWidgets.QMainWindow):
         # Lazy import UpdateManager - chỉ import khi cần check updates
         self.update_manager = None
         self._update_manager_imported = False
+        
+        # Update download worker thread
+        self.update_download_worker = None
 
         self.build_ui()
         # Gọi apply_theme an toàn (tránh crash nếu có lỗi nhỏ về theme)
@@ -2907,56 +2938,76 @@ class MainWindow(QtWidgets.QMainWindow):
             if reply != QtWidgets.QMessageBox.Yes:
                 return
         
-        # Download with progress
+        # Download with progress in background thread
         self.download_update_btn.setEnabled(False)
         self.update_progress_bar.setVisible(True)
         self.update_progress_bar.setRange(0, 100)
         self.update_progress_bar.setValue(0)
         
-        def progress_callback(url, downloaded, total):
-            if total > 0:
-                percent = int((downloaded / total) * 100)
-                self.update_progress_bar.setValue(percent)
-                self.update_status_label.setText(
-                    f"Downloading: {downloaded / 1024 / 1024:.1f} MB / {total / 1024 / 1024:.1f} MB"
-                )
+        # Stop any existing download worker
+        if self.update_download_worker and self.update_download_worker.isRunning():
+            self.update_download_worker.terminate()
+            self.update_download_worker.wait()
         
-        try:
-            download_path = update_manager.download_update(exe_asset, progress_callback)
-            
-            if not download_path:
-                raise Exception("Download failed")
-            
-            # Save downloaded file path for later installation
-            self.downloaded_update_file = download_path
+        # Create and start download worker thread
+        self.update_download_worker = UpdateDownloadWorker(update_manager, exe_asset, self)
+        self.update_download_worker.progress_signal.connect(self._on_download_progress)
+        self.update_download_worker.finished_signal.connect(self._on_download_finished)
+        self.update_download_worker.error_signal.connect(self._on_download_error)
+        self.update_download_worker.start()
+    
+    def _on_download_progress(self, downloaded: int, total: int, percent: int):
+        """Update progress bar and status label from download worker."""
+        self.update_progress_bar.setValue(percent)
+        self.update_status_label.setText(
+            f"Downloading: {downloaded / 1024 / 1024:.1f} MB / {total / 1024 / 1024:.1f} MB"
+        )
+        # Process events to keep UI responsive
+        QtWidgets.QApplication.processEvents()
+    
+    def _on_download_finished(self, download_path):
+        """Handle download completion."""
+        self.update_progress_bar.setVisible(False)
+        
+        if not download_path:
             self.update_status_label.setText(
-                f"<b style='color: #10b981;'>Download hoàn tất!</b><br/>"
-                f"File: {download_path.name}<br/>"
-                f"Nhấn nút 'Restart & Update' để cài đặt."
+                "<b style='color: #ef4444;'>Download thất bại!</b>"
             )
-            self.update_progress_bar.setValue(100)
             if hasattr(self, '_set_update_buttons'):
-                self._set_update_buttons(download_enabled=False, restart_enabled=True)
+                self._set_update_buttons(download_enabled=True, restart_enabled=False)
             else:
-                self.restart_update_btn.setEnabled(True)
-                self.download_update_btn.setEnabled(False)
-                
-        except Exception as e:
-            self.update_status_label.setText(
-                f"<b style='color: #ef4444;'>Error: {str(e)}</b>"
-            )
-            QtWidgets.QMessageBox.critical(
-                self, "Update Error",
-                f"Failed to download/install update:\n{str(e)}\n\n"
-                "Please try downloading manually from GitHub."
-            )
-        finally:
-            self.update_progress_bar.setVisible(False)
-            if not hasattr(self, 'downloaded_update_file') or self.downloaded_update_file is None:
-                if hasattr(self, '_set_update_buttons'):
-                    self._set_update_buttons(download_enabled=True, restart_enabled=False)
-                else:
-                    self.download_update_btn.setEnabled(True)
+                self.download_update_btn.setEnabled(True)
+            return
+        
+        # Save downloaded file path for later installation
+        self.downloaded_update_file = download_path
+        self.update_status_label.setText(
+            f"<b style='color: #10b981;'>Download hoàn tất!</b><br/>"
+            f"File: {download_path.name}<br/>"
+            f"Nhấn nút 'Restart & Update' để cài đặt."
+        )
+        self.update_progress_bar.setValue(100)
+        if hasattr(self, '_set_update_buttons'):
+            self._set_update_buttons(download_enabled=False, restart_enabled=True)
+        else:
+            self.restart_update_btn.setEnabled(True)
+            self.download_update_btn.setEnabled(False)
+    
+    def _on_download_error(self, error_msg: str):
+        """Handle download error."""
+        self.update_status_label.setText(
+            f"<b style='color: #ef4444;'>Error: {error_msg}</b>"
+        )
+        QtWidgets.QMessageBox.critical(
+            self, "Update Error",
+            f"Failed to download update:\n{error_msg}\n\n"
+            "Please try downloading manually from GitHub."
+        )
+        self.update_progress_bar.setVisible(False)
+        if hasattr(self, '_set_update_buttons'):
+            self._set_update_buttons(download_enabled=True, restart_enabled=False)
+        else:
+            self.download_update_btn.setEnabled(True)
     
     def restart_and_update(self):
         """Install downloaded update and restart application."""
@@ -3082,36 +3133,61 @@ class MainWindow(QtWidgets.QMainWindow):
             if not exe_asset:
                 return
             
-            # Download silently
-            def progress_callback(url, downloaded, total):
-                if total > 0:
-                    percent = int((downloaded / total) * 100)
-                    if hasattr(self, 'update_progress_bar'):
-                        self.update_progress_bar.setVisible(True)
-                        self.update_progress_bar.setValue(percent)
-                    if hasattr(self, 'update_status_label'):
-                        self.update_status_label.setText(
-                            f"Đang tự động tải: {downloaded / 1024 / 1024:.1f} MB / {total / 1024 / 1024:.1f} MB"
-                        )
+            # Show progress bar
+            if hasattr(self, 'update_progress_bar'):
+                self.update_progress_bar.setVisible(True)
+                self.update_progress_bar.setRange(0, 100)
+                self.update_progress_bar.setValue(0)
             
-            download_path = update_manager.download_update(exe_asset, progress_callback)
-            if download_path:
-                self.downloaded_update_file = download_path
-                if hasattr(self, '_set_update_buttons'):
-                    self._set_update_buttons(download_enabled=False, restart_enabled=True)
-                elif hasattr(self, 'restart_update_btn'):
-                    self.restart_update_btn.setEnabled(True)
-                if hasattr(self, 'update_status_label'):
-                    version = release_info.get("version", "unknown")
-                    self.update_status_label.setText(
-                        f"<b style='color: #10b981;'>Đã tải xong {version}!</b><br/>"
-                        f"Nhấn 'Restart & Update' để cài đặt."
-                    )
-                print(f"[UPDATE] Auto download completed: {download_path}")
+            # Stop any existing download worker
+            if self.update_download_worker and self.update_download_worker.isRunning():
+                self.update_download_worker.terminate()
+                self.update_download_worker.wait()
+            
+            # Create and start download worker thread
+            self.update_download_worker = UpdateDownloadWorker(update_manager, exe_asset, self)
+            self.update_download_worker.progress_signal.connect(self._on_auto_download_progress)
+            self.update_download_worker.finished_signal.connect(self._on_auto_download_finished)
+            self.update_download_worker.error_signal.connect(self._on_auto_download_error)
+            self.update_download_worker.start()
         except Exception as e:
             print(f"[UPDATE] Error during auto download: {e}")
             import traceback
             traceback.print_exc()
+    
+    def _on_auto_download_progress(self, downloaded: int, total: int, percent: int):
+        """Update progress for auto download."""
+        if hasattr(self, 'update_progress_bar'):
+            self.update_progress_bar.setValue(percent)
+        if hasattr(self, 'update_status_label'):
+            self.update_status_label.setText(
+                f"Đang tự động tải: {downloaded / 1024 / 1024:.1f} MB / {total / 1024 / 1024:.1f} MB"
+            )
+        QtWidgets.QApplication.processEvents()
+    
+    def _on_auto_download_finished(self, download_path):
+        """Handle auto download completion."""
+        if download_path:
+            self.downloaded_update_file = download_path
+            if hasattr(self, '_set_update_buttons'):
+                self._set_update_buttons(download_enabled=False, restart_enabled=True)
+            elif hasattr(self, 'restart_update_btn'):
+                self.restart_update_btn.setEnabled(True)
+            if hasattr(self, 'update_status_label'):
+                version = self.latest_release_info.get("version", "unknown") if hasattr(self, 'latest_release_info') else "unknown"
+                self.update_status_label.setText(
+                    f"<b style='color: #10b981;'>Đã tải xong {version}!</b><br/>"
+                    f"Nhấn 'Restart & Update' để cài đặt."
+                )
+            print(f"[UPDATE] Auto download completed: {download_path}")
+    
+    def _on_auto_download_error(self, error_msg: str):
+        """Handle auto download error."""
+        if hasattr(self, 'update_status_label'):
+            self.update_status_label.setText(
+                f"<b style='color: #ef4444;'>Lỗi tự động tải: {error_msg}</b>"
+            )
+        print(f"[UPDATE] Error during auto download: {error_msg}")
     
     def _show_update_notification(self, release_info: dict):
         """Show update notification (called from background thread)."""
