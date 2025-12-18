@@ -223,6 +223,8 @@ def process_video(
                             '-i', str(file_path),
                             '-map', '0:v',
                             '-map', f'0:{selected_track[0]}',
+                            '-map', '0:t?',
+                            '-map_metadata', '0',
                             '-c', 'copy',
                             '-y',
                             temp_output_path
@@ -264,12 +266,15 @@ def process_video(
             # Process directly to destination if cannot process in RAM
             logger.info(f"Processing video directly to: {final_output_path}")
             
-            # FFmpeg command to extract audio
+            # FFmpeg command to create new video with selected audio
+            # Keep video, selected audio, attachments and global metadata.
             cmd = [
                 'ffmpeg',
                 '-i', str(file_path),
                 '-map', '0:v',
                 '-map', f'0:{selected_track[0]}',
+                '-map', '0:t?',
+                '-map_metadata', '0',
                 '-c', 'copy',
                 '-y',
                 final_output_path
