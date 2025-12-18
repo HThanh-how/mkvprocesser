@@ -124,6 +124,21 @@ def _load_gui_module():
     _configure_sys_path()
     _clear_conflicting_gui_module()
     
+    # Clean up leftover update_installer.bat if exists
+    if hasattr(sys, "_MEIPASS"):
+        # Running from bundle - check exe directory
+        try:
+            exe_path = Path(sys.executable)
+            exe_dir = exe_path.parent
+            batch_file = exe_dir / "update_installer.bat"
+            if batch_file.exists():
+                try:
+                    batch_file.unlink()
+                except Exception:
+                    pass  # Ignore if can't delete
+        except Exception:
+            pass
+    
     # Check if debug mode is enabled
     DEBUG_MODE = os.environ.get("MKV_DEBUG", "").lower() in ("1", "true", "yes")
     
@@ -226,6 +241,43 @@ def _load_gui_module():
                                 print(f"[DEBUG] Failed to load module: {load_err}")
                                 import traceback
                                 traceback.print_exc()
+        
+        # Thử cách khác: tìm tất cả file __init__.py trong _MEIPASS
+        if DEBUG_MODE:
+            print(f"[DEBUG] Searching for __init__.py files in _MEIPASS...")
+        for root, dirs, files in os.walk(base_dir):
+            if "__init__.py" in files:
+                init_path = Path(root) / "__init__.py"
+                # Kiểm tra xem có phải gui_pyside_app không
+                if "gui_pyside_app" in str(init_path):
+                    if DEBUG_MODE:
+                        print(f"[DEBUG] Found potential module: {init_path}")
+                    try:
+                        # Thử load module từ path này
+                        relative_path = init_path.relative_to(base_dir)
+                        parts = relative_path.parts
+                        if len(parts) >= 2 and parts[0] == "gui" and parts[1] == "gui_pyside_app":
+                            module_name = "gui.gui_pyside_app"
+                            spec = importlib.util.spec_from_file_location(module_name, str(init_path))
+                            if spec and spec.loader:
+                                # Đảm bảo parent modules được tạo
+                                if "gui" not in sys.modules:
+                                    sys.modules["gui"] = types.ModuleType("gui")
+                                    sys.modules["gui"].__path__ = [str(base_dir / "gui")]
+                                if "gui.gui_pyside_app" not in sys.modules:
+                                    sys.modules["gui.gui_pyside_app"] = types.ModuleType("gui.gui_pyside_app")
+                                    sys.modules["gui.gui_pyside_app"].__path__ = [str(init_path.parent)]
+                                
+                                module = importlib.util.module_from_spec(spec)
+                                sys.modules[module_name] = module
+                                spec.loader.exec_module(module)
+                                if DEBUG_MODE:
+                                    print(f"[DEBUG] Successfully loaded module from walk: {module_name}")
+                                return module.main
+                    except Exception as e:
+                        if DEBUG_MODE:
+                            print(f"[DEBUG] Failed to load from walk: {e}")
+                        continue
     else:
         # Từ source, import PySide phải work nếu đã cài deps
         try:
