@@ -16,8 +16,11 @@ import types
 from pathlib import Path
 
 # Hint cho PyInstaller về dependency gui_pyside_app mà không thực thi import
+# PyInstaller cần thấy import này để bundle đúng package
 if False:  # pragma: no cover
     from gui.gui_pyside_app import main as _pyi_hint  # noqa: F401
+    from gui import gui_pyside_app  # noqa: F401
+    import gui  # noqa: F401
 
 
 def _clear_conflicting_gui_module() -> None:
@@ -86,6 +89,13 @@ def _configure_sys_path() -> None:
             src_str = str(src_path)
             if src_str not in sys.path:
                 sys.path.insert(0, src_str)
+        
+        # QUAN TRỌNG: Đảm bảo thư mục gui được thêm vào sys.path nếu tồn tại
+        gui_path = base_dir / "gui"
+        if gui_path.exists() and gui_path.is_dir():
+            gui_str = str(gui_path.parent)  # Thêm parent để gui có thể import như package
+            if gui_str not in sys.path:
+                sys.path.insert(0, gui_str)
     else:
         # ===== Chạy từ source =====
         base_dir = Path(__file__).resolve().parent
@@ -117,21 +127,32 @@ def _load_gui_module():
     try:
         from gui.gui_pyside_app import main
         return main
-    except ImportError:
-        # Sẽ fallback ở bước dưới
+    except ImportError as e:
+        # Debug: log lỗi import
+        print(f"[DEBUG] Standard import failed: {e}")
         pass
     
     # Fallback: load trực tiếp bằng importlib
     if hasattr(sys, "_MEIPASS"):
         base_dir = Path(sys._MEIPASS)
+        
+        # Debug: liệt kê tất cả thư mục để tìm gui
+        all_dirs = [item for item in base_dir.iterdir() if item.is_dir()]
+        print(f"[DEBUG] _MEIPASS: {base_dir}")
+        print(f"[DEBUG] Directories in _MEIPASS: {[d.name for d in all_dirs]}")
+        
         # Thử các path có thể (theo thứ tự ưu tiên)
         possible_paths = [
             base_dir / "gui" / "gui_pyside_app" / "__init__.py",  # Nếu bundle trực tiếp
             base_dir / "src" / "gui" / "gui_pyside_app" / "__init__.py",  # Nếu bundle vào src/
         ]
         
+        # Debug: kiểm tra từng path
         for gui_module_path in possible_paths:
+            print(f"[DEBUG] Checking path: {gui_module_path}")
+            print(f"[DEBUG] Path exists: {gui_module_path.exists()}")
             if gui_module_path.exists():
+                print(f"[DEBUG] Found GUI module at: {gui_module_path}")
                 # Tạo module name đúng
                 module_name = "gui.gui_pyside_app"
                 spec = importlib.util.spec_from_file_location(module_name, str(gui_module_path))
@@ -139,13 +160,57 @@ def _load_gui_module():
                     # Đảm bảo parent modules được tạo
                     if "gui" not in sys.modules:
                         sys.modules["gui"] = types.ModuleType("gui")
+                        sys.modules["gui"].__path__ = [str(gui_module_path.parent.parent)]
                     if "gui.gui_pyside_app" not in sys.modules:
                         sys.modules["gui.gui_pyside_app"] = types.ModuleType("gui.gui_pyside_app")
+                        sys.modules["gui.gui_pyside_app"].__path__ = [str(gui_module_path.parent)]
                     
-                    module = importlib.util.module_from_spec(spec)
-                    sys.modules[module_name] = module
-                    spec.loader.exec_module(module)
-                    return module.main
+                    try:
+                        module = importlib.util.module_from_spec(spec)
+                        sys.modules[module_name] = module
+                        spec.loader.exec_module(module)
+                        print(f"[DEBUG] Successfully loaded module: {module_name}")
+                        return module.main
+                    except Exception as load_err:
+                        print(f"[DEBUG] Failed to load module: {load_err}")
+                        import traceback
+                        traceback.print_exc()
+                        continue
+                else:
+                    print(f"[DEBUG] Failed to create spec for: {gui_module_path}")
+        
+        # Nếu không tìm thấy, thử tìm thư mục gui và liệt kê nội dung
+        gui_dir = base_dir / "gui"
+        if gui_dir.exists() and gui_dir.is_dir():
+            print(f"[DEBUG] Found gui directory: {gui_dir}")
+            print(f"[DEBUG] Contents of gui/: {list(gui_dir.iterdir())}")
+            # Thử tìm gui_pyside_app trong gui/
+            gui_pyside_app_dir = gui_dir / "gui_pyside_app"
+            if gui_pyside_app_dir.exists():
+                init_file = gui_pyside_app_dir / "__init__.py"
+                if init_file.exists():
+                    print(f"[DEBUG] Found gui_pyside_app/__init__.py: {init_file}")
+                    # Thử load lại với path đúng
+                    module_name = "gui.gui_pyside_app"
+                    spec = importlib.util.spec_from_file_location(module_name, str(init_file))
+                    if spec and spec.loader:
+                        if "gui" not in sys.modules:
+                            sys.modules["gui"] = types.ModuleType("gui")
+                            sys.modules["gui"].__path__ = [str(gui_dir)]
+                        if "gui.gui_pyside_app" not in sys.modules:
+                            sys.modules["gui.gui_pyside_app"] = types.ModuleType("gui.gui_pyside_app")
+                            sys.modules["gui.gui_pyside_app"].__path__ = [str(gui_pyside_app_dir)]
+                        
+                        try:
+                            module = importlib.util.module_from_spec(spec)
+                            sys.modules[module_name] = module
+                            spec.loader.exec_module(module)
+                            print(f"[DEBUG] Successfully loaded module: {module_name}")
+                            return module.main
+                        except Exception as load_err:
+                            print(f"[DEBUG] Failed to load module: {load_err}")
+                            import traceback
+                            traceback.print_exc()
     else:
         # Từ source, import PySide phải work nếu đã cài deps
         try:
@@ -164,11 +229,18 @@ def _load_gui_module():
             base_dir = Path(sys._MEIPASS)
             debug_info += f"_MEIPASS: {base_dir}\n"
             if base_dir.exists():
-                debug_info += "Contents (first 20):\n"
-                for item in list(base_dir.iterdir())[:20]:
+                debug_info += "All contents:\n"
+                for item in sorted(base_dir.iterdir()):
                     kind = "DIR" if item.is_dir() else "FILE"
                     debug_info += f"  - {item.name} ({kind})\n"
-        debug_info += f"Tk fallback error: {tk_err}"
+                # Kiểm tra thư mục gui nếu có
+                gui_dir = base_dir / "gui"
+                if gui_dir.exists():
+                    debug_info += f"\ngui/ directory exists. Contents:\n"
+                    for item in sorted(gui_dir.iterdir()):
+                        kind = "DIR" if item.is_dir() else "FILE"
+                        debug_info += f"  - {item.name} ({kind})\n"
+        debug_info += f"\nTk fallback error: {tk_err}"
         raise ImportError(debug_info)
 
 

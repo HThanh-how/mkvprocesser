@@ -344,38 +344,87 @@ class UpdateManager:
             print(f"[UPDATE] Creating backup: {backup_path}")
             shutil.copy2(current_exe, backup_path)
             
-            batch_script = current_exe.parent / "update_installer.bat"
-            with open(batch_script, 'w') as f:
+            # Get working directory (where exe is located)
+            exe_dir = current_exe.parent.resolve()  # Use resolve() to get absolute path
+            exe_path = current_exe.resolve()
+            update_file_path = update_file.resolve()
+            
+            batch_script = exe_dir / "update_installer.bat"
+            with open(batch_script, 'w', encoding='utf-8') as f:
                 f.write("@echo off\n")
-                f.write("timeout /t 2 /nobreak >nul\n")
-                f.write(f'copy /Y "{update_file}" "{current_exe}"\n')
-                f.write(f'if %ERRORLEVEL% EQU 0 (\n')
-                f.write(f'    del "{batch_script}"\n')
-                f.write(f'    start "" "{current_exe}"\n')
+                f.write("setlocal enabledelayedexpansion\n")  # Enable delayed expansion for variables
+                f.write(f'cd /d "{exe_dir}"\n')  # Set working directory
+                f.write("\n")
+                f.write("REM Wait for application to fully close and PyInstaller cleanup\n")
+                f.write("REM Increase wait time to allow PyInstaller to clean up _MEIPASS\n")
+                f.write("timeout /t 5 /nobreak >nul\n")  # Wait 5 seconds for app to close and cleanup
+                f.write("\n")
+                f.write("REM Try to copy update file\n")
+                f.write(f'if exist "{update_file_path}" (\n')
+                f.write(f'    copy /Y "{update_file_path}" "{exe_path}" >nul 2>&1\n')
+                f.write(f'    if !ERRORLEVEL! EQU 0 (\n')
+                f.write(f'        REM Delete batch script first\n')
+                f.write(f'        del "{batch_script}" >nul 2>&1\n')
+                f.write(f'        REM Start application with correct working directory\n')
+                f.write(f'        cd /d "{exe_dir}"\n')
+                f.write(f'        start "" /D "{exe_dir}" "{exe_path}"\n')
+                f.write(f'        exit /b 0\n')
+                f.write(f'    ) else (\n')
+                f.write(f'        echo Update installation failed: Copy error\n')
+                f.write(f'        pause\n')
+                f.write(f'        exit /b 1\n')
+                f.write(f'    )\n')
+                f.write(f') else (\n')
+                f.write(f'    echo Update file not found: {update_file_path}\n')
+                f.write(f'    pause\n')
+                f.write(f'    exit /b 1\n')
                 f.write(f')\n')
             
+            # Run batch script in background with DETACHED_PROCESS to avoid holding _MEIPASS
+            # This ensures the batch script runs independently and doesn't block PyInstaller cleanup
+            CREATE_NEW_PROCESS_GROUP = 0x00000200
+            DETACHED_PROCESS = 0x00000008
             subprocess.Popen(
                 [str(batch_script)],
-                creationflags=subprocess.CREATE_NO_WINDOW,
-                shell=True
+                creationflags=subprocess.CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP | DETACHED_PROCESS,
+                shell=True,
+                cwd=str(exe_dir),  # Set working directory for the batch script
+                close_fds=True  # Close file descriptors to avoid holding _MEIPASS files
             )
             
             print("[UPDATE] Update will be installed after application closes")
             print(f"[UPDATE] Backup saved at: {backup_path}")
+            print(f"[UPDATE] Update file: {update_file_path}")
+            print(f"[UPDATE] Target exe: {exe_path}")
             return True
         except Exception as e:
             print(f"[UPDATE] Error creating update script: {e}")
+            import traceback
+            traceback.print_exc()
             return False
     
     def restart_application(self) -> None:
         """Restart the application after update."""
         try:
-            exe_path = sys.executable
+            exe_path = Path(sys.executable)
+            # Get working directory (where exe is located)
+            exe_dir = exe_path.parent
+            
+            # Restart with correct working directory
             if platform.system() == "Windows":
-                subprocess.Popen([exe_path], creationflags=subprocess.CREATE_NEW_CONSOLE)
+                # Use start command with working directory to ensure proper initialization
+                subprocess.Popen(
+                    ["cmd", "/c", "start", "", "/D", str(exe_dir), str(exe_path)],
+                    creationflags=subprocess.CREATE_NO_WINDOW
+                )
             else:
-                subprocess.Popen([exe_path])
+                subprocess.Popen(
+                    [str(exe_path)],
+                    cwd=str(exe_dir)  # Set working directory
+                )
             sys.exit(0)
         except Exception as e:
             print(f"[UPDATE] Error restarting application: {e}")
+            import traceback
+            traceback.print_exc()
 

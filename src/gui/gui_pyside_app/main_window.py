@@ -118,15 +118,27 @@ class MainWindow(QtWidgets.QMainWindow):
             lambda: getattr(self, "auto_check_for_updates", lambda: None)()
         )
     
-    def show_info_message(self, title: str, message: str) -> None:
-        """Show information dialog with high-contrast text."""
+    def _create_message_box(self, icon: QtWidgets.QMessageBox.Icon, title: str, text: str, 
+                           buttons: QtWidgets.QMessageBox.StandardButton = QtWidgets.QMessageBox.Ok,
+                           default_button: QtWidgets.QMessageBox.StandardButton | None = None) -> QtWidgets.QMessageBox:
+        """Create a QMessageBox with dark theme applied."""
         msg_box = QtWidgets.QMessageBox(self)
-        msg_box.setIcon(QtWidgets.QMessageBox.Information)
+        msg_box.setStyleSheet(DARK_THEME)  # Apply dark theme
+        msg_box.setIcon(icon)
         msg_box.setWindowTitle(title)
-        msg_box.setText(
-            f"<span style='color: #111827;'>{message}</span>"
+        msg_box.setText(text)
+        msg_box.setStandardButtons(buttons)
+        if default_button:
+            msg_box.setDefaultButton(default_button)
+        return msg_box
+    
+    def show_info_message(self, title: str, message: str) -> None:
+        """Show information dialog with theme."""
+        msg_box = self._create_message_box(
+            QtWidgets.QMessageBox.Information,
+            title,
+            message
         )
-        msg_box.setStandardButtons(QtWidgets.QMessageBox.Ok)
         msg_box.exec()
     
     def _get_script_module(self):
@@ -2796,8 +2808,9 @@ class MainWindow(QtWidgets.QMainWindow):
                     self.download_update_btn.setEnabled(True)
                 self.latest_release_info = release_info
                 
-                # Show message box
+                # Show message box with theme
                 msg = QtWidgets.QMessageBox(self)
+                msg.setStyleSheet(DARK_THEME)  # Apply dark theme
                 msg.setIcon(QtWidgets.QMessageBox.Information)
                 msg.setWindowTitle("Update Available")
                 msg.setText(f"New version {version} is available!")

@@ -510,6 +510,40 @@ QMenu::item:selected {
 QMenu::item:disabled {
     color: #6e7681;
 }
+
+/* Message Box */
+QMessageBox {
+    background: #0d1117;
+    color: #e8eaed;
+}
+QMessageBox QLabel {
+    color: #e8eaed;
+    font-size: 13px;
+}
+QMessageBox QPushButton {
+    background: #21262d;
+    color: #c9d1d9;
+    border: 1px solid #30363d;
+    border-radius: 6px;
+    padding: 8px 20px;
+    min-width: 80px;
+    font-weight: 500;
+}
+QMessageBox QPushButton:hover {
+    background: #30363d;
+    border-color: #58a6ff;
+}
+QMessageBox QPushButton:pressed {
+    background: #161b22;
+}
+QMessageBox QPushButton:default {
+    background: #238636;
+    border-color: #238636;
+    color: white;
+}
+QMessageBox QPushButton:default:hover {
+    background: #2ea043;
+}
 """
 
 
