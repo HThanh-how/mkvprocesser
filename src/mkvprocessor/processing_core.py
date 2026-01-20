@@ -241,13 +241,14 @@ def auto_commit_subtitles(subtitle_folder, settings: Optional[Dict[str, Any]] = 
                     # Init git repo
                     run_git_command(git_cmd, ['init'], cwd=str(work_dir), check=True)
                     
-                    # Add remote (nếu chưa có)
-                    remote_check = run_git_command(git_cmd, ['remote', 'get-url', 'origin'], cwd=str(work_dir))
-                    if remote_check.returncode != 0:
-                        run_git_command(git_cmd, ['remote', 'add', 'origin', auth_url], cwd=str(work_dir), check=True)
-                    else:
-                        # Nếu remote đã tồn tại, set lại URL
+                    # Thêm hoặc cập nhật remote origin
+                    # Kiểm tra danh sách remotes để tránh lỗi khi add remote đã tồn tại
+                    remote_list = run_git_command(git_cmd, ['remote'], cwd=str(work_dir))
+                    remotes = remote_list.stdout.decode('utf-8', errors='replace').strip().split('\n') if remote_list.stdout else []
+                    if 'origin' in remotes:
                         run_git_command(git_cmd, ['remote', 'set-url', 'origin', auth_url], cwd=str(work_dir), check=True)
+                    else:
+                        run_git_command(git_cmd, ['remote', 'add', 'origin', auth_url], cwd=str(work_dir), check=True)
                     
                     # Enable sparse checkout - chỉ pull logs/ và processed_files.log
                     # KHÔNG pull thư mục subtitles/ từ remote để tránh tạo Subtitles/subtitles/
@@ -580,9 +581,10 @@ def main(input_folder=None, force_reprocess: Optional[bool] = None, dry_run: boo
         need_restore_cwd = True
         logger.info(f"Changed to directory: {input_folder}")
     
-    vn_folder = t("folders.vietnamese_audio")
-    original_folder = t("folders.original")
-    subtitle_folder = os.path.join(".", t("folders.subtitles"))
+    # Get output folders from config or use defaults from i18n
+    vn_folder = settings.get("output_folder_dubbed") or t("folders.vietnamese_audio")
+    original_folder = settings.get("output_folder_original") or t("folders.original")
+    subtitle_folder = settings.get("output_folder_subtitles") or os.path.join(".", t("folders.subtitles"))
     log_file = os.path.join(subtitle_folder, "processed_files.log")
 
     # Create necessary directories
