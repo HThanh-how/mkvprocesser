@@ -607,8 +607,21 @@ class MainWindow(QtWidgets.QMainWindow):
     def build_settings_tab(self):
         tab = QtWidgets.QWidget()
         root_layout = QtWidgets.QVBoxLayout(tab)
-        root_layout.setContentsMargins(12, 8, 12, 12)
-        root_layout.setSpacing(8)
+        root_layout.setContentsMargins(0, 0, 0, 0)
+        root_layout.setSpacing(0)
+
+        # === Scroll Area để cuộn nội dung ===
+        scroll_area = QtWidgets.QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setFrameShape(QtWidgets.QFrame.NoFrame)
+        scroll_area.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAsNeeded)
+        scroll_area.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAsNeeded)
+        
+        # Container widget cho scroll area
+        scroll_content = QtWidgets.QWidget()
+        scroll_layout = QtWidgets.QVBoxLayout(scroll_content)
+        scroll_layout.setContentsMargins(12, 8, 12, 12)
+        scroll_layout.setSpacing(8)
 
         # Main settings card giống UI designer
         card = QtWidgets.QFrame()
@@ -1048,8 +1061,11 @@ class MainWindow(QtWidgets.QMainWindow):
 
         card_layout.addWidget(updates_group)
 
-        root_layout.addWidget(card)
-        root_layout.addStretch()
+        # Wire scroll area
+        scroll_layout.addWidget(card)
+        scroll_layout.addStretch()
+        scroll_area.setWidget(scroll_content)
+        root_layout.addWidget(scroll_area)
 
         settings_tab_index = self.tabs.addTab(tab, "Settings")
         return settings_tab_index
