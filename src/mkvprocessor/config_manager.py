@@ -28,6 +28,9 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "output_folder_subtitles": "",   # Thư mục subtitles
     "output_folder_original": "",    # Thư mục original
     "language": "vi",  # Language code: 'en' for English, 'vi' for Vietnamese
+    # SSD Caching settings
+    "use_ssd_cache": True,           # Enable SSD caching/staging
+    "temp_cache_dir": "",            # Custom cache directory (empty = system temp)
 }
 
 

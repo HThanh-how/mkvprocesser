@@ -724,6 +724,55 @@ class MainWindow(QtWidgets.QMainWindow):
         output_layout.addLayout(output_form)
         card_layout.addWidget(output_group)
 
+        # === Group 1.8: SSD Caching & Performance ===
+        cache_group = QtWidgets.QFrame()
+        cache_group.setObjectName("settingsGroup")
+        cache_layout = QtWidgets.QVBoxLayout(cache_group)
+        cache_layout.setContentsMargins(12, 12, 12, 12)
+        cache_layout.setSpacing(8)
+
+        cache_title = QtWidgets.QLabel("SSD Caching & Performance")
+        cache_title.setObjectName("settingsGroupTitle")
+        cache_layout.addWidget(cache_title)
+        
+        cache_desc = QtWidgets.QLabel("Copy file vào SSD để xử lý nhanh hơn, sau đó move về đích.")
+        cache_desc.setStyleSheet("color: #9ca3af; font-size: 11px;")
+        cache_layout.addWidget(cache_desc)
+
+        # Checkbox Enable
+        self.use_ssd_cache_cb = QtWidgets.QCheckBox("Enable SSD Caching (Staging)")
+        self.use_ssd_cache_cb.setChecked(self.config.get("use_ssd_cache", True))
+        self.use_ssd_cache_cb.setToolTip("Copy file gốc vào ổ SSD (Cache) trước khi xử lý để tối ưu tốc độ đọc/ghi.")
+        cache_layout.addWidget(self.use_ssd_cache_cb)
+
+        # Cache Folder Picker
+        cache_form = QtWidgets.QFormLayout()
+        cache_form.setLabelAlignment(QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter)
+        cache_form.setFormAlignment(QtCore.Qt.AlignLeft | QtCore.Qt.AlignTop)
+        
+        cache_row = QtWidgets.QWidget()
+        cache_row_layout = QtWidgets.QHBoxLayout(cache_row)
+        cache_row_layout.setContentsMargins(0, 0, 0, 0)
+        cache_row_layout.setSpacing(4)
+        
+        self.cache_dir_edit = QtWidgets.QLineEdit(self.config.get("temp_cache_dir", ""))
+        import tempfile
+        default_temp = os.path.join(tempfile.gettempdir(), "MKVProcessor_Cache")
+        self.cache_dir_edit.setPlaceholderText(f"Default: {default_temp}")
+        cache_row_layout.addWidget(self.cache_dir_edit, 1)
+        
+        cache_browse_btn = QtWidgets.QToolButton()
+        cache_browse_btn.setText("📁")
+        cache_browse_btn.clicked.connect(lambda: self._browse_output_folder("cache"))
+        cache_row_layout.addWidget(cache_browse_btn)
+        
+        cache_label = QtWidgets.QLabel("Cache Folder")
+        cache_label.setObjectName("settingsFieldLabel")
+        cache_form.addRow(cache_label, cache_row)
+        
+        cache_layout.addLayout(cache_form)
+        card_layout.addWidget(cache_group)
+
         # === Group 2: Tích hợp GitHub ===
         github_group = QtWidgets.QFrame()
         github_group.setObjectName("settingsGroup")
@@ -2761,6 +2810,8 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.subs_folder_edit.setText(folder)
             elif folder_type == "original":
                 self.original_folder_edit.setText(folder)
+            elif folder_type == "cache":
+                self.cache_dir_edit.setText(folder)
 
     def save_settings(self):
         # Save language if available
@@ -2788,6 +2839,9 @@ class MainWindow(QtWidgets.QMainWindow):
             "output_folder_dubbed": self.dubbed_folder_edit.text().strip() if hasattr(self, 'dubbed_folder_edit') else "",
             "output_folder_subtitles": self.subs_folder_edit.text().strip() if hasattr(self, 'subs_folder_edit') else "",
             "output_folder_original": self.original_folder_edit.text().strip() if hasattr(self, 'original_folder_edit') else "",
+            # SSD Cache settings
+            "use_ssd_cache": self.use_ssd_cache_cb.isChecked() if hasattr(self, 'use_ssd_cache_cb') else True,
+            "temp_cache_dir": self.cache_dir_edit.text().strip() if hasattr(self, 'cache_dir_edit') else "",
         })
         save_user_config(self.config)
         self.settings_status.setText("✅ Saved")
