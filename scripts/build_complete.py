@@ -333,8 +333,8 @@ def build_executable():
         "tkinter.filedialog", "tkinter.scrolledtext", "tkinter.messagebox",
         # Custom modules
         "legacy_cli_entry", "mkvprocessor.legacy_api", "mkvprocessor.ffmpeg_helper",
-        # GUI package - KHÔNG cần hidden-import vì đã có --collect-all và --collect-submodules
-        # PyInstaller sẽ tự động bundle khi thấy import trong gui_pyside.py
+        # GUI package - Explicitly include to avoid shadowing issues
+        "gui", "gui.gui_pyside_app", "gui.gui_pyside_app.main_window",
     ]
     for imp in hidden_imports:
         pyinstaller_args.extend(["--hidden-import", imp])
