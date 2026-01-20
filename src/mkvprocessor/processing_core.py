@@ -16,6 +16,7 @@ import tempfile
 import io
 import shutil
 import zipfile
+import time
 from pathlib import Path
 from typing import Optional, List, Dict, Any, Union, Tuple
 
@@ -141,34 +142,7 @@ except ImportError:
 import ffmpeg  # type: ignore
 import psutil  # type: ignore
 
-import re
-import datetime
-import tempfile
-import io
-import shutil
 from contextlib import contextmanager
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 # Git functions moved to utils/git_utils.py - these are legacy wrappers
 
@@ -241,13 +215,14 @@ def auto_commit_subtitles(subtitle_folder, settings: Optional[Dict[str, Any]] = 
                     # Init git repo
                     run_git_command(git_cmd, ['init'], cwd=str(work_dir), check=True)
                     
-                    # Add remote (nếu chưa có)
-                    remote_check = run_git_command(git_cmd, ['remote', 'get-url', 'origin'], cwd=str(work_dir))
-                    if remote_check.returncode != 0:
-                        run_git_command(git_cmd, ['remote', 'add', 'origin', auth_url], cwd=str(work_dir), check=True)
-                    else:
-                        # Nếu remote đã tồn tại, set lại URL
+                    # Thêm hoặc cập nhật remote origin
+                    # Kiểm tra danh sách remotes để tránh lỗi khi add remote đã tồn tại
+                    remote_list = run_git_command(git_cmd, ['remote'], cwd=str(work_dir))
+                    remotes = remote_list.stdout.decode('utf-8', errors='replace').strip().split('\n') if remote_list.stdout else []
+                    if 'origin' in remotes:
                         run_git_command(git_cmd, ['remote', 'set-url', 'origin', auth_url], cwd=str(work_dir), check=True)
+                    else:
+                        run_git_command(git_cmd, ['remote', 'add', 'origin', auth_url], cwd=str(work_dir), check=True)
                     
                     # Enable sparse checkout - chỉ pull logs/ và processed_files.log
                     # KHÔNG pull thư mục subtitles/ từ remote để tránh tạo Subtitles/subtitles/
@@ -543,6 +518,27 @@ def auto_commit_subtitles(subtitle_folder, settings: Optional[Dict[str, Any]] = 
         logger.error(f"Error during auto-commit: {e}")
         return False
 
+
+def cleanup_cache(cache_dir: str):
+    """Clean up old cache files on startup."""
+    try:
+        if not cache_dir or not os.path.exists(cache_dir):
+            return
+            
+        logger.info(f"Cleaning up cache directory: {cache_dir}")
+        for item in os.listdir(cache_dir):
+            item_path = os.path.join(cache_dir, item)
+            try:
+                if os.path.isfile(item_path):
+                    os.unlink(item_path)
+                elif os.path.isdir(item_path):
+                    shutil.rmtree(item_path)
+            except Exception as e:
+                logger.warning(f"Failed to delete {item_path}: {e}")
+    except Exception as e:
+        logger.error(f"Error cleaning cache: {e}")
+
+
 def main(input_folder=None, force_reprocess: Optional[bool] = None, dry_run: bool = False):
     """
     Main function for video processing.
@@ -580,9 +576,10 @@ def main(input_folder=None, force_reprocess: Optional[bool] = None, dry_run: boo
         need_restore_cwd = True
         logger.info(f"Changed to directory: {input_folder}")
     
-    vn_folder = t("folders.vietnamese_audio")
-    original_folder = t("folders.original")
-    subtitle_folder = os.path.join(".", t("folders.subtitles"))
+    # Get output folders from config or use defaults from i18n
+    vn_folder = settings.get("output_folder_dubbed") or t("folders.vietnamese_audio")
+    original_folder = settings.get("output_folder_original") or t("folders.original")
+    subtitle_folder = settings.get("output_folder_subtitles") or os.path.join(".", t("folders.subtitles"))
     log_file = os.path.join(subtitle_folder, "processed_files.log")
 
     # Create necessary directories
@@ -645,6 +642,31 @@ def main(input_folder=None, force_reprocess: Optional[bool] = None, dry_run: boo
 
     # Logs directory should be inside Subtitles folder
     logs_dir = Path(subtitle_folder) / "logs"
+    
+    # SSD Caching Setup
+    use_ssd_cache = settings.get("use_ssd_cache", True)
+    temp_cache_dir = settings.get("temp_cache_dir")
+    
+    # Determine cache directory
+    cache_dir = None
+    if use_ssd_cache:
+        if temp_cache_dir and os.path.exists(temp_cache_dir):
+            cache_dir = temp_cache_dir
+        else:
+            # Create default cache directory in system temp
+            try:
+                cache_dir = os.path.join(tempfile.gettempdir(), "MKVProcessor_Cache")
+                os.makedirs(cache_dir, exist_ok=True)
+            except Exception as e:
+                logger.error(f"Failed to create default cache dir: {e}")
+                use_ssd_cache = False
+    
+    if use_ssd_cache and cache_dir:
+        # Cleanup cache on startup
+        cleanup_cache(cache_dir)
+        logger.info(f"SSD Caching ENABLED. Cache dir: {cache_dir}")
+    else:
+        logger.info("SSD Caching DISABLED.")
 
     # Initialize GitHub sync if configured
     from .log_manager import set_remote_sync
@@ -891,6 +913,42 @@ def main(input_folder=None, force_reprocess: Optional[bool] = None, dry_run: boo
             # Process video if has Vietnamese audio
             processing_success = False
             if has_vie_audio:
+                staged_input_path = None
+                current_temp_work_dir = None
+                
+                # SSD Caching Strategy
+                # 1. Copy Input -> Cache (SSD)
+                # 2. Process Input (SSD) -> Output (SSD)
+                # 3. Move Output (SSD) -> Final Destination (HDD) [Handled by video_processor]
+                if use_ssd_cache and cache_dir and not dry_run:
+                    try:
+                        # Check free space on cache drive
+                        # Need space for Input + 200% Output buffer (safest estimate)
+                        cache_usage = shutil.disk_usage(cache_dir)
+                        current_free_gb = cache_usage.free / (1024**3)
+                        required_space_gb = file_size * 2.5
+                        
+                        if current_free_gb > required_space_gb:
+                            logger.info(f"[CACHE] Staging file to SSD: {cache_dir}")
+                            logger.info(f"[CACHE] Free: {current_free_gb:.2f} GB, Required: {required_space_gb:.2f} GB")
+                            
+                            staged_input_path = os.path.join(cache_dir, video_file)
+                            
+                            # Copy with progress logging (simple)
+                            start_time = time.time()
+                            shutil.copy2(file_path, staged_input_path)
+                            copy_duration = time.time() - start_time
+                            copy_speed = (file_size * 1024) / copy_duration if copy_duration > 0 else 0
+                            logger.info(f"[CACHE] Copy completed in {copy_duration:.1f}s ({copy_speed:.1f} MB/s)")
+                            
+                            current_temp_work_dir = cache_dir
+                        else:
+                            logger.warning(f"[CACHE] Not enough space on SSD ({current_free_gb:.2f} GB < {required_space_gb:.2f} GB). Skipping cache.")
+                    except Exception as cache_err:
+                        logger.error(f"[CACHE] Error during staging: {cache_err}")
+                        staged_input_path = None
+                        current_temp_work_dir = None
+
                 try:
                     logger.info("\nDetected Vietnamese audio. Starting processing...")
                     # Find Vietnamese audio track with most channels
@@ -903,14 +961,19 @@ def main(input_folder=None, force_reprocess: Optional[bool] = None, dry_run: boo
                         vie_audio_tracks.sort(key=lambda x: x[1], reverse=True)
                         selected_track = vie_audio_tracks[0]
                         logger.info(f"Selected Vietnamese audio track index={selected_track[0]} with {selected_track[1]} channels")
+                        
+                        # Use staged path if available, otherwise original path
+                        target_input_path = staged_input_path if staged_input_path else file_path
+                        
                         processing_success = extract_video_with_audio(
-                            file_path,
+                            target_input_path,
                             vn_folder,
                             original_folder,
                             log_file,
                             probe_data,
                             file_signature=file_signature,
                             rename_enabled=rename_enabled,
+                            temp_work_dir=current_temp_work_dir,
                         )
                         if processing_success:
                             processed = True  # Mark file as processed only if successful
@@ -919,6 +982,14 @@ def main(input_folder=None, force_reprocess: Optional[bool] = None, dry_run: boo
                 except Exception as e:
                     logger.error(f"Error processing audio: {e}")
                     processing_success = False
+                finally:
+                    # Cleanup staging file
+                    if staged_input_path and os.path.exists(staged_input_path):
+                        try:
+                            os.unlink(staged_input_path)
+                            logger.info("[CACHE] Removed staged input file.")
+                        except Exception as cleanup_err:
+                            logger.warning(f"[CACHE] Failed to remove staged file: {cleanup_err}")
 
             # Check rename_enabled option (re-read in case it changed)
             rename_enabled = file_opts.get("rename_enabled", False)

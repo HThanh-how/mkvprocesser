@@ -119,6 +119,7 @@ def process_video(
     probe_data: Dict,
     file_signature: Optional[str] = None,
     rename_enabled: bool = False,
+    temp_work_dir: Optional[str] = None,
 ) -> bool:
     """Process video with selected audio track and extract subtitles.
     
@@ -130,6 +131,7 @@ def process_video(
         probe_data: FFprobe metadata
         file_signature: Optional file signature for deduplication
         rename_enabled: Whether to rename output files
+        temp_work_dir: Optional temporary working directory (e.g. on SSD) for faster processing
     
     Returns:
         True if processing succeeded, False otherwise
@@ -263,8 +265,18 @@ def process_video(
             else:
                 logger.info(f"Insufficient RAM. Processing directly on disk.")
             
-            # Process directly to destination if cannot process in RAM
-            logger.info(f"Processing video directly to: {final_output_path}")
+            # Process directly to destination (or temp work dir if provided)
+            target_output_path = final_output_path
+            use_temp_work_dir = False
+            
+            if temp_work_dir and os.path.isdir(temp_work_dir):
+                # Use provided temp directory (e.g. SSD cache)
+                temp_output_path = os.path.join(temp_work_dir, sanitize_filename(output_name))
+                logger.info(f"Using temp work dir for processing: {temp_output_path}")
+                target_output_path = temp_output_path
+                use_temp_work_dir = True
+            
+            logger.info(f"Processing video to: {target_output_path}")
             
             # FFmpeg command to create new video with selected audio
             # Keep video, selected audio, attachments and global metadata.
@@ -277,13 +289,24 @@ def process_video(
                 '-map_metadata', '0',
                 '-c', 'copy',
                 '-y',
-                final_output_path
+                target_output_path
             ]
             
-            logger.debug(f"Running command on disk: {' '.join(cmd)}")
+            logger.debug(f"Running command: {' '.join(cmd)}")
             result = run_ffmpeg_command(cmd, capture_output=True)
             
-            if result.returncode == 0 and os.path.exists(final_output_path):
+            if result.returncode == 0 and os.path.exists(target_output_path):
+                # If we used a temp work dir, we need to move the file to final destination
+                if use_temp_work_dir:
+                    logger.info(f"Processing successful in temp dir. Moving to: {final_output_path}")
+                    try:
+                        shutil.move(target_output_path, final_output_path)
+                    except Exception as move_err:
+                        logger.error(f"Error moving processed file from temp to final: {move_err}")
+                        # Try copy if move fails
+                        shutil.copy2(target_output_path, final_output_path)
+                        os.remove(target_output_path)
+                
                 logger.info(f"Video processed successfully: {final_output_path}")
                 
                 # Log processed file
@@ -325,6 +348,7 @@ def extract_video_with_audio(
     probe_data: Dict,
     file_signature: Optional[str] = None,
     rename_enabled: bool = False,
+    temp_work_dir: Optional[str] = None,
 ) -> bool:
     """Extract video with audio as required.
     
@@ -336,6 +360,7 @@ def extract_video_with_audio(
         probe_data: FFprobe metadata
         file_signature: Optional file signature
         rename_enabled: Whether to rename output files
+        temp_work_dir: Optional temporary working directory
     
     Returns:
         True if processing succeeded, False otherwise
@@ -385,7 +410,11 @@ def extract_video_with_audio(
             if non_vietnamese_tracks:
                 # Select non-Vietnamese audio with most channels
                 selected_track = non_vietnamese_tracks[0]
-                return process_video(file_path, original_folder, selected_track, log_file, probe_data, file_signature=file_signature, rename_enabled=rename_enabled)
+                return process_video(
+                    file_path, original_folder, selected_track, log_file, 
+                    probe_data, file_signature=file_signature, 
+                    rename_enabled=rename_enabled, temp_work_dir=temp_work_dir
+                )
             else:
                 logger.warning(f"First audio is Vietnamese but no non-Vietnamese tracks found in {file_path}")
                 return False
@@ -394,7 +423,11 @@ def extract_video_with_audio(
             if vietnamese_tracks:
                 # Select Vietnamese audio with most channels
                 selected_track = vietnamese_tracks[0]
-                return process_video(file_path, vn_folder, selected_track, log_file, probe_data, file_signature=file_signature, rename_enabled=rename_enabled)
+                return process_video(
+                    file_path, vn_folder, selected_track, log_file, 
+                    probe_data, file_signature=file_signature, 
+                    rename_enabled=rename_enabled, temp_work_dir=temp_work_dir
+                )
             else:
                 logger.warning(f"First audio is not Vietnamese but no Vietnamese tracks found in {file_path}")
                 return False

@@ -682,6 +682,128 @@ class MainWindow(QtWidgets.QMainWindow):
         general_layout.addLayout(general_form)
         card_layout.addWidget(general_group)
 
+        # === Group 1.5: Thư mục Output ===
+        output_group = QtWidgets.QFrame()
+        output_group.setObjectName("settingsGroup")
+        output_layout = QtWidgets.QVBoxLayout(output_group)
+        output_layout.setContentsMargins(12, 12, 12, 12)
+        output_layout.setSpacing(8)
+
+        output_title = QtWidgets.QLabel("Thư mục Output")
+        output_title.setObjectName("settingsGroupTitle")
+        output_layout.addWidget(output_title)
+
+        output_hint = QtWidgets.QLabel("Để trống để sử dụng thư mục mặc định (theo ngôn ngữ)")
+        output_hint.setObjectName("settingsHint")
+        output_hint.setStyleSheet("color: #9ca3af; font-size: 11px;")
+        output_layout.addWidget(output_hint)
+
+        output_form = QtWidgets.QFormLayout()
+        output_form.setLabelAlignment(QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter)
+        output_form.setFormAlignment(QtCore.Qt.AlignLeft | QtCore.Qt.AlignTop)
+        output_form.setHorizontalSpacing(24)
+        output_form.setVerticalSpacing(8)
+
+        # Dubbed/Thuyết minh folder
+        dubbed_row = QtWidgets.QWidget()
+        dubbed_row_layout = QtWidgets.QHBoxLayout(dubbed_row)
+        dubbed_row_layout.setContentsMargins(0, 0, 0, 0)
+        dubbed_row_layout.setSpacing(4)
+        self.dubbed_folder_edit = QtWidgets.QLineEdit(self.config.get("output_folder_dubbed", ""))
+        self.dubbed_folder_edit.setPlaceholderText("Lồng Tiếng - Thuyết Minh")
+        dubbed_row_layout.addWidget(self.dubbed_folder_edit, 1)
+        dubbed_browse_btn = QtWidgets.QToolButton()
+        dubbed_browse_btn.setText("📁")
+        dubbed_browse_btn.clicked.connect(lambda: self._browse_output_folder("dubbed"))
+        dubbed_row_layout.addWidget(dubbed_browse_btn)
+        dubbed_label = QtWidgets.QLabel("Lồng tiếng/Thuyết minh")
+        dubbed_label.setObjectName("settingsFieldLabel")
+        output_form.addRow(dubbed_label, dubbed_row)
+
+        # Subtitles folder
+        subs_row = QtWidgets.QWidget()
+        subs_row_layout = QtWidgets.QHBoxLayout(subs_row)
+        subs_row_layout.setContentsMargins(0, 0, 0, 0)
+        subs_row_layout.setSpacing(4)
+        self.subs_folder_edit = QtWidgets.QLineEdit(self.config.get("output_folder_subtitles", ""))
+        self.subs_folder_edit.setPlaceholderText("Subtitles")
+        subs_row_layout.addWidget(self.subs_folder_edit, 1)
+        subs_browse_btn = QtWidgets.QToolButton()
+        subs_browse_btn.setText("📁")
+        subs_browse_btn.clicked.connect(lambda: self._browse_output_folder("subtitles"))
+        subs_row_layout.addWidget(subs_browse_btn)
+        subs_label = QtWidgets.QLabel("Subtitles")
+        subs_label.setObjectName("settingsFieldLabel")
+        output_form.addRow(subs_label, subs_row)
+
+        # Original folder
+        original_row = QtWidgets.QWidget()
+        original_row_layout = QtWidgets.QHBoxLayout(original_row)
+        original_row_layout.setContentsMargins(0, 0, 0, 0)
+        original_row_layout.setSpacing(4)
+        self.original_folder_edit = QtWidgets.QLineEdit(self.config.get("output_folder_original", ""))
+        self.original_folder_edit.setPlaceholderText("Original")
+        original_row_layout.addWidget(self.original_folder_edit, 1)
+        original_browse_btn = QtWidgets.QToolButton()
+        original_browse_btn.setText("📁")
+        original_browse_btn.clicked.connect(lambda: self._browse_output_folder("original"))
+        original_row_layout.addWidget(original_browse_btn)
+        original_label = QtWidgets.QLabel("Original")
+        original_label.setObjectName("settingsFieldLabel")
+        output_form.addRow(original_label, original_row)
+
+        output_layout.addLayout(output_form)
+        card_layout.addWidget(output_group)
+
+        # === Group 1.8: SSD Caching & Performance ===
+        cache_group = QtWidgets.QFrame()
+        cache_group.setObjectName("settingsGroup")
+        cache_layout = QtWidgets.QVBoxLayout(cache_group)
+        cache_layout.setContentsMargins(12, 12, 12, 12)
+        cache_layout.setSpacing(8)
+
+        cache_title = QtWidgets.QLabel("SSD Caching & Performance")
+        cache_title.setObjectName("settingsGroupTitle")
+        cache_layout.addWidget(cache_title)
+        
+        cache_desc = QtWidgets.QLabel("Copy file vào SSD để xử lý nhanh hơn, sau đó move về đích.")
+        cache_desc.setStyleSheet("color: #9ca3af; font-size: 11px;")
+        cache_layout.addWidget(cache_desc)
+
+        # Checkbox Enable
+        self.use_ssd_cache_cb = QtWidgets.QCheckBox("Enable SSD Caching (Staging)")
+        self.use_ssd_cache_cb.setChecked(self.config.get("use_ssd_cache", True))
+        self.use_ssd_cache_cb.setToolTip("Copy file gốc vào ổ SSD (Cache) trước khi xử lý để tối ưu tốc độ đọc/ghi.")
+        cache_layout.addWidget(self.use_ssd_cache_cb)
+
+        # Cache Folder Picker
+        cache_form = QtWidgets.QFormLayout()
+        cache_form.setLabelAlignment(QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter)
+        cache_form.setFormAlignment(QtCore.Qt.AlignLeft | QtCore.Qt.AlignTop)
+        
+        cache_row = QtWidgets.QWidget()
+        cache_row_layout = QtWidgets.QHBoxLayout(cache_row)
+        cache_row_layout.setContentsMargins(0, 0, 0, 0)
+        cache_row_layout.setSpacing(4)
+        
+        self.cache_dir_edit = QtWidgets.QLineEdit(self.config.get("temp_cache_dir", ""))
+        import tempfile
+        default_temp = os.path.join(tempfile.gettempdir(), "MKVProcessor_Cache")
+        self.cache_dir_edit.setPlaceholderText(f"Default: {default_temp}")
+        cache_row_layout.addWidget(self.cache_dir_edit, 1)
+        
+        cache_browse_btn = QtWidgets.QToolButton()
+        cache_browse_btn.setText("📁")
+        cache_browse_btn.clicked.connect(lambda: self._browse_output_folder("cache"))
+        cache_row_layout.addWidget(cache_browse_btn)
+        
+        cache_label = QtWidgets.QLabel("Cache Folder")
+        cache_label.setObjectName("settingsFieldLabel")
+        cache_form.addRow(cache_label, cache_row)
+        
+        cache_layout.addLayout(cache_form)
+        card_layout.addWidget(cache_group)
+
         # === Group 2: Tích hợp GitHub ===
         github_group = QtWidgets.QFrame()
         github_group.setObjectName("settingsGroup")
@@ -2709,6 +2831,19 @@ class MainWindow(QtWidgets.QMainWindow):
         logs_dir.mkdir(parents=True, exist_ok=True)
         QtGui.QDesktopServices.openUrl(QtCore.QUrl.fromLocalFile(str(logs_dir.resolve())))
 
+    def _browse_output_folder(self, folder_type: str):
+        """Browse for output folder and update the corresponding field."""
+        folder = QtWidgets.QFileDialog.getExistingDirectory(self, f"Chọn thư mục {folder_type}")
+        if folder:
+            if folder_type == "dubbed":
+                self.dubbed_folder_edit.setText(folder)
+            elif folder_type == "subtitles":
+                self.subs_folder_edit.setText(folder)
+            elif folder_type == "original":
+                self.original_folder_edit.setText(folder)
+            elif folder_type == "cache":
+                self.cache_dir_edit.setText(folder)
+
     def save_settings(self):
         # Save language if available
         try:
@@ -2731,6 +2866,13 @@ class MainWindow(QtWidgets.QMainWindow):
             "force_reprocess": self.force_reprocess_cb.isChecked(),
             "prefer_beta_updates": self.beta_stable_combo.currentData() == "beta" if hasattr(self, 'beta_stable_combo') else False,
             "auto_download_updates": self.auto_download_cb.isChecked() if hasattr(self, 'auto_download_cb') else False,
+            # Output folder settings
+            "output_folder_dubbed": self.dubbed_folder_edit.text().strip() if hasattr(self, 'dubbed_folder_edit') else "",
+            "output_folder_subtitles": self.subs_folder_edit.text().strip() if hasattr(self, 'subs_folder_edit') else "",
+            "output_folder_original": self.original_folder_edit.text().strip() if hasattr(self, 'original_folder_edit') else "",
+            # SSD Cache settings
+            "use_ssd_cache": self.use_ssd_cache_cb.isChecked() if hasattr(self, 'use_ssd_cache_cb') else True,
+            "temp_cache_dir": self.cache_dir_edit.text().strip() if hasattr(self, 'cache_dir_edit') else "",
         })
         save_user_config(self.config)
         self.settings_status.setText("✅ Saved")
