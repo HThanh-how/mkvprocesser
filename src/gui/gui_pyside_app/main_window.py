@@ -92,6 +92,7 @@ class MainWindow(QtWidgets.QMainWindow):
         super().__init__()
         self.setWindowTitle("MKV Processor (PySide6)")
         self.resize(1200, 800)
+        self.setMinimumSize(600, 400)  # Allow window to be resized smaller
         self.config = load_user_config()
         # Đảm bảo luôn có thuộc tính select_folder để connect signal an toàn
         # Hàm thực tế sẽ sử dụng folder_edit sau khi build_ui tạo xong.

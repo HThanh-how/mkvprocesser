@@ -913,40 +913,26 @@ def main(input_folder=None, force_reprocess: Optional[bool] = None, dry_run: boo
             # Process video if has Vietnamese audio
             processing_success = False
             if has_vie_audio:
-                staged_input_path = None
                 current_temp_work_dir = None
                 
-                # SSD Caching Strategy
-                # 1. Copy Input -> Cache (SSD)
-                # 2. Process Input (SSD) -> Output (SSD)
-                # 3. Move Output (SSD) -> Final Destination (HDD) [Handled by video_processor]
+                # SSD Caching Strategy (Optimized)
+                # Read directly from HDD, write output to SSD, then move to HDD
+                # This avoids copying input file (saves time!)
                 if use_ssd_cache and cache_dir and not dry_run:
                     try:
-                        # Check free space on cache drive
-                        # Need space for Input + 200% Output buffer (safest estimate)
+                        # Check free space on cache drive (only need space for output)
                         cache_usage = shutil.disk_usage(cache_dir)
                         current_free_gb = cache_usage.free / (1024**3)
-                        required_space_gb = file_size * 2.5
+                        required_space_gb = file_size * 1.5  # Output is usually slightly smaller
                         
                         if current_free_gb > required_space_gb:
-                            logger.info(f"[CACHE] Staging file to SSD: {cache_dir}")
+                            logger.info(f"[CACHE] Output will be cached to SSD: {cache_dir}")
                             logger.info(f"[CACHE] Free: {current_free_gb:.2f} GB, Required: {required_space_gb:.2f} GB")
-                            
-                            staged_input_path = os.path.join(cache_dir, video_file)
-                            
-                            # Copy with progress logging (simple)
-                            start_time = time.time()
-                            shutil.copy2(file_path, staged_input_path)
-                            copy_duration = time.time() - start_time
-                            copy_speed = (file_size * 1024) / copy_duration if copy_duration > 0 else 0
-                            logger.info(f"[CACHE] Copy completed in {copy_duration:.1f}s ({copy_speed:.1f} MB/s)")
-                            
                             current_temp_work_dir = cache_dir
                         else:
-                            logger.warning(f"[CACHE] Not enough space on SSD ({current_free_gb:.2f} GB < {required_space_gb:.2f} GB). Skipping cache.")
+                            logger.warning(f"[CACHE] Not enough space on SSD ({current_free_gb:.2f} GB < {required_space_gb:.2f} GB). Writing directly to HDD.")
                     except Exception as cache_err:
-                        logger.error(f"[CACHE] Error during staging: {cache_err}")
-                        staged_input_path = None
+                        logger.error(f"[CACHE] Error checking cache space: {cache_err}")
                         current_temp_work_dir = None
 
                 try:
@@ -962,18 +948,15 @@ def main(input_folder=None, force_reprocess: Optional[bool] = None, dry_run: boo
                         selected_track = vie_audio_tracks[0]
                         logger.info(f"Selected Vietnamese audio track index={selected_track[0]} with {selected_track[1]} channels")
                         
-                        # Use staged path if available, otherwise original path
-                        target_input_path = staged_input_path if staged_input_path else file_path
-                        
                         processing_success = extract_video_with_audio(
-                            target_input_path,
+                            file_path,  # Read directly from source (HDD)
                             vn_folder,
                             original_folder,
                             log_file,
                             probe_data,
                             file_signature=file_signature,
                             rename_enabled=rename_enabled,
-                            temp_work_dir=current_temp_work_dir,
+                            temp_work_dir=current_temp_work_dir,  # Output cached to SSD if enabled
                         )
                         if processing_success:
                             processed = True  # Mark file as processed only if successful
@@ -982,14 +965,6 @@ def main(input_folder=None, force_reprocess: Optional[bool] = None, dry_run: boo
                 except Exception as e:
                     logger.error(f"Error processing audio: {e}")
                     processing_success = False
-                finally:
-                    # Cleanup staging file
-                    if staged_input_path and os.path.exists(staged_input_path):
-                        try:
-                            os.unlink(staged_input_path)
-                            logger.info("[CACHE] Removed staged input file.")
-                        except Exception as cleanup_err:
-                            logger.warning(f"[CACHE] Failed to remove staged file: {cleanup_err}")
 
             # Check rename_enabled option (re-read in case it changed)
             rename_enabled = file_opts.get("rename_enabled", False)
