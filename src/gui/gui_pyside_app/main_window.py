@@ -780,14 +780,14 @@ class MainWindow(QtWidgets.QMainWindow):
         cache_title.setObjectName("settingsGroupTitle")
         cache_layout.addWidget(cache_title)
         
-        cache_desc = QtWidgets.QLabel("Copy file vào SSD để xử lý nhanh hơn, sau đó move về đích.")
+        cache_desc = QtWidgets.QLabel("Sử dụng SSD làm bộ nhớ đệm cho Output để tăng tốc độ xử lý.")
         cache_desc.setStyleSheet("color: #9ca3af; font-size: 11px;")
         cache_layout.addWidget(cache_desc)
 
         # Checkbox Enable
-        self.use_ssd_cache_cb = QtWidgets.QCheckBox("Enable SSD Caching (Staging)")
+        self.use_ssd_cache_cb = QtWidgets.QCheckBox("Enable SSD Output Caching")
         self.use_ssd_cache_cb.setChecked(self.config.get("use_ssd_cache", True))
-        self.use_ssd_cache_cb.setToolTip("Copy file gốc vào ổ SSD (Cache) trước khi xử lý để tối ưu tốc độ đọc/ghi.")
+        self.use_ssd_cache_cb.setToolTip("Ghi file Output tạm vào SSD để tối ưu tốc độ, sau đó mới move về ổ đích.")
         cache_layout.addWidget(self.use_ssd_cache_cb)
 
         # Cache Folder Picker
