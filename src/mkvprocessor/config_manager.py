@@ -87,7 +87,7 @@ def load_user_config() -> Dict[str, Any]:
             user_cfg = json.loads(path.read_text(encoding="utf-8"))
             config.update(user_cfg)
         except (json.JSONDecodeError, IOError) as exc:
-            logger.error(f"Failed to read config file: {exc}")
+            logger.error("Failed to read config file: %s", exc)
     return config
 
 
@@ -103,7 +103,7 @@ def load_raw_user_config() -> Dict[str, Any]:
         try:
             return json.loads(path.read_text(encoding="utf-8"))
         except (json.JSONDecodeError, IOError) as exc:
-            logger.error(f"Failed to read config file: {exc}")
+            logger.error("Failed to read config file: %s", exc)
     return {}
 
 

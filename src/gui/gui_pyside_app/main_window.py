@@ -38,6 +38,11 @@ except ImportError:
     from worker import Worker  # type: ignore
     from metadata_loader import MetadataLoader  # type: ignore
 
+from components.processing_tab import ProcessingTab
+from components.settings_tab import SettingsTab
+from components.log_tab import LogTab
+
+
 
 class DraggableListWidget(QtWidgets.QListWidget):
     """QListWidget hỗ trợ drag & drop để đổi thứ tự"""
@@ -133,21 +138,17 @@ class MainWindow(QtWidgets.QMainWindow):
         apply_theme_fn = getattr(self, "apply_theme", None)
         if callable(apply_theme_fn):
             apply_theme_fn()
-        # Delay các tác vụ không quan trọng để UI hiển thị nhanh hơn
-        # refresh_system_status delay 1 giây (không quan trọng lắm khi khởi động)
+        # refresh_file_list chạy ngay nhưng tối ưu - chỉ hiển thị file list, metadata lazy load
+        # Delay lại một lát để UI load xong
         QtCore.QTimer.singleShot(
-            1000,
-            lambda: getattr(self, "refresh_system_status", lambda: None)()
+            100, 
+            lambda: self._lazy_refresh_file_list()
         )
+
         # refresh_file_list chạy ngay nhưng tối ưu - chỉ hiển thị file list, metadata lazy load
         QtCore.QTimer.singleShot(
             100,
             lambda: self._lazy_refresh_file_list()
-        )
-        # Auto-check for updates delay 5 giây (không quan trọng khi khởi động)
-        QtCore.QTimer.singleShot(
-            5000,
-            lambda: getattr(self, "auto_check_for_updates", lambda: None)()
         )
     
     def _create_message_box(self, icon: QtWidgets.QMessageBox.Icon, title: str, text: str, 
@@ -381,12 +382,52 @@ class MainWindow(QtWidgets.QMainWindow):
         self.tabs = QtWidgets.QTabWidget()
         layout.addWidget(self.tabs, 1)
 
-        self.build_processing_tab()
-        # Build log tab TRƯỚC settings tab để log_view có sẵn khi build settings
-        build_log = getattr(self, "build_log_tab", None)
-        if callable(build_log):
-            build_log()
-        self.settings_tab_index = self.build_settings_tab()
+        self.processing_tab = ProcessingTab(self)
+        self.tabs.addTab(self.processing_tab, "Trình xử lý")
+        
+        self.log_tab = LogTab(self)
+        self.tabs.addTab(self.log_tab, "Log")
+        
+        self.settings_tab = SettingsTab(self)
+        self.tabs.addTab(self.settings_tab, "Settings")
+
+        # === Wiring & Aliases (Backward Compatibility) ===
+        # Processing Tab
+        self.folder_edit = self.processing_tab.folder_edit
+        self.browse_btn = self.processing_tab.browse_btn
+        self.edit_folder_btn = self.processing_tab.edit_folder_btn
+        self.file_tree = self.processing_tab.file_tree
+        self.select_all_cb = self.processing_tab.select_all_cb
+        self.file_count_label = self.processing_tab.file_count_label
+        self.reload_btn = self.processing_tab.reload_btn
+        self.start_btn = self.processing_tab.start_btn
+        self.stop_btn = self.processing_tab.stop_btn
+        self.file_progress = self.processing_tab.file_progress
+        self.total_progress = self.processing_tab.total_progress
+        
+        # Connect Processing Signals
+        self.browse_btn.clicked.connect(self.select_folder)
+        self.edit_folder_btn.clicked.connect(self.enable_folder_manual_edit)
+        self.reload_btn.clicked.connect(lambda: self.refresh_file_list())
+        self.select_all_cb.clicked.connect(self.on_select_all_clicked)
+        self.start_btn.clicked.connect(lambda: self.start_processing())
+        self.stop_btn.clicked.connect(lambda: self.stop_processing())
+
+        # Settings Tab
+        self.language_combo = self.settings_tab.language_combo
+        self.auto_upload_cb = self.settings_tab.auto_upload_cb
+        self.repo_edit = self.settings_tab.repo_edit
+        self.token_edit = self.settings_tab.token_edit
+        
+        # Connect Settings Signals
+        self.language_combo.currentIndexChanged.connect(lambda index: self.on_language_changed(index))
+
+        # Log Tab
+        self.log_view = self.log_tab.log_view
+        self.history_table = self.log_tab.history_table
+        self.errors_view = self.log_tab.errors_view
+
+
         
         # Track update badge state
         self._has_update_badge = False
@@ -395,167 +436,11 @@ class MainWindow(QtWidgets.QMainWindow):
         self.setStatusBar(self.status_bar)
         self.status_bar.showMessage("Ready")
 
-    def build_processing_tab(self):
-        tab = QtWidgets.QWidget()
-        tab_layout = QtWidgets.QVBoxLayout(tab)
-        tab_layout.setContentsMargins(0, 0, 0, 0)
-        tab_layout.setSpacing(6)
+    # DELETED build_processing_tab (Moved to components/processing_tab.py)
 
-        # Card 1: Folder + Status (super compact - 1 row)
-        header_card = QtWidgets.QFrame()
-        header_card.setObjectName("compactCard")
-        header_layout = QtWidgets.QHBoxLayout(header_card)
-        header_layout.setSpacing(12)
-        header_layout.setContentsMargins(12, 6, 12, 6)
 
-        # Folder input
-        folder_label = QtWidgets.QLabel("📁")
-        header_layout.addWidget(folder_label)
-        
-        self.folder_edit = QtWidgets.QLineEdit(self.config.get("input_folder", "."))
-        self.folder_edit.setObjectName("pillInput")
-        self.folder_edit.setReadOnly(True)
-        self.folder_edit.setPlaceholderText("Chọn thư mục chứa video…")
-        self.folder_edit.editingFinished.connect(self.on_folder_edit_finished)
-        self.folder_edit.setMaximumWidth(400)
-        header_layout.addWidget(self.folder_edit)
+    # DELETED on_github_link_clicked (Handled in components/processing_tab.py or simplified)
 
-        edit_folder_btn = QtWidgets.QToolButton()
-        edit_folder_btn.setObjectName("tinyButton")
-        edit_folder_btn.setText("✏️")
-        edit_folder_btn.clicked.connect(self.enable_folder_manual_edit)
-        header_layout.addWidget(edit_folder_btn)
-
-        browse_btn = QtWidgets.QToolButton()
-        browse_btn.setObjectName("tinyButton")
-        browse_btn.setText("📂")
-        browse_btn.clicked.connect(self.select_folder)
-        header_layout.addWidget(browse_btn)
-
-        # Separator
-        sep = QtWidgets.QFrame()
-        sep.setFrameShape(QtWidgets.QFrame.VLine)
-        sep.setStyleSheet("color: #334155;")
-        header_layout.addWidget(sep)
-
-        # Status inline
-        self.status_labels: dict[str, QtWidgets.QLabel] = {}
-        
-        for key, title in [("ffmpeg", "FFmpeg"), ("ram", "RAM"), ("github", "GitHub")]:
-            lbl = QtWidgets.QLabel(f"{title}: …")
-            lbl.setObjectName("statusInline")
-            if key == "github":
-                lbl.setCursor(QtGui.QCursor(QtCore.Qt.PointingHandCursor))
-                lbl.mousePressEvent = self.on_github_link_clicked
-                self.github_link = lbl
-            self.status_labels[key] = lbl
-            header_layout.addWidget(lbl)
-
-        header_layout.addStretch()
-        tab_layout.addWidget(header_card)
-
-        # Card 2: Danh sách file video (chiếm phần lớn diện tích)
-        file_card = QtWidgets.QFrame()
-        file_card.setObjectName("card")
-        file_layout = QtWidgets.QVBoxLayout(file_card)
-        file_layout.setSpacing(4)
-        file_layout.setContentsMargins(8, 6, 8, 6)
-
-        # Header compact
-        file_header = QtWidgets.QHBoxLayout()
-        file_header.setSpacing(8)
-        
-        self.select_all_cb = QtWidgets.QCheckBox("Video Files")
-        self.select_all_cb.setObjectName("selectAllCheckbox")
-        self.select_all_cb.setTristate(True)
-        # Dùng clicked thay vì stateChanged để xử lý user click trực tiếp
-        self.select_all_cb.clicked.connect(self.on_select_all_clicked)
-        file_header.addWidget(self.select_all_cb)
-        
-        file_header.addStretch()
-        
-        self.file_count_label = QtWidgets.QLabel("0 file")
-        self.file_count_label.setObjectName("fileCountLabel")
-        file_header.addWidget(self.file_count_label)
-        
-        self.reload_btn = QtWidgets.QToolButton()
-        self.reload_btn.setObjectName("tinyButton")
-        self.reload_btn.setText("🔄")
-        self.reload_btn.setToolTip("Làm mới")
-        # Dùng lambda để tránh lỗi AttributeError trong giai đoạn khởi tạo
-        self.reload_btn.clicked.connect(lambda: self.refresh_file_list())
-        file_header.addWidget(self.reload_btn)
-        
-        file_layout.addLayout(file_header)
-
-        # File tree - không giới hạn chiều cao
-        self.file_tree = QtWidgets.QTreeWidget()
-        self.file_tree.setObjectName("fileTree")
-        self.file_tree.setHeaderLabels(["File", "Cấu hình"])
-        self.file_tree.setAlternatingRowColors(False)
-        self.file_tree.setRootIsDecorated(True)
-        self.file_tree.setExpandsOnDoubleClick(False)
-        self.file_tree.setAnimated(True)
-        self.file_tree.setUniformRowHeights(False)  # Cho phép row có chiều cao khác nhau
-        # Tắt auto-fill background để màu sắc được hiển thị đúng
-        self.file_tree.setAutoFillBackground(False)
-        # Kết nối signal bằng lambda để tránh lỗi AttributeError nếu hàm được định nghĩa phía sau
-        self.file_tree.itemChanged.connect(lambda item, col: self.on_file_item_changed(item, col))
-        self.file_tree.itemClicked.connect(lambda item, col: self.on_file_item_clicked(item, col))
-        self.file_tree.itemDoubleClicked.connect(lambda item, col: self.on_file_double_clicked(item, col))
-        self.file_tree.itemExpanded.connect(lambda item: self.on_file_expanded(item))
-        self.file_tree.itemCollapsed.connect(lambda item: self.on_file_collapsed(item))
-        header = self.file_tree.header()
-        header.setStretchLastSection(True)
-        header.setSectionResizeMode(0, QtWidgets.QHeaderView.Stretch)
-        header.setSectionResizeMode(1, QtWidgets.QHeaderView.ResizeToContents)
-        self.file_tree.setIndentation(16)
-        palette = self.file_tree.palette()
-        palette.setColor(QtGui.QPalette.Base, QtGui.QColor("#0f172a"))
-        palette.setColor(QtGui.QPalette.Text, QtGui.QColor("#f8fafc"))
-        palette.setColor(QtGui.QPalette.Highlight, QtGui.QColor("#2563eb"))
-        palette.setColor(QtGui.QPalette.HighlightedText, QtGui.QColor("#ffffff"))
-        self.file_tree.setPalette(palette)
-        file_layout.addWidget(self.file_tree, 1)
-
-        tab_layout.addWidget(file_card, 1)  # stretch = 1 để chiếm nhiều diện tích
-
-        # Card 3: Controls (compact)
-        controls_card = QtWidgets.QFrame()
-        controls_card.setObjectName("compactCard")
-        controls_layout = QtWidgets.QHBoxLayout(controls_card)
-        controls_layout.setSpacing(8)
-        controls_layout.setContentsMargins(12, 6, 12, 6)
-
-        self.start_btn = QtWidgets.QPushButton("🚀 Start Processing")
-        self.start_btn.setObjectName("primaryButton")
-        # Dùng lambda để tránh AttributeError nếu method được định nghĩa phía sau
-        self.start_btn.clicked.connect(lambda: self.start_processing())
-        self.stop_btn = QtWidgets.QPushButton("⏹ Dừng")
-        self.stop_btn.setObjectName("dangerButton")
-        self.stop_btn.setVisible(False)  # Ẩn nút Dừng ban đầu
-        self.stop_btn.clicked.connect(lambda: self.stop_processing())
-
-        controls_layout.addWidget(self.start_btn)
-        controls_layout.addWidget(self.stop_btn)
-        
-        self.progress = QtWidgets.QProgressBar()
-        self.progress.setRange(0, 0)
-        self.progress.setVisible(False)
-        self.progress.setObjectName("progressBar")
-        self.progress.setMaximumWidth(200)
-        controls_layout.addWidget(self.progress)
-        
-        controls_layout.addStretch()
-
-        tab_layout.addWidget(controls_card)
-
-        self.tabs.addTab(tab, "Trình xử lý")
-
-    def on_github_link_clicked(self, event):
-        has_config = get_config_path().exists()
-        if not has_config or not self.config.get("token"):
-            self.tabs.setCurrentIndex(1)
 
     def on_select_all_clicked(self, checked: bool):
         """Xử lý khi user click vào checkbox select all"""
@@ -605,630 +490,17 @@ class MainWindow(QtWidgets.QMainWindow):
             save_user_config(self.config)
             self.refresh_file_list()
 
-    def build_settings_tab(self):
-        tab = QtWidgets.QWidget()
-        root_layout = QtWidgets.QVBoxLayout(tab)
-        root_layout.setContentsMargins(0, 0, 0, 0)
-        root_layout.setSpacing(0)
+    # DELETED build_settings_tab (Moved to components/settings_tab.py)
 
-        # === Scroll Area để cuộn nội dung ===
-        scroll_area = QtWidgets.QScrollArea()
-        scroll_area.setWidgetResizable(True)
-        scroll_area.setFrameShape(QtWidgets.QFrame.NoFrame)
-        scroll_area.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAsNeeded)
-        scroll_area.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAsNeeded)
-        
-        # Container widget cho scroll area
-        scroll_content = QtWidgets.QWidget()
-        scroll_layout = QtWidgets.QVBoxLayout(scroll_content)
-        scroll_layout.setContentsMargins(12, 8, 12, 12)
-        scroll_layout.setSpacing(8)
 
-        # Main settings card giống UI designer
-        card = QtWidgets.QFrame()
-        card.setObjectName("settingsCard")
-        card_layout = QtWidgets.QVBoxLayout(card)
-        card_layout.setContentsMargins(16, 16, 16, 16)
-        card_layout.setSpacing(16)
+    # DELETED toggle_token_visibility (Moved to components/settings_tab.py)
 
-        # Header: title + optional subtitle
-        header_layout = QtWidgets.QVBoxLayout()
-        title_label = QtWidgets.QLabel("Settings")
-        title_label.setObjectName("settingsTitle")
-        header_layout.addWidget(title_label)
 
-        subtitle_label = QtWidgets.QLabel("Cấu hình ứng dụng và tích hợp GitHub.")
-        subtitle_label.setObjectName("settingsSubtitle")
-        subtitle_label.setWordWrap(True)
-        header_layout.addWidget(subtitle_label)
+    # DELETED on_language_changed (Moved to components/settings_tab.py)
 
-        card_layout.addLayout(header_layout)
 
-        # === Group 1: Cấu hình Chung ===
-        general_group = QtWidgets.QFrame()
-        general_group.setObjectName("settingsGroup")
-        general_layout = QtWidgets.QVBoxLayout(general_group)
-        general_layout.setContentsMargins(12, 12, 12, 12)
-        general_layout.setSpacing(8)
+    # DELETED build_log_tab (Moved to components/log_tab.py)
 
-        general_title = QtWidgets.QLabel("Cấu hình Chung")
-        general_title.setObjectName("settingsGroupTitle")
-        general_layout.addWidget(general_title)
-
-        general_form = QtWidgets.QFormLayout()
-        general_form.setLabelAlignment(QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter)
-        general_form.setFormAlignment(QtCore.Qt.AlignLeft | QtCore.Qt.AlignTop)
-        general_form.setHorizontalSpacing(24)
-        general_form.setVerticalSpacing(8)
-
-        # Language selector
-        try:
-            from mkvprocessor.i18n import get_supported_languages
-            languages = get_supported_languages()
-            self.language_combo = QtWidgets.QComboBox()
-            self.language_combo.setObjectName("languageCombo")
-            current_lang = self.config.get("language", "vi")
-            for lang_code, lang_name in languages.items():
-                self.language_combo.addItem(f"{lang_name} ({lang_code})", lang_code)
-                if lang_code == current_lang:
-                    self.language_combo.setCurrentIndex(self.language_combo.count() - 1)
-            # Dùng lambda để tránh lỗi nếu method được định nghĩa sau
-            self.language_combo.currentIndexChanged.connect(
-                lambda index: self.on_language_changed(index)
-            )
-
-            lang_label = QtWidgets.QLabel("Language / Ngôn ngữ")
-            lang_label.setObjectName("settingsFieldLabel")
-            general_form.addRow(lang_label, self.language_combo)
-        except ImportError:
-            # Fallback if i18n not available
-            pass
-
-        # Checkboxes đặt thẳng hàng bên trái
-        self.auto_upload_cb = QtWidgets.QCheckBox("Enable auto upload to GitHub")
-        self.auto_upload_cb.setChecked(self.config.get("auto_upload", False))
-        general_form.addRow(QtWidgets.QLabel(""), self.auto_upload_cb)
-
-        self.force_reprocess_cb = QtWidgets.QCheckBox("Always reprocess (ignore old log)")
-        self.force_reprocess_cb.setChecked(self.config.get("force_reprocess", False))
-        general_form.addRow(QtWidgets.QLabel(""), self.force_reprocess_cb)
-
-        general_layout.addLayout(general_form)
-        card_layout.addWidget(general_group)
-
-        # === Group 1.5: Thư mục Output ===
-        output_group = QtWidgets.QFrame()
-        output_group.setObjectName("settingsGroup")
-        output_layout = QtWidgets.QVBoxLayout(output_group)
-        output_layout.setContentsMargins(12, 12, 12, 12)
-        output_layout.setSpacing(8)
-
-        output_title = QtWidgets.QLabel("Thư mục Output")
-        output_title.setObjectName("settingsGroupTitle")
-        output_layout.addWidget(output_title)
-
-        output_hint = QtWidgets.QLabel("Để trống để sử dụng thư mục mặc định (theo ngôn ngữ)")
-        output_hint.setObjectName("settingsHint")
-        output_hint.setStyleSheet("color: #9ca3af; font-size: 11px;")
-        output_layout.addWidget(output_hint)
-
-        output_form = QtWidgets.QFormLayout()
-        output_form.setLabelAlignment(QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter)
-        output_form.setFormAlignment(QtCore.Qt.AlignLeft | QtCore.Qt.AlignTop)
-        output_form.setHorizontalSpacing(24)
-        output_form.setVerticalSpacing(8)
-
-        # Dubbed/Thuyết minh folder
-        dubbed_row = QtWidgets.QWidget()
-        dubbed_row_layout = QtWidgets.QHBoxLayout(dubbed_row)
-        dubbed_row_layout.setContentsMargins(0, 0, 0, 0)
-        dubbed_row_layout.setSpacing(4)
-        self.dubbed_folder_edit = QtWidgets.QLineEdit(self.config.get("output_folder_dubbed", ""))
-        self.dubbed_folder_edit.setPlaceholderText("Lồng Tiếng - Thuyết Minh")
-        dubbed_row_layout.addWidget(self.dubbed_folder_edit, 1)
-        dubbed_browse_btn = QtWidgets.QToolButton()
-        dubbed_browse_btn.setText("📁")
-        dubbed_browse_btn.clicked.connect(lambda: self._browse_output_folder("dubbed"))
-        dubbed_row_layout.addWidget(dubbed_browse_btn)
-        dubbed_label = QtWidgets.QLabel("Lồng tiếng/Thuyết minh")
-        dubbed_label.setObjectName("settingsFieldLabel")
-        output_form.addRow(dubbed_label, dubbed_row)
-
-        # Subtitles folder
-        subs_row = QtWidgets.QWidget()
-        subs_row_layout = QtWidgets.QHBoxLayout(subs_row)
-        subs_row_layout.setContentsMargins(0, 0, 0, 0)
-        subs_row_layout.setSpacing(4)
-        self.subs_folder_edit = QtWidgets.QLineEdit(self.config.get("output_folder_subtitles", ""))
-        self.subs_folder_edit.setPlaceholderText("Subtitles")
-        subs_row_layout.addWidget(self.subs_folder_edit, 1)
-        subs_browse_btn = QtWidgets.QToolButton()
-        subs_browse_btn.setText("📁")
-        subs_browse_btn.clicked.connect(lambda: self._browse_output_folder("subtitles"))
-        subs_row_layout.addWidget(subs_browse_btn)
-        subs_label = QtWidgets.QLabel("Subtitles")
-        subs_label.setObjectName("settingsFieldLabel")
-        output_form.addRow(subs_label, subs_row)
-
-        # Original folder
-        original_row = QtWidgets.QWidget()
-        original_row_layout = QtWidgets.QHBoxLayout(original_row)
-        original_row_layout.setContentsMargins(0, 0, 0, 0)
-        original_row_layout.setSpacing(4)
-        self.original_folder_edit = QtWidgets.QLineEdit(self.config.get("output_folder_original", ""))
-        self.original_folder_edit.setPlaceholderText("Original")
-        original_row_layout.addWidget(self.original_folder_edit, 1)
-        original_browse_btn = QtWidgets.QToolButton()
-        original_browse_btn.setText("📁")
-        original_browse_btn.clicked.connect(lambda: self._browse_output_folder("original"))
-        original_row_layout.addWidget(original_browse_btn)
-        original_label = QtWidgets.QLabel("Original")
-        original_label.setObjectName("settingsFieldLabel")
-        output_form.addRow(original_label, original_row)
-
-        output_layout.addLayout(output_form)
-        card_layout.addWidget(output_group)
-
-        # === Group 1.8: SSD Caching & Performance ===
-        cache_group = QtWidgets.QFrame()
-        cache_group.setObjectName("settingsGroup")
-        cache_layout = QtWidgets.QVBoxLayout(cache_group)
-        cache_layout.setContentsMargins(12, 12, 12, 12)
-        cache_layout.setSpacing(8)
-
-        cache_title = QtWidgets.QLabel("SSD Caching & Performance")
-        cache_title.setObjectName("settingsGroupTitle")
-        cache_layout.addWidget(cache_title)
-        
-        cache_desc = QtWidgets.QLabel("Sử dụng SSD làm bộ nhớ đệm cho Output để tăng tốc độ xử lý.")
-        cache_desc.setStyleSheet("color: #9ca3af; font-size: 11px;")
-        cache_layout.addWidget(cache_desc)
-
-        # Checkbox Enable
-        self.use_ssd_cache_cb = QtWidgets.QCheckBox("Enable SSD Output Caching")
-        self.use_ssd_cache_cb.setChecked(self.config.get("use_ssd_cache", True))
-        self.use_ssd_cache_cb.setToolTip("Ghi file Output tạm vào SSD để tối ưu tốc độ, sau đó mới move về ổ đích.")
-        cache_layout.addWidget(self.use_ssd_cache_cb)
-
-        # Cache Folder Picker
-        cache_form = QtWidgets.QFormLayout()
-        cache_form.setLabelAlignment(QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter)
-        cache_form.setFormAlignment(QtCore.Qt.AlignLeft | QtCore.Qt.AlignTop)
-        
-        cache_row = QtWidgets.QWidget()
-        cache_row_layout = QtWidgets.QHBoxLayout(cache_row)
-        cache_row_layout.setContentsMargins(0, 0, 0, 0)
-        cache_row_layout.setSpacing(4)
-        
-        self.cache_dir_edit = QtWidgets.QLineEdit(self.config.get("temp_cache_dir", ""))
-        import tempfile
-        default_temp = os.path.join(tempfile.gettempdir(), "MKVProcessor_Cache")
-        self.cache_dir_edit.setPlaceholderText(f"Default: {default_temp}")
-        cache_row_layout.addWidget(self.cache_dir_edit, 1)
-        
-        cache_browse_btn = QtWidgets.QToolButton()
-        cache_browse_btn.setText("📁")
-        cache_browse_btn.clicked.connect(lambda: self._browse_output_folder("cache"))
-        cache_row_layout.addWidget(cache_browse_btn)
-        
-        cache_label = QtWidgets.QLabel("Cache Folder")
-        cache_label.setObjectName("settingsFieldLabel")
-        cache_form.addRow(cache_label, cache_row)
-        
-        cache_layout.addLayout(cache_form)
-        card_layout.addWidget(cache_group)
-
-        # === Group 2: Tích hợp GitHub ===
-        github_group = QtWidgets.QFrame()
-        github_group.setObjectName("settingsGroup")
-        github_layout = QtWidgets.QVBoxLayout(github_group)
-        github_layout.setContentsMargins(12, 12, 12, 12)
-        github_layout.setSpacing(8)
-
-        github_title = QtWidgets.QLabel("Tích hợp GitHub")
-        github_title.setObjectName("settingsGroupTitle")
-        github_layout.addWidget(github_title)
-
-        github_form = QtWidgets.QFormLayout()
-        github_form.setLabelAlignment(QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter)
-        github_form.setFormAlignment(QtCore.Qt.AlignLeft | QtCore.Qt.AlignTop)
-        github_form.setHorizontalSpacing(24)
-        github_form.setVerticalSpacing(8)
-
-        has_config_file = get_config_path().exists()
-        raw_config = load_raw_user_config() if has_config_file else {}
-
-        # Repository
-        self.repo_edit = QtWidgets.QLineEdit(raw_config.get("repo", ""))
-        self.repo_edit.setPlaceholderText("HThanh-how/Subtitles")
-        repo_label = QtWidgets.QLabel("Repository")
-        repo_label.setObjectName("settingsFieldLabel")
-        github_form.addRow(repo_label, self.repo_edit)
-
-        # Repo URL (read-only hiển thị)
-        self.repo_url_edit = QtWidgets.QLineEdit(raw_config.get("repo_url", ""))
-        self.repo_url_edit.setPlaceholderText("https://github.com/username/repo…")
-        self.repo_url_edit.setReadOnly(True)
-        repo_url_label = QtWidgets.QLabel("Repo URL")
-        repo_url_label.setObjectName("settingsFieldLabel")
-        github_form.addRow(repo_url_label, self.repo_url_edit)
-
-        # Branch
-        self.branch_edit = QtWidgets.QLineEdit(raw_config.get("branch", "main"))
-        self.branch_edit.setPlaceholderText("main")
-        branch_label = QtWidgets.QLabel("Branch")
-        branch_label.setObjectName("settingsFieldLabel")
-        github_form.addRow(branch_label, self.branch_edit)
-
-        # Token + eye button giống designer
-        token_row_widget = QtWidgets.QWidget()
-        token_row_layout = QtWidgets.QHBoxLayout(token_row_widget)
-        token_row_layout.setContentsMargins(0, 0, 0, 0)
-        token_row_layout.setSpacing(4)
-
-        self.token_edit = QtWidgets.QLineEdit(self.config.get("token", ""))
-        self.token_edit.setEchoMode(QtWidgets.QLineEdit.Password)
-        self.token_edit.setPlaceholderText("GitHub Personal Access Token")
-        token_row_layout.addWidget(self.token_edit, 1)
-
-        self.token_toggle_btn = QtWidgets.QToolButton()
-        self.token_toggle_btn.setObjectName("smallGhostButton")
-        self.token_toggle_btn.setText("👁️")
-        self.token_toggle_btn.setCheckable(True)
-        self.token_toggle_btn.toggled.connect(self.toggle_token_visibility)
-        token_row_layout.addWidget(self.token_toggle_btn, 0)
-
-        token_label = QtWidgets.QLabel("Token")
-        token_label.setObjectName("settingsFieldLabel")
-        github_form.addRow(token_label, token_row_widget)
-
-        github_layout.addLayout(github_form)
-
-        # Save + Test buttons hàng dưới cùng group
-        btn_row = QtWidgets.QHBoxLayout()
-        btn_row.setSpacing(8)
-
-        save_btn = QtWidgets.QPushButton("💾 Save")
-        save_btn.setObjectName("primaryButton")
-        save_btn.clicked.connect(lambda: self.save_settings())
-
-        test_btn = QtWidgets.QPushButton("🔄 Test")
-        test_btn.clicked.connect(lambda: self.test_token())
-
-        btn_row.addStretch()
-        btn_row.addWidget(save_btn)
-        btn_row.addWidget(test_btn)
-
-        github_layout.addLayout(btn_row)
-
-        # Status label ngay dưới button
-        self.settings_status = QtWidgets.QLabel("")
-        self.settings_status.setObjectName("settingsStatusLabel")
-        github_layout.addWidget(self.settings_status)
-
-        card_layout.addWidget(github_group)
-
-        # === Updates section (footer trong card) ===
-        # === Updates section (grouped for better readability) ===
-        updates_group = QtWidgets.QGroupBox("🔄 Updates")
-        updates_group.setObjectName("settingsGroup")
-        updates_group_layout = QtWidgets.QVBoxLayout(updates_group)
-        updates_group_layout.setContentsMargins(12, 10, 12, 12)
-        updates_group_layout.setSpacing(8)
-
-        update_manager = self._get_update_manager()
-        if update_manager:
-            # Version info section (two lines)
-            version_info_layout = QtWidgets.QGridLayout()
-            version_info_layout.setHorizontalSpacing(12)
-            version_info_layout.setVerticalSpacing(6)
-
-            try:
-                current_version = update_manager.get_current_version()
-                if not current_version or current_version == "unknown":
-                    # Try to read from version.txt directly
-                    try:
-                        version_file = Path(__file__).parent.parent.parent.parent / "version.txt"
-                        if version_file.exists():
-                            current_version = version_file.read_text(encoding='utf-8').strip().lstrip('vV')
-                    except Exception:
-                        pass
-                
-                is_current_beta = "beta" in current_version.lower() if current_version else False
-                version_type = "Beta" if is_current_beta else "Stable"
-                version_display = current_version if current_version and current_version != "unknown" else "unknown"
-                self.current_version_label = QtWidgets.QLabel()
-                self.current_version_label.setTextFormat(QtCore.Qt.RichText)
-                self.current_version_label.setText(
-                    f"<span style='color:#9ca3af;'>Current:</span> "
-                    f"<b style='color:#58a6ff;'>{version_display}</b> "
-                    f"<span style='color:#8b949e;'>({version_type})</span>"
-                )
-                
-                # Log version to console and log view
-                version_msg = f"[INFO] Current version: {version_display} ({version_type})"
-                print(version_msg)
-                if self.log_view:
-                    self.log_view.appendPlainText(version_msg)
-            except Exception as e:
-                error_msg = f"[WARNING] Không thể lấy version: {e}"
-                print(error_msg)
-                if self.log_view:
-                    self.log_view.appendPlainText(error_msg)
-                import traceback
-                traceback.print_exc()
-                if self.log_view:
-                    self.log_view.appendPlainText(traceback.format_exc())
-                self.current_version_label = QtWidgets.QLabel(
-                    "<span style='color:#9ca3af;'>Current:</span> <b>unknown</b>"
-                )
-            
-            self.latest_version_label = QtWidgets.QLabel()
-            self.latest_version_label.setTextFormat(QtCore.Qt.RichText)
-            self.latest_version_label.setText(
-                "<span style='color:#9ca3af;'>Latest:</span> "
-                "<span style='color:#8b949e;'>Chưa kiểm tra</span>"
-            )
-
-            version_info_layout.addWidget(self.current_version_label, 0, 0)
-            version_info_layout.addWidget(self.latest_version_label, 1, 0)
-            version_info_layout.setColumnStretch(0, 1)
-            updates_group_layout.addLayout(version_info_layout)
-            
-            # Settings row: Release type + Auto download
-            settings_row = QtWidgets.QHBoxLayout()
-            settings_row.setSpacing(12)
-            
-            beta_label = QtWidgets.QLabel("Release type:")
-            beta_label.setObjectName("settingsFieldLabel")
-            settings_row.addWidget(beta_label)
-            
-            self.beta_stable_combo = QtWidgets.QComboBox()
-            self.beta_stable_combo.addItem("Stable", "stable")
-            self.beta_stable_combo.addItem("Beta", "beta")
-            prefer_beta = self.config.get("prefer_beta_updates", False)
-            self.beta_stable_combo.setCurrentIndex(1 if prefer_beta else 0)
-            self.beta_stable_combo.currentIndexChanged.connect(self.on_beta_stable_changed)
-            settings_row.addWidget(self.beta_stable_combo)
-            
-            self.auto_download_cb = QtWidgets.QCheckBox("Auto download")
-            self.auto_download_cb.setChecked(self.config.get("auto_download_updates", False))
-            self.auto_download_cb.toggled.connect(self.on_auto_download_changed)
-            settings_row.addWidget(self.auto_download_cb)
-            
-            settings_row.addStretch()
-            updates_group_layout.addLayout(settings_row)
-
-            # Update status
-            self.update_status_label = QtWidgets.QLabel("")
-            self.update_status_label.setWordWrap(True)
-            self.update_status_label.setStyleSheet("color: #9ca3af;")
-            updates_group_layout.addWidget(self.update_status_label)
-
-            # Buttons
-            update_btn_row = QtWidgets.QHBoxLayout()
-            self.check_update_btn = QtWidgets.QPushButton("🔍 Check for Updates")
-            self.check_update_btn.clicked.connect(lambda: self.check_for_updates())
-            update_btn_row.addWidget(self.check_update_btn)
-
-            self.download_update_btn = QtWidgets.QPushButton("⬇️ Download Update")
-            self.download_update_btn.setEnabled(False)
-            self.download_update_btn.clicked.connect(lambda: self.download_update())
-            update_btn_row.addWidget(self.download_update_btn)
-            
-            self.restart_update_btn = QtWidgets.QPushButton("🔄 Restart & Update")
-            self.restart_update_btn.setEnabled(False)
-            self.restart_update_btn.setObjectName("primaryButton")
-            self.restart_update_btn.clicked.connect(lambda: self.restart_and_update())
-            update_btn_row.addWidget(self.restart_update_btn)
-
-            # Helper to toggle button states (only one active at a time)
-            def _set_update_buttons(download_enabled: bool, restart_enabled: bool):
-                self.download_update_btn.setVisible(True)
-                self.restart_update_btn.setVisible(True)
-                self.download_update_btn.setEnabled(download_enabled)
-                self.restart_update_btn.setEnabled(restart_enabled)
-                # Hide the inactive action for clarity
-                self.download_update_btn.setVisible(download_enabled)
-                self.restart_update_btn.setVisible(restart_enabled)
-
-            # Initial state: only Check enabled, others disabled/hidden
-            _set_update_buttons(download_enabled=False, restart_enabled=False)
-            self._set_update_buttons = _set_update_buttons  # store for later use
-
-            update_btn_row.addStretch()
-            updates_group_layout.addLayout(update_btn_row)
-
-            # Progress bar
-            self.update_progress_bar = QtWidgets.QProgressBar()
-            self.update_progress_bar.setVisible(False)
-            updates_group_layout.addWidget(self.update_progress_bar)
-            
-            # Track downloaded update file
-            self.downloaded_update_file: Path | None = None
-        else:
-            # Try to get more specific error message
-            error_msg = "⚠️ Update manager không khả dụng"
-            try:
-                import requests
-                error_msg += "\n\nCó thể do lỗi import module. Kiểm tra console để xem chi tiết."
-            except ImportError:
-                error_msg += "\n\nThiếu thư viện 'requests'.\nCài đặt bằng: pip install requests"
-            
-            no_update_label = QtWidgets.QLabel(error_msg)
-            no_update_label.setObjectName("settingsUpdatesHint")
-            no_update_label.setWordWrap(True)
-            updates_group_layout.addWidget(no_update_label)
-
-        card_layout.addWidget(updates_group)
-
-        # Wire scroll area
-        scroll_layout.addWidget(card)
-        scroll_layout.addStretch()
-        scroll_area.setWidget(scroll_content)
-        root_layout.addWidget(scroll_area)
-
-        settings_tab_index = self.tabs.addTab(tab, "Settings")
-        return settings_tab_index
-
-    def toggle_token_visibility(self, checked: bool):
-        """Hiện/ẩn token trong ô nhập."""
-        if checked:
-            self.token_edit.setEchoMode(QtWidgets.QLineEdit.Normal)
-        else:
-            self.token_edit.setEchoMode(QtWidgets.QLineEdit.Password)
-
-    def on_language_changed(self, index: int):
-        """Handle language selection change."""
-        try:
-            from mkvprocessor.i18n import set_language
-            lang_code = self.language_combo.itemData(index)
-            if lang_code:
-                set_language(lang_code)
-                self.config["language"] = lang_code
-                save_user_config(self.config)
-                # Optionally show a message that restart may be needed
-                self.settings_status.setText("Language changed. Some changes may require restart.")
-        except (ImportError, AttributeError):
-            pass
-
-    def build_log_tab(self):
-        tab = QtWidgets.QWidget()
-        layout = QtWidgets.QVBoxLayout(tab)
-        layout.setContentsMargins(4, 4, 4, 4)
-        layout.setSpacing(4)
-
-        # Sub-tabs cho Logs
-        self.log_tabs = QtWidgets.QTabWidget()
-        self.log_tabs.setObjectName("logSubTabs")
-        
-        # === Sub-tab 1: Session (log hiện tại) ===
-        session_tab = QtWidgets.QWidget()
-        session_layout = QtWidgets.QVBoxLayout(session_tab)
-        session_layout.setContentsMargins(0, 4, 0, 0)
-        
-        session_header = QtWidgets.QHBoxLayout()
-        session_header.addStretch()
-        # Copy button - lưu reference để đổi icon sau khi copy
-        self.copy_log_btn = QtWidgets.QToolButton()
-        self.copy_log_btn.setObjectName("tinyButton")
-        self.copy_log_btn.setText("📋")
-        self.copy_log_btn.clicked.connect(self.copy_log)
-        session_header.addWidget(self.copy_log_btn)
-        
-        # Clear button
-        clear_btn = QtWidgets.QToolButton()
-        clear_btn.setObjectName("tinyButton")
-        clear_btn.setText("🗑")
-        clear_btn.clicked.connect(self.clear_log)
-        session_header.addWidget(clear_btn)
-        
-        # Open folder button
-        open_folder_btn = QtWidgets.QToolButton()
-        open_folder_btn.setObjectName("tinyButton")
-        open_folder_btn.setText("📂")
-        open_folder_btn.clicked.connect(self.open_logs_folder)
-        session_header.addWidget(open_folder_btn)
-        
-        session_layout.addLayout(session_header)
-        
-        self.log_view = QtWidgets.QPlainTextEdit()
-        self.log_view.setReadOnly(True)
-        self.log_view.setObjectName("logView")
-        self.log_view.setFont(QtGui.QFont("Consolas", 9))
-        # Add initial welcome message
-        self.log_view.appendPlainText("=== MKV Processor Log ===")
-        self.log_view.appendPlainText("Chờ xử lý file...")
-        session_layout.addWidget(self.log_view, 1)
-        
-        self.log_tabs.addTab(session_tab, "📝 Session")
-        
-        # === Sub-tab 2: History (lịch sử xử lý) ===
-        history_tab = QtWidgets.QWidget()
-        history_layout = QtWidgets.QVBoxLayout(history_tab)
-        history_layout.setContentsMargins(0, 4, 0, 0)
-        
-        history_header = QtWidgets.QHBoxLayout()
-        history_header.addStretch()
-        refresh_history_btn = QtWidgets.QToolButton()
-        refresh_history_btn.setObjectName("tinyButton")
-        refresh_history_btn.setText("🔄")
-        refresh_history_btn.setToolTip("Refresh lịch sử")
-        refresh_history_btn.clicked.connect(self.refresh_history_view)
-        history_header.addWidget(refresh_history_btn)
-        history_layout.addLayout(history_header)
-        
-        self.history_table = QtWidgets.QTableWidget()
-        self.history_table.setObjectName("historyTable")
-        self.history_table.setColumnCount(4)
-        self.history_table.setHorizontalHeaderLabels(["Tên cũ", "Tên mới", "Thời gian", "Signature"])
-        self.history_table.horizontalHeader().setStretchLastSection(True)
-        self.history_table.horizontalHeader().setSectionResizeMode(0, QtWidgets.QHeaderView.Stretch)
-        self.history_table.horizontalHeader().setSectionResizeMode(1, QtWidgets.QHeaderView.Stretch)
-        self.history_table.setAlternatingRowColors(True)
-        self.history_table.setEditTriggers(QtWidgets.QAbstractItemView.NoEditTriggers)
-        self.history_table.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectRows)
-        history_layout.addWidget(self.history_table, 1)
-        
-        self.log_tabs.addTab(history_tab, "📚 History")
-        
-        # === Sub-tab 3: Errors (chỉ lỗi) ===
-        errors_tab = QtWidgets.QWidget()
-        errors_layout = QtWidgets.QVBoxLayout(errors_tab)
-        errors_layout.setContentsMargins(0, 4, 0, 0)
-        
-        errors_header = QtWidgets.QHBoxLayout()
-        errors_header.addStretch()
-        clear_errors_btn = QtWidgets.QToolButton()
-        clear_errors_btn.setObjectName("tinyButton")
-        clear_errors_btn.setText("🗑")
-        clear_errors_btn.setToolTip("Clear errors")
-        clear_errors_btn.clicked.connect(self.clear_errors)
-        errors_header.addWidget(clear_errors_btn)
-        errors_layout.addLayout(errors_header)
-        
-        self.errors_view = QtWidgets.QPlainTextEdit()
-        self.errors_view.setReadOnly(True)
-        self.errors_view.setObjectName("errorsView")
-        self.errors_view.setFont(QtGui.QFont("Consolas", 9))
-        # Style lỗi với màu đỏ
-        palette = self.errors_view.palette()
-        palette.setColor(QtGui.QPalette.Text, QtGui.QColor("#f87171"))
-        self.errors_view.setPalette(palette)
-        errors_layout.addWidget(self.errors_view, 1)
-        
-        self.log_tabs.addTab(errors_tab, "⚠️ Errors")
-        
-        # === Sub-tab 4: SRT (log subtitle riêng) ===
-        srt_tab = QtWidgets.QWidget()
-        srt_layout = QtWidgets.QVBoxLayout(srt_tab)
-        srt_layout.setContentsMargins(0, 4, 0, 0)
-        
-        srt_header = QtWidgets.QHBoxLayout()
-        srt_header.addStretch()
-        clear_srt_btn = QtWidgets.QToolButton()
-        clear_srt_btn.setObjectName("tinyButton")
-        clear_srt_btn.setText("🗑")
-        clear_srt_btn.setToolTip("Xóa log SRT")
-        clear_srt_btn.clicked.connect(self.clear_srt_log)
-        srt_header.addWidget(clear_srt_btn)
-        srt_layout.addLayout(srt_header)
-        
-        self.srt_view = QtWidgets.QPlainTextEdit()
-        self.srt_view.setReadOnly(True)
-        self.srt_view.setObjectName("srtView")
-        self.srt_view.setFont(QtGui.QFont("Consolas", 9))
-        # Style SRT với màu xanh lá
-        palette = self.srt_view.palette()
-        palette.setColor(QtGui.QPalette.Text, QtGui.QColor("#4ade80"))
-        self.srt_view.setPalette(palette)
-        srt_layout.addWidget(self.srt_view, 1)
-        
-        self.srt_count = 0  # Counter cho SRT
-        self.log_tabs.addTab(srt_tab, "📄 SRT (0)")
-        
-        layout.addWidget(self.log_tabs, 1)
-        self.tabs.addTab(tab, "Log")
 
     def apply_theme(self):
         self.setAcceptDrops(True)

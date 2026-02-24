@@ -64,10 +64,10 @@ def rename_simple(file_path: Union[str, Path]) -> Union[str, Path]:
         new_path = os.path.join(dir_path, new_name)
         
         os.rename(file_path, new_path)
-        logger.info(f"Simple renamed file to: {new_name}")
+        logger.info("Simple renamed file to: %s", new_name)
         return new_path
     except Exception as e:
-        logger.error(f"Error simple renaming file {file_path}: {e}")
+        logger.error("Error simple renaming file %s: %s", file_path, e)
         return file_path
 
 
@@ -107,7 +107,7 @@ def rename_file(file_path: Union[str, Path], audio_info: Tuple[int, int, str, st
         new_name = sanitize_filename(new_name)
         return new_name
     except Exception as e:
-        logger.error(f"Error renaming file {file_path}: {e}")
+        logger.error("Error renaming file %s: %s", file_path, e)
         return os.path.basename(file_path)
 
 
