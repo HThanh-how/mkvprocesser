@@ -479,7 +479,7 @@ def auto_commit_subtitles(subtitle_folder, settings: Optional[Dict[str, Any]] = 
                                 # If merge fails, use strategy ours to keep local version
                                 logger.warning("[AUTO-COMMIT] Merge failed. Using strategy ours...")
                                 run_git_command(git_cmd, ['pull', '--strategy=ours', '--no-edit'], cwd=str(work_dir), timeout=60)
-                                continue
+                                return
                         else:
                             logger.warning(f"⚠️ Commit successful but cannot push: {err_msg}")
                             return False
@@ -487,7 +487,7 @@ def auto_commit_subtitles(subtitle_folder, settings: Optional[Dict[str, Any]] = 
                     logger.error(f"⚠️ Error pushing: {push_err}")
                     if attempt < max_retries - 1:
                         logger.info(f"[AUTO-COMMIT] Retrying...")
-                        continue
+                        return
                     return False
             
             logger.error("⚠️ Cannot push after multiple attempts.")
@@ -538,6 +538,298 @@ def cleanup_cache(cache_dir: str):
     except Exception as e:
         logger.error(f"Error cleaning cache: {e}")
 
+
+
+def _process_single_file(video_file, file_idx, total_files, input_folder, file_options_map, force_reprocess, dry_run, processed_files, processed_signatures, log_file, vn_folder, original_folder, use_ssd_cache, cache_dir):
+        file_path = os.path.join(input_folder, video_file)
+        logger.info(
+            t(
+                "messages.processing_file",
+                current=file_idx,
+                total=total_files,
+                filename=video_file,
+            )
+        )
+        logger.info(f"\n===== PROCESSING FILE: {file_path} =====")
+        
+        # Hiển thị kích thước file
+        file_size = get_file_size_gb(file_path)
+        
+        # Kiểm tra file đã xử lý bằng tên và signature
+        file_signature = get_file_signature(file_path)
+        file_abs_path = os.path.abspath(file_path)
+        file_opts = file_options_map.get(file_abs_path, {})
+        rename_enabled = file_opts.get("rename_enabled", False)
+        force_rename = file_opts.get("force_process", False) or rename_enabled
+        export_subtitles = file_opts.get("export_subtitles", True)  # Default True
+        export_subtitle_indices = file_opts.get("export_subtitle_indices", [])
+        
+        # If file already processed but only needs rename (no force_reprocess), still continue
+        skip_file = False
+        skip_extract = False  # Default: don't skip extract
+        if not force_reprocess and not force_rename:
+            if video_file in processed_files:
+                logger.info(f"File {video_file} already processed as {processed_files[video_file]['new_name']} at {processed_files[video_file]['time']}. Skipping.")
+                skip_file = True
+            elif file_signature and file_signature in processed_signatures:
+                logger.info(f"File {video_file} has same content as already processed file {processed_signatures[file_signature]['new_name']}. Skipping.")
+                skip_file = True
+        elif video_file in processed_files and rename_enabled:
+            # File already processed but only needs rename
+            # Still extract subtitles if export_subtitles is enabled
+            logger.info(f"File {video_file} already processed. Only performing rename as requested...")
+            skip_file = False  # Don't skip, will rename at end
+            # Only skip extract if export_subtitles is disabled
+            skip_extract = not export_subtitles
+        
+        if skip_file:
+            return
+
+        # Check free disk space before processing
+        try:
+            disk_usage = shutil.disk_usage(".")
+            free_gb = disk_usage.free / (1024**3)
+            if free_gb < file_size * 1.5:
+                logger.warning(f"WARNING: Insufficient free disk space for safe processing. Need at least {file_size * 1.5:.2f} GB, currently have {free_gb:.2f} GB")
+                if not dry_run:
+                    response = input("Do you want to continue despite possible errors? (y/n): ")
+                    if response.lower() != 'y':
+                        logger.info("Skipping this file.")
+                        return
+        except Exception as e:
+            logger.error(f"Cannot check disk space: {e}")
+
+        # Read file information once
+        try:
+            probe_data = ffmpeg.probe(file_path)
+            audio_streams = [stream for stream in probe_data['streams'] if stream['codec_type'] == 'audio']
+            subtitle_streams = [stream for stream in probe_data['streams'] if stream['codec_type'] == 'subtitle']
+            
+            # Print stream information for user
+            logger.debug("\nStream information:")
+            logger.debug("- Video streams:")
+            for i, stream in enumerate([s for s in probe_data['streams'] if s['codec_type'] == 'video']):
+                width = stream.get('width', 'N/A')
+                height = stream.get('height', 'N/A')
+                codec = stream.get('codec_name', 'N/A')
+                logger.debug(f"  Stream #{i}: {codec}, {width}x{height}")
+            
+            logger.debug("- Audio streams:")
+            for i, stream in enumerate(audio_streams):
+                lang = stream.get('tags', {}).get('language', 'und')
+                title = stream.get('tags', {}).get('title', '')
+                channels = stream.get('channels', 'N/A')
+                codec = stream.get('codec_name', 'N/A')
+                lang_display = f"{get_language_abbreviation(lang)}"
+                if title:
+                    lang_display += f" - {title}"
+                logger.debug(f"  Stream #{stream.get('index', i)}: {codec}, {channels} channels, {lang_display}")
+            
+            logger.debug("- Subtitle streams:")
+            for i, stream in enumerate(subtitle_streams):
+                lang = stream.get('tags', {}).get('language', 'und')
+                title = stream.get('tags', {}).get('title', '')
+                codec = stream.get('codec_name', 'N/A')
+                lang_display = f"{get_language_abbreviation(lang)}"
+                if title:
+                    lang_display += f" - {title}"
+                logger.debug(f"  Stream #{stream.get('index', i)}: {codec}, {lang_display}")
+            
+        except Exception as e:
+            logger.error(f"Error reading file information {file_path}: {e}")
+            # If cannot read file information, only rename if rename_enabled = True
+            if rename_enabled:
+                try:
+                    new_path = rename_simple(file_path)
+                    log_processed_file(
+                        log_file,
+                        video_file,
+                        os.path.basename(new_path),
+                        signature=file_signature,
+                        metadata={
+                            "category": "video",
+                            "source_path": file_path,
+                            "output_path": os.path.abspath(new_path),
+                        },
+                    )
+                except Exception as rename_err:
+                    logger.error(f"Cannot rename: {rename_err}")
+            return 
+
+        # Check for Vietnamese subtitle and audio
+        has_vie_subtitle = any(stream.get('tags', {}).get('language', 'und') == 'vie' 
+                             for stream in subtitle_streams)
+        has_vie_audio = any(stream.get('tags', {}).get('language', 'und') == 'vie' 
+                           for stream in audio_streams)
+
+        processed = False  # Flag to mark file as processed
+        
+        # Check for Vietnamese subtitle and audio (needed for rename logic too)
+        has_vie_subtitle = any(stream.get('tags', {}).get('language', 'und') == 'vie' 
+                             for stream in subtitle_streams)
+        has_vie_audio = any(stream.get('tags', {}).get('language', 'und') == 'vie' 
+                           for stream in audio_streams)
+
+        # Extract subtitles if enabled
+        if not skip_extract:
+            # Default: Always extract Vietnamese subtitles if export_subtitles is enabled
+            vie_subtitle_streams = [stream for stream in subtitle_streams
+                                    if stream.get('tags', {}).get('language', 'und') == 'vie']
+            if vie_subtitle_streams:
+                logger.info(t("messages.extracting_subtitle", language=f"{len(vie_subtitle_streams)} Vietnamese"))
+            for stream in vie_subtitle_streams:
+                subtitle_info = (
+                    stream['index'],
+                    'vie',
+                    stream.get('tags', {}).get('title', ''),
+                    stream.get('codec_name', '')
+                )
+                extract_subtitle(file_path, subtitle_info, log_file, probe_data, file_signature=file_signature)
+
+        # Process video if has Vietnamese audio
+        processing_success = False
+        if has_vie_audio:
+            current_temp_work_dir = None
+            
+            # SSD Caching Strategy (Optimized)
+            # Read directly from HDD, write output to SSD, then move to HDD
+            # This avoids copying input file (saves time!)
+            if use_ssd_cache and cache_dir and not dry_run:
+                try:
+                    # Check free space on cache drive (only need space for output)
+                    cache_usage = shutil.disk_usage(cache_dir)
+                    current_free_gb = cache_usage.free / (1024**3)
+                    required_space_gb = file_size * 1.5  # Output is usually slightly smaller
+                    
+                    if current_free_gb > required_space_gb:
+                        logger.info(f"[CACHE] Output will be cached to SSD: {cache_dir}")
+                        logger.info(f"[CACHE] Free: {current_free_gb:.2f} GB, Required: {required_space_gb:.2f} GB")
+                        current_temp_work_dir = cache_dir
+                    else:
+                        logger.warning(f"[CACHE] Not enough space on SSD ({current_free_gb:.2f} GB < {required_space_gb:.2f} GB). Writing directly to HDD.")
+                except Exception as cache_err:
+                    logger.error(f"[CACHE] Error checking cache space: {cache_err}")
+                    current_temp_work_dir = None
+
+            try:
+                logger.info("\nDetected Vietnamese audio. Starting processing...")
+                # Find Vietnamese audio track with most channels
+                vie_audio_tracks = [(stream.get('index', i), stream.get('channels', 0), 'vie', 
+                                  stream.get('tags', {}).get('title', 'VIE'))
+                                  for i, stream in enumerate(audio_streams)
+                                  if stream.get('tags', {}).get('language', 'und') == 'vie']
+                if vie_audio_tracks:
+                    # Sort by channel count descending
+                    vie_audio_tracks.sort(key=lambda x: x[1], reverse=True)
+                    selected_track = vie_audio_tracks[0]
+                    logger.info(f"Selected Vietnamese audio track index={selected_track[0]} with {selected_track[1]} channels")
+                    
+                    processing_success = extract_video_with_audio(
+                        file_path,  # Read directly from source (HDD)
+                        vn_folder,
+                        original_folder,
+                        log_file,
+                        probe_data,
+                        file_signature=file_signature,
+                        rename_enabled=rename_enabled,
+                        temp_work_dir=current_temp_work_dir,  # Output cached to SSD if enabled
+                    )
+                    if processing_success:
+                        processed = True  # Mark file as processed only if successful
+                    else:
+                        logger.warning("Video processing failed, file will not be marked as processed")
+            except Exception as e:
+                logger.error(f"Error processing audio: {e}")
+                processing_success = False
+
+        # Check rename_enabled option (re-read in case it changed)
+        rename_enabled = file_opts.get("rename_enabled", False)
+        force_reprocess_file = file_opts.get("force_process", False)
+        
+        # Rename original file if:
+        # 1. File was just processed successfully (processing_success = True) AND rename_enabled = True
+        # 2. OR force_reprocess = True AND rename_enabled = True  
+        # 3. OR file not in processed_files yet AND rename_enabled = True
+        # Note: Always rename if file was just processed successfully, regardless of previous processing status
+        file_already_processed = video_file in processed_files or (
+            file_signature and file_signature in processed_signatures
+        )
+        # If file was just processed successfully, always rename if rename_enabled is True
+        if processing_success and rename_enabled:
+            should_rename = True
+        else:
+            should_rename = rename_enabled and (force_reprocess_file or not file_already_processed)
+        
+        # If file was processed (has VIE audio) and should_rename = True, rename original file
+        if processed and should_rename:
+            logger.info(f"\nFile processed. Renaming original file as requested...")
+            try:
+                new_path = rename_simple(file_path)
+                log_processed_file(
+                    log_file,
+                    video_file,
+                    os.path.basename(new_path),
+                    signature=file_signature,
+                    metadata={
+                        "category": "video",
+                        "source_path": file_path,
+                        "output_path": os.path.abspath(new_path),
+                    },
+                )
+                logger.info(
+                    t(
+                        "messages.renamed_file",
+                        old=video_file,
+                        new=os.path.basename(new_path),
+                    )
+                )
+            except Exception as rename_err:
+                logger.error(f"Cannot rename: {rename_err}")
+        # If only extract SRT (no VIE audio) and should_rename = True, rename video file
+        elif not processed and has_vie_subtitle and not has_vie_audio and should_rename:
+            logger.info(f"\nExtracted subtitle. Renaming video file as requested...")
+            try:
+                new_path = rename_simple(file_path)
+                log_processed_file(
+                    log_file,
+                    video_file,
+                    os.path.basename(new_path),
+                    signature=file_signature,
+                    metadata={
+                        "category": "video",
+                        "source_path": file_path,
+                        "output_path": os.path.abspath(new_path),
+                    },
+                )
+                logger.info(
+                    t(
+                        "messages.renamed_file",
+                        old=video_file,
+                        new=os.path.basename(new_path),
+                    )
+                )
+            except Exception as rename_err:
+                logger.error(f"Cannot rename: {rename_err}")
+        # If no Vietnamese subtitle and audio OR audio processing failed
+        # Only rename if should_rename = True
+        elif (not has_vie_subtitle and not has_vie_audio) or (not processed and not should_rename):
+            if not has_vie_subtitle and not has_vie_audio and should_rename:
+                logger.info(f"\nNo Vietnamese subtitle or audio found. Only renaming file...")
+                try:
+                    new_path = rename_simple(file_path)
+                    log_processed_file(
+                        log_file,
+                        video_file,
+                        os.path.basename(new_path),
+                        signature=file_signature,
+                        metadata={
+                            "category": "video",
+                            "source_path": file_path,
+                            "output_path": os.path.abspath(new_path),
+                        },
+                    )
+                except Exception as rename_err:
+                    logger.error(f"Cannot rename: {rename_err}")
 
 def main(input_folder=None, force_reprocess: Optional[bool] = None, dry_run: bool = False):
     """
@@ -687,7 +979,7 @@ def main(input_folder=None, force_reprocess: Optional[bool] = None, dry_run: boo
         if not force_reprocess:
             for entry in remote_entries:
                 if entry.get("category") != "video":
-                    continue
+                    return
                 info = {
                     "new_name": entry.get("new_name", ""),
                     "time": entry.get("timestamp", ""),
@@ -764,297 +1056,38 @@ def main(input_folder=None, force_reprocess: Optional[bool] = None, dry_run: boo
             return
 
         total_files = len(video_files)
-        for file_idx, video_file in enumerate(video_files, 1):
-            file_path = os.path.join(input_folder, video_file)
-            logger.info(
-                t(
-                    "messages.processing_file",
-                    current=file_idx,
-                    total=total_files,
-                    filename=video_file,
-                )
-            )
-            logger.info(f"\n===== PROCESSING FILE: {file_path} =====")
+
+        import concurrent.futures
+        import multiprocessing
+        
+        # Determine number of workers based on user settings (default to 1 if not set)
+        user_max_workers = settings.get("max_workers", 1)
+        
+        # Ensure it's at least 1 and capped at CPU count to prevent excessive overhead
+        try:
+            cpu_count = multiprocessing.cpu_count()
+        except NotImplementedError:
+            cpu_count = 4
             
-            # Hiển thị kích thước file
-            file_size = get_file_size_gb(file_path)
+        max_workers = max(1, min(user_max_workers, cpu_count))
+        
+        logger.info(f"\n=== STARTING PARALLEL PROCESSING WITH {max_workers} WORKERS ===")
+        
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = []
+            for file_idx, video_file in enumerate(video_files, 1):
+                futures.append(executor.submit(
+                    _process_single_file,
+                    video_file, file_idx, total_files, input_folder, file_options_map,
+                    force_reprocess, dry_run, processed_files, processed_signatures,
+                    log_file, vn_folder, original_folder, use_ssd_cache, cache_dir
+                ))
             
-            # Kiểm tra file đã xử lý bằng tên và signature
-            file_signature = get_file_signature(file_path)
-            file_abs_path = os.path.abspath(file_path)
-            file_opts = file_options_map.get(file_abs_path, {})
-            rename_enabled = file_opts.get("rename_enabled", False)
-            force_rename = file_opts.get("force_process", False) or rename_enabled
-            export_subtitles = file_opts.get("export_subtitles", True)  # Default True
-            export_subtitle_indices = file_opts.get("export_subtitle_indices", [])
-            
-            # If file already processed but only needs rename (no force_reprocess), still continue
-            skip_file = False
-            skip_extract = False  # Default: don't skip extract
-            if not force_reprocess and not force_rename:
-                if video_file in processed_files:
-                    logger.info(f"File {video_file} already processed as {processed_files[video_file]['new_name']} at {processed_files[video_file]['time']}. Skipping.")
-                    skip_file = True
-                elif file_signature and file_signature in processed_signatures:
-                    logger.info(f"File {video_file} has same content as already processed file {processed_signatures[file_signature]['new_name']}. Skipping.")
-                    skip_file = True
-            elif video_file in processed_files and rename_enabled:
-                # File already processed but only needs rename
-                # Still extract subtitles if export_subtitles is enabled
-                logger.info(f"File {video_file} already processed. Only performing rename as requested...")
-                skip_file = False  # Don't skip, will rename at end
-                # Only skip extract if export_subtitles is disabled
-                skip_extract = not export_subtitles
-            
-            if skip_file:
-                continue
-
-            # Check free disk space before processing
-            try:
-                disk_usage = shutil.disk_usage(".")
-                free_gb = disk_usage.free / (1024**3)
-                if free_gb < file_size * 1.5:
-                    logger.warning(f"WARNING: Insufficient free disk space for safe processing. Need at least {file_size * 1.5:.2f} GB, currently have {free_gb:.2f} GB")
-                    if not dry_run:
-                        response = input("Do you want to continue despite possible errors? (y/n): ")
-                        if response.lower() != 'y':
-                            logger.info("Skipping this file.")
-                            continue
-            except Exception as e:
-                logger.error(f"Cannot check disk space: {e}")
-
-            # Read file information once
-            try:
-                probe_data = ffmpeg.probe(file_path)
-                audio_streams = [stream for stream in probe_data['streams'] if stream['codec_type'] == 'audio']
-                subtitle_streams = [stream for stream in probe_data['streams'] if stream['codec_type'] == 'subtitle']
-                
-                # Print stream information for user
-                logger.debug("\nStream information:")
-                logger.debug("- Video streams:")
-                for i, stream in enumerate([s for s in probe_data['streams'] if s['codec_type'] == 'video']):
-                    width = stream.get('width', 'N/A')
-                    height = stream.get('height', 'N/A')
-                    codec = stream.get('codec_name', 'N/A')
-                    logger.debug(f"  Stream #{i}: {codec}, {width}x{height}")
-                
-                logger.debug("- Audio streams:")
-                for i, stream in enumerate(audio_streams):
-                    lang = stream.get('tags', {}).get('language', 'und')
-                    title = stream.get('tags', {}).get('title', '')
-                    channels = stream.get('channels', 'N/A')
-                    codec = stream.get('codec_name', 'N/A')
-                    lang_display = f"{get_language_abbreviation(lang)}"
-                    if title:
-                        lang_display += f" - {title}"
-                    logger.debug(f"  Stream #{stream.get('index', i)}: {codec}, {channels} channels, {lang_display}")
-                
-                logger.debug("- Subtitle streams:")
-                for i, stream in enumerate(subtitle_streams):
-                    lang = stream.get('tags', {}).get('language', 'und')
-                    title = stream.get('tags', {}).get('title', '')
-                    codec = stream.get('codec_name', 'N/A')
-                    lang_display = f"{get_language_abbreviation(lang)}"
-                    if title:
-                        lang_display += f" - {title}"
-                    logger.debug(f"  Stream #{stream.get('index', i)}: {codec}, {lang_display}")
-                
-            except Exception as e:
-                logger.error(f"Error reading file information {file_path}: {e}")
-                # If cannot read file information, only rename if rename_enabled = True
-                if rename_enabled:
-                    try:
-                        new_path = rename_simple(file_path)
-                        log_processed_file(
-                            log_file,
-                            video_file,
-                            os.path.basename(new_path),
-                            signature=file_signature,
-                            metadata={
-                                "category": "video",
-                                "source_path": file_path,
-                                "output_path": os.path.abspath(new_path),
-                            },
-                        )
-                    except Exception as rename_err:
-                        logger.error(f"Cannot rename: {rename_err}")
-                continue 
-
-            # Check for Vietnamese subtitle and audio
-            has_vie_subtitle = any(stream.get('tags', {}).get('language', 'und') == 'vie' 
-                                 for stream in subtitle_streams)
-            has_vie_audio = any(stream.get('tags', {}).get('language', 'und') == 'vie' 
-                               for stream in audio_streams)
-
-            processed = False  # Flag to mark file as processed
-            
-            # Check for Vietnamese subtitle and audio (needed for rename logic too)
-            has_vie_subtitle = any(stream.get('tags', {}).get('language', 'und') == 'vie' 
-                                 for stream in subtitle_streams)
-            has_vie_audio = any(stream.get('tags', {}).get('language', 'und') == 'vie' 
-                               for stream in audio_streams)
-
-            # Extract subtitles if enabled
-            if not skip_extract:
-                # Default: Always extract Vietnamese subtitles if export_subtitles is enabled
-                vie_subtitle_streams = [stream for stream in subtitle_streams
-                                        if stream.get('tags', {}).get('language', 'und') == 'vie']
-                if vie_subtitle_streams:
-                    logger.info(t("messages.extracting_subtitle", language=f"{len(vie_subtitle_streams)} Vietnamese"))
-                for stream in vie_subtitle_streams:
-                    subtitle_info = (
-                        stream['index'],
-                        'vie',
-                        stream.get('tags', {}).get('title', ''),
-                        stream.get('codec_name', '')
-                    )
-                    extract_subtitle(file_path, subtitle_info, log_file, probe_data, file_signature=file_signature)
-
-            # Process video if has Vietnamese audio
-            processing_success = False
-            if has_vie_audio:
-                current_temp_work_dir = None
-                
-                # SSD Caching Strategy (Optimized)
-                # Read directly from HDD, write output to SSD, then move to HDD
-                # This avoids copying input file (saves time!)
-                if use_ssd_cache and cache_dir and not dry_run:
-                    try:
-                        # Check free space on cache drive (only need space for output)
-                        cache_usage = shutil.disk_usage(cache_dir)
-                        current_free_gb = cache_usage.free / (1024**3)
-                        required_space_gb = file_size * 1.5  # Output is usually slightly smaller
-                        
-                        if current_free_gb > required_space_gb:
-                            logger.info(f"[CACHE] Output will be cached to SSD: {cache_dir}")
-                            logger.info(f"[CACHE] Free: {current_free_gb:.2f} GB, Required: {required_space_gb:.2f} GB")
-                            current_temp_work_dir = cache_dir
-                        else:
-                            logger.warning(f"[CACHE] Not enough space on SSD ({current_free_gb:.2f} GB < {required_space_gb:.2f} GB). Writing directly to HDD.")
-                    except Exception as cache_err:
-                        logger.error(f"[CACHE] Error checking cache space: {cache_err}")
-                        current_temp_work_dir = None
-
+            for future in concurrent.futures.as_completed(futures):
                 try:
-                    logger.info("\nDetected Vietnamese audio. Starting processing...")
-                    # Find Vietnamese audio track with most channels
-                    vie_audio_tracks = [(stream.get('index', i), stream.get('channels', 0), 'vie', 
-                                      stream.get('tags', {}).get('title', 'VIE'))
-                                      for i, stream in enumerate(audio_streams)
-                                      if stream.get('tags', {}).get('language', 'und') == 'vie']
-                    if vie_audio_tracks:
-                        # Sort by channel count descending
-                        vie_audio_tracks.sort(key=lambda x: x[1], reverse=True)
-                        selected_track = vie_audio_tracks[0]
-                        logger.info(f"Selected Vietnamese audio track index={selected_track[0]} with {selected_track[1]} channels")
-                        
-                        processing_success = extract_video_with_audio(
-                            file_path,  # Read directly from source (HDD)
-                            vn_folder,
-                            original_folder,
-                            log_file,
-                            probe_data,
-                            file_signature=file_signature,
-                            rename_enabled=rename_enabled,
-                            temp_work_dir=current_temp_work_dir,  # Output cached to SSD if enabled
-                        )
-                        if processing_success:
-                            processed = True  # Mark file as processed only if successful
-                        else:
-                            logger.warning("Video processing failed, file will not be marked as processed")
+                    future.result()
                 except Exception as e:
-                    logger.error(f"Error processing audio: {e}")
-                    processing_success = False
-
-            # Check rename_enabled option (re-read in case it changed)
-            rename_enabled = file_opts.get("rename_enabled", False)
-            force_reprocess_file = file_opts.get("force_process", False)
-            
-            # Rename original file if:
-            # 1. File was just processed successfully (processing_success = True) AND rename_enabled = True
-            # 2. OR force_reprocess = True AND rename_enabled = True  
-            # 3. OR file not in processed_files yet AND rename_enabled = True
-            # Note: Always rename if file was just processed successfully, regardless of previous processing status
-            file_already_processed = video_file in processed_files or (
-                file_signature and file_signature in processed_signatures
-            )
-            # If file was just processed successfully, always rename if rename_enabled is True
-            if processing_success and rename_enabled:
-                should_rename = True
-            else:
-                should_rename = rename_enabled and (force_reprocess_file or not file_already_processed)
-            
-            # If file was processed (has VIE audio) and should_rename = True, rename original file
-            if processed and should_rename:
-                logger.info(f"\nFile processed. Renaming original file as requested...")
-                try:
-                    new_path = rename_simple(file_path)
-                    log_processed_file(
-                        log_file,
-                        video_file,
-                        os.path.basename(new_path),
-                        signature=file_signature,
-                        metadata={
-                            "category": "video",
-                            "source_path": file_path,
-                            "output_path": os.path.abspath(new_path),
-                        },
-                    )
-                    logger.info(
-                        t(
-                            "messages.renamed_file",
-                            old=video_file,
-                            new=os.path.basename(new_path),
-                        )
-                    )
-                except Exception as rename_err:
-                    logger.error(f"Cannot rename: {rename_err}")
-            # If only extract SRT (no VIE audio) and should_rename = True, rename video file
-            elif not processed and has_vie_subtitle and not has_vie_audio and should_rename:
-                logger.info(f"\nExtracted subtitle. Renaming video file as requested...")
-                try:
-                    new_path = rename_simple(file_path)
-                    log_processed_file(
-                        log_file,
-                        video_file,
-                        os.path.basename(new_path),
-                        signature=file_signature,
-                        metadata={
-                            "category": "video",
-                            "source_path": file_path,
-                            "output_path": os.path.abspath(new_path),
-                        },
-                    )
-                    logger.info(
-                        t(
-                            "messages.renamed_file",
-                            old=video_file,
-                            new=os.path.basename(new_path),
-                        )
-                    )
-                except Exception as rename_err:
-                    logger.error(f"Cannot rename: {rename_err}")
-            # If no Vietnamese subtitle and audio OR audio processing failed
-            # Only rename if should_rename = True
-            elif (not has_vie_subtitle and not has_vie_audio) or (not processed and not should_rename):
-                if not has_vie_subtitle and not has_vie_audio and should_rename:
-                    logger.info(f"\nNo Vietnamese subtitle or audio found. Only renaming file...")
-                    try:
-                        new_path = rename_simple(file_path)
-                        log_processed_file(
-                            log_file,
-                            video_file,
-                            os.path.basename(new_path),
-                            signature=file_signature,
-                            metadata={
-                                "category": "video",
-                                "source_path": file_path,
-                                "output_path": os.path.abspath(new_path),
-                            },
-                        )
-                    except Exception as rename_err:
-                        logger.error(f"Cannot rename: {rename_err}")
-
+                    logger.error(f"Error in processing future: {e}")
         # Auto-commit subtitles after processing all files
         logger.info("\n=== PROCESSING COMPLETED ===")
         logger.info("Starting auto-commit of subtitle files...")

@@ -145,6 +145,12 @@ class SettingsTab(QtWidgets.QWidget):
         self.force_reprocess_cb.setChecked(self.config.get("force_reprocess", False))
         gen_layout.addRow("", self.force_reprocess_cb)
         
+        self.max_workers_spin = QtWidgets.QSpinBox()
+        self.max_workers_spin.setRange(1, 16)
+        self.max_workers_spin.setValue(self.config.get("max_workers", 1))
+        self.max_workers_spin.setToolTip("Số luồng xử lý đồng thời. Đặt là 1-2 nếu dùng NAS/HDD để tránh nghẽn I/O.")
+        gen_layout.addRow("Max Threads", self.max_workers_spin)
+        
         card_layout.addWidget(gen_group)
 
         # === Output Folder Group ===
@@ -311,6 +317,7 @@ class SettingsTab(QtWidgets.QWidget):
             "output_folder_original": self.original_folder_edit.text().strip(),
             "use_ssd_cache": self.use_ssd_cache_cb.isChecked(),
             "temp_cache_dir": self.cache_dir_edit.text().strip(),
+            "max_workers": self.max_workers_spin.value(),
         })
         save_user_config(self.config)
         self.settings_status.setText("✅ Saved")

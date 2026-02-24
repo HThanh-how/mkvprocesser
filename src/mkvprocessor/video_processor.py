@@ -18,7 +18,7 @@ from .utils.metadata_utils import (
     get_movie_year,
     get_video_resolution_label,
 )
-from .utils.system_utils import check_available_ram
+from .utils.system_utils import check_available_ram, ResourceMonitor
 from .log_manager import log_processed_file
 from .ffmpeg_helper import get_ffmpeg_command
 from .utils.temp_utils import temp_directory_in_memory
@@ -203,14 +203,16 @@ def process_video(
             
             # Check available RAM
             file_size = get_file_size_gb(file_path)
-            available_ram = check_available_ram()
             
             # Prefer processing in RAM if enough RAM available
-            ram_required = file_size * 2  # Need at least 200% of file size
-            try_ram_first = available_ram > ram_required
+            ram_required = max(0.4, file_size * 2)  # Need at least 200% of file size
+            
+            # Attempt to reserve RAM
+            rm = ResourceMonitor.get_instance()
+            try_ram_first = rm.reserve_ram(ram_required)
             
             if try_ram_first:
-                logger.info(f"Enough RAM to process file ({available_ram:.2f}GB > {ram_required:.2f}GB). Trying RAM processing...")
+                logger.info(f"Reserved RAM to process file ({ram_required:.2f}GB). Trying RAM processing...")
                 
                 # Process in RAM
                 ram_success = False
@@ -241,6 +243,8 @@ def process_video(
                             ram_success = True
                 except Exception as ram_error:
                     logger.error(f"Error processing in RAM: {ram_error}")
+                finally:
+                    rm.release_ram(ram_required)
                 
                 # If RAM processing succeeded
                 if ram_success and os.path.exists(final_output_path):

@@ -31,6 +31,8 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     # SSD Caching settings
     "use_ssd_cache": True,           # Enable SSD caching/staging
     "temp_cache_dir": "",            # Custom cache directory (empty = system temp)
+    # Processing settings
+    "max_workers": 1,                # Maximum concurrent processing threads
 }
 
 
