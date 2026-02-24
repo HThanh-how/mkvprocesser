@@ -24,7 +24,10 @@ class ProcessingTab(QtWidgets.QWidget):
 
     def refresh_system_status(self):
         """Refresh system status."""
-        from mkvprocessor.theme import get_status_color
+        try:
+            from ..theme import get_status_color
+        except ImportError:
+            from theme import get_status_color  # type: ignore
         from mkvprocessor.config_manager import get_config_path, load_user_config
         
         # Lazy load script module
@@ -112,6 +115,11 @@ class ProcessingTab(QtWidgets.QWidget):
         self.edit_folder_btn = QtWidgets.QToolButton()
         self.edit_folder_btn.setText("✏️")
         header_layout.addWidget(self.edit_folder_btn)
+
+        self.browse_btn = QtWidgets.QToolButton()
+        self.browse_btn.setObjectName("tinyButton")
+        self.browse_btn.setText("📂")
+        header_layout.addWidget(self.browse_btn)
 
         # Separator
         sep = QtWidgets.QFrame()

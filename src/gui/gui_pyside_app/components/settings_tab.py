@@ -11,7 +11,10 @@ from pathlib import Path
 import importlib
 
 from mkvprocessor.config_manager import save_user_config, get_config_path, load_raw_user_config
-from mkvprocessor.theme import DARK_THEME, get_status_color
+try:
+    from ..theme import DARK_THEME, get_status_color
+except ImportError:
+    from theme import DARK_THEME, get_status_color  # type: ignore
 
 class UpdateDownloadWorker(QtCore.QThread):
     """Worker thread để download update trong background."""

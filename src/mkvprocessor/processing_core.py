@@ -540,18 +540,7 @@ def cleanup_cache(cache_dir: str):
 
 
 
-def _process_single_file(video_file, file_idx, total_files, input_folder, file_options_map, force_reprocess, dry_run, processed_files, processed_signatures, log_file, vn_folder, original_folder, use_ssd_cache, cache_dir):
-        file_path = os.path.join(input_folder, video_file)
-        logger.info(
-            t(
-                "messages.processing_file",
-                current=file_idx,
-                total=total_files,
-                filename=video_file,
-            )
-        )
-        logger.info(f"\n===== PROCESSING FILE: {file_path} =====")
-        
+def _do_process_file(file_path, video_file, file_idx, total_files, input_folder, file_options_map, force_reprocess, dry_run, processed_files, processed_signatures, log_file, vn_folder, original_folder, use_ssd_cache, cache_dir):
         # Hiển thị kích thước file
         file_size = get_file_size_gb(file_path)
         
@@ -583,7 +572,19 @@ def _process_single_file(video_file, file_idx, total_files, input_folder, file_o
             skip_extract = not export_subtitles
         
         if skip_file:
-            return
+            return False  # Return False to indicate skipped
+        
+        logger.info(
+            t(
+                "messages.processing_file",
+                current=file_idx,
+                total=total_files,
+                filename=video_file,
+            )
+        )
+        logger.info(f"\n===== PROCESSING FILE: {file_path} =====")
+
+        # Check free disk space before processing
 
         # Check free disk space before processing
         try:
@@ -830,7 +831,23 @@ def _process_single_file(video_file, file_idx, total_files, input_folder, file_o
                     )
                 except Exception as rename_err:
                     logger.error(f"Cannot rename: {rename_err}")
+        return True  # Processed successfully
 
+def _process_single_file(video_file, file_idx, total_files, input_folder, file_options_map, force_reprocess, dry_run, processed_files, processed_signatures, log_file, vn_folder, original_folder, use_ssd_cache, cache_dir):
+    """Wrapper function to handle logging events reliably for the GUI."""
+    file_path = os.path.join(input_folder, video_file)
+    started = False
+    try:
+        started = _do_process_file(file_path, video_file, file_idx, total_files, input_folder, file_options_map, force_reprocess, dry_run, processed_files, processed_signatures, log_file, vn_folder, original_folder, use_ssd_cache, cache_dir)
+    except Exception as e:
+        logger.error(f"Exception during processing {video_file}: {e}")
+        # Only emit error if we actually started it
+        if started:
+            logger.error(f"===== ERROR FILE: {file_path} =====")
+    finally:
+        # Only notify UI about completion if it actually signaled a start
+        if started:
+            logger.info(f"===== COMPLETED FILE: {file_path} =====")
 def main(input_folder=None, force_reprocess: Optional[bool] = None, dry_run: bool = False):
     """
     Main function for video processing.

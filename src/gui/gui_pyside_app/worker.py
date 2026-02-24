@@ -143,27 +143,30 @@ class Worker(QtCore.QThread):
                             if match:
                                 import os
                                 filepath = match.group(1).strip()
-                                # Normalize filepath để đảm bảo consistency
                                 normalized_filepath = os.path.normpath(os.path.abspath(filepath))
                                 worker_ref.file_status_signal.emit(normalized_filepath, "started")
-                                # Nếu có file trước đó đang xử lý, đánh dấu nó đã xong
-                                if hasattr(worker_ref, '_current_processing_file'):
-                                    if worker_ref._current_processing_file:
-                                        worker_ref.file_status_signal.emit(worker_ref._current_processing_file, "completed")
-                                worker_ref._current_processing_file = normalized_filepath
+                                
+                        # Detect explicitly file completion (thread-safe)
+                        elif "COMPLETED FILE:" in text:
+                            match = re.search(r"COMPLETED FILE:\s*(.+)", text)
+                            if match:
+                                import os
+                                filepath = match.group(1).strip()
+                                normalized_filepath = os.path.normpath(os.path.abspath(filepath))
+                                worker_ref.file_status_signal.emit(normalized_filepath, "completed")
+                                
+                        # Detect explicit file error
+                        elif "ERROR FILE:" in text:
+                            match = re.search(r"ERROR FILE:\s*(.+)", text)
+                            if match:
+                                import os
+                                filepath = match.group(1).strip()
+                                normalized_filepath = os.path.normpath(os.path.abspath(filepath))
+                                worker_ref.file_status_signal.emit(normalized_filepath, "failed")
+                                
                         # Detect overall completion
                         elif "PROCESSING COMPLETED" in text:
-                            # Đánh dấu file cuối cùng đã xong
-                            if hasattr(worker_ref, '_current_processing_file'):
-                                if worker_ref._current_processing_file:
-                                    worker_ref.file_status_signal.emit(worker_ref._current_processing_file, "completed")
-                                    worker_ref._current_processing_file = None
-                        # Detect errors (có thể thêm pattern khác nếu cần)
-                        elif "ERROR" in text.upper() or "FAILED" in text.upper() or "Exception" in text:
-                            # Nếu có file đang xử lý, đánh dấu failed
-                            if hasattr(worker_ref, '_current_processing_file'):
-                                if worker_ref._current_processing_file:
-                                    worker_ref.file_status_signal.emit(worker_ref._current_processing_file, "failed")
+                            pass # Individual files are now handled above
 
                 def flush(self):
                     pass

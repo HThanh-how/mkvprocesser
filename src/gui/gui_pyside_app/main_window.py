@@ -38,9 +38,18 @@ except ImportError:
     from worker import Worker  # type: ignore
     from metadata_loader import MetadataLoader  # type: ignore
 
-from components.processing_tab import ProcessingTab
-from components.settings_tab import SettingsTab
-from components.log_tab import LogTab
+try:
+    from .components.processing_tab import ProcessingTab
+    from .components.settings_tab import SettingsTab
+    from .components.log_tab import LogTab
+except ImportError:
+    # When running outside package context, add gui_pyside_app dir to sys.path
+    _gui_app_dir = str(Path(__file__).parent)
+    if _gui_app_dir not in sys.path:
+        sys.path.insert(0, _gui_app_dir)
+    from components.processing_tab import ProcessingTab  # type: ignore
+    from components.settings_tab import SettingsTab  # type: ignore
+    from components.log_tab import LogTab  # type: ignore
 
 
 
