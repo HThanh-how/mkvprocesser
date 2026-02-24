@@ -417,10 +417,18 @@ class MainWindow(QtWidgets.QMainWindow):
         # Connect Processing Signals
         self.browse_btn.clicked.connect(self.select_folder)
         self.edit_folder_btn.clicked.connect(self.enable_folder_manual_edit)
+        self.folder_edit.editingFinished.connect(self.on_folder_edit_finished)
         self.reload_btn.clicked.connect(lambda: self.refresh_file_list())
         self.select_all_cb.clicked.connect(self.on_select_all_clicked)
         self.start_btn.clicked.connect(lambda: self.start_processing())
         self.stop_btn.clicked.connect(lambda: self.stop_processing())
+        
+        # Connect File Tree Signals (dropdown config feature)
+        self.file_tree.itemChanged.connect(lambda item, col: self.on_file_item_changed(item, col))
+        self.file_tree.itemClicked.connect(lambda item, col: self.on_file_item_clicked(item, col))
+        self.file_tree.itemDoubleClicked.connect(lambda item, col: self.on_file_double_clicked(item, col))
+        self.file_tree.itemExpanded.connect(lambda item: self.on_file_expanded(item))
+        self.file_tree.itemCollapsed.connect(lambda item: self.on_file_collapsed(item))
 
         # Settings Tab
         self.language_combo = self.settings_tab.language_combo
