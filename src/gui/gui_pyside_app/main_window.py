@@ -147,17 +147,27 @@ class MainWindow(QtWidgets.QMainWindow):
         apply_theme_fn = getattr(self, "apply_theme", None)
         if callable(apply_theme_fn):
             apply_theme_fn()
-        # refresh_file_list chạy ngay nhưng tối ưu - chỉ hiển thị file list, metadata lazy load
-        # Delay lại một lát để UI load xong
+        
+        # Set folder_edit from saved config (input_folder)
+        saved_folder = self.config.get("input_folder", "")
+        if saved_folder and hasattr(self, "folder_edit"):
+            self.folder_edit.setText(saved_folder)
+        
+        # Delay các tác vụ không quan trọng để UI hiển thị nhanh hơn
+        # refresh_system_status delay 1 giây (không quan trọng lắm khi khởi động)
         QtCore.QTimer.singleShot(
-            100, 
-            lambda: self._lazy_refresh_file_list()
+            1000,
+            lambda: getattr(self, "refresh_system_status", lambda: None)()
         )
-
         # refresh_file_list chạy ngay nhưng tối ưu - chỉ hiển thị file list, metadata lazy load
         QtCore.QTimer.singleShot(
             100,
             lambda: self._lazy_refresh_file_list()
+        )
+        # Auto-check for updates delay 5 giây (không quan trọng khi khởi động)
+        QtCore.QTimer.singleShot(
+            5000,
+            lambda: getattr(self, "auto_check_for_updates", lambda: None)()
         )
     
     def _create_message_box(self, icon: QtWidgets.QMessageBox.Icon, title: str, text: str, 
@@ -397,7 +407,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.log_tab = LogTab(self)
         self.tabs.addTab(self.log_tab, "Log")
         
-        self.settings_tab = SettingsTab(self)
+        self.settings_tab = SettingsTab(self, config=self.config, log_view=self.log_view)
         self.tabs.addTab(self.settings_tab, "Settings")
 
         # === Wiring & Aliases (Backward Compatibility) ===

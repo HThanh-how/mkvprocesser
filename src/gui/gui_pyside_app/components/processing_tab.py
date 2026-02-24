@@ -162,6 +162,23 @@ class ProcessingTab(QtWidgets.QWidget):
         self.file_tree = QtWidgets.QTreeWidget()
         self.file_tree.setObjectName("fileTree")
         self.file_tree.setHeaderLabels(["File", "Cấu hình"])
+        self.file_tree.setAlternatingRowColors(False)
+        self.file_tree.setRootIsDecorated(True)
+        self.file_tree.setExpandsOnDoubleClick(False)  # We handle double click manually
+        self.file_tree.setAnimated(True)
+        self.file_tree.setUniformRowHeights(False)  # Allow different row heights for config widgets
+        self.file_tree.setAutoFillBackground(False)
+        header = self.file_tree.header()
+        header.setStretchLastSection(True)
+        header.setSectionResizeMode(0, QtWidgets.QHeaderView.Stretch)
+        header.setSectionResizeMode(1, QtWidgets.QHeaderView.ResizeToContents)
+        self.file_tree.setIndentation(16)
+        palette = self.file_tree.palette()
+        palette.setColor(QtGui.QPalette.Base, QtGui.QColor("#0f172a"))
+        palette.setColor(QtGui.QPalette.Text, QtGui.QColor("#f8fafc"))
+        palette.setColor(QtGui.QPalette.Highlight, QtGui.QColor("#2563eb"))
+        palette.setColor(QtGui.QPalette.HighlightedText, QtGui.QColor("#ffffff"))
+        self.file_tree.setPalette(palette)
         file_layout.addWidget(self.file_tree, 1)
 
         tab_layout.addWidget(file_card, 1)
