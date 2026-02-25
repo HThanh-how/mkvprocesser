@@ -241,10 +241,18 @@ def process_video(
                             '-map', f'0:{selected_track[0]}',
                             '-map', '0:t?',
                             '-map_metadata', '0',
+                        ]
+                        
+                        # Add subtitle muxing if requested
+                        if mux_subtitles and mux_subtitle_indices:
+                            for sub_idx in mux_subtitle_indices:
+                                cmd.extend(['-map', f'0:{sub_idx}'])
+                                
+                        cmd.extend([
                             '-c', 'copy',
                             '-y',
                             temp_output_path
-                        ]
+                        ])
                         
                         logger.debug(f"Running command in RAM: {' '.join(cmd)}")
                         result = run_ffmpeg_command(cmd, capture_output=True)
@@ -303,10 +311,18 @@ def process_video(
                 '-map', f'0:{selected_track[0]}',
                 '-map', '0:t?',
                 '-map_metadata', '0',
+            ]
+            
+            # Add subtitle muxing if requested
+            if mux_subtitles and mux_subtitle_indices:
+                for sub_idx in mux_subtitle_indices:
+                    cmd.extend(['-map', f'0:{sub_idx}'])
+                    
+            cmd.extend([
                 '-c', 'copy',
                 '-y',
                 target_output_path
-            ]
+            ])
             
             logger.debug(f"Running command: {' '.join(cmd)}")
             result = run_ffmpeg_command(cmd, capture_output=True)
@@ -367,6 +383,8 @@ def extract_video_with_audio(
     temp_work_dir: Optional[str] = None,
     custom_output_name: Optional[str] = None,
     audio_track: Optional[Tuple[int, int, str, str]] = None,
+    mux_subtitles: bool = True,
+    mux_subtitle_indices: Optional[List[int]] = None
 ) -> bool:
     """Extract video with audio as required.
     
@@ -381,6 +399,8 @@ def extract_video_with_audio(
         temp_work_dir: Optional temporary working directory
         custom_output_name: Exact output name to use
         audio_track: Explicit audio track to extract (index, channels, lang, title). Bypasses auto-detection.
+        mux_subtitles: Whether to mux subtitle streams into output video.
+        mux_subtitle_indices: List of subtitle stream indices to mux.
     
     Returns:
         True if processing succeeded, False otherwise
@@ -417,7 +437,9 @@ def extract_video_with_audio(
                 file_path, target_folder, audio_track, log_file, 
                 probe_data, file_signature=file_signature, 
                 rename_enabled=rename_enabled, temp_work_dir=temp_work_dir,
-                custom_output_name=custom_output_name
+                custom_output_name=custom_output_name,
+                mux_subtitles=mux_subtitles,
+                mux_subtitle_indices=mux_subtitle_indices
             )
 
         # Create list of audio tracks with necessary information
@@ -444,7 +466,9 @@ def extract_video_with_audio(
                     file_path, original_folder, selected_track, log_file, 
                     probe_data, file_signature=file_signature, 
                     rename_enabled=rename_enabled, temp_work_dir=temp_work_dir,
-                    custom_output_name=custom_output_name
+                    custom_output_name=custom_output_name,
+                    mux_subtitles=mux_subtitles,
+                    mux_subtitle_indices=mux_subtitle_indices
                 )
             else:
                 logger.warning(f"First audio is Vietnamese but no non-Vietnamese tracks found in {file_path}")
@@ -458,7 +482,9 @@ def extract_video_with_audio(
                     file_path, vn_folder, selected_track, log_file, 
                     probe_data, file_signature=file_signature, 
                     rename_enabled=rename_enabled, temp_work_dir=temp_work_dir,
-                    custom_output_name=custom_output_name
+                    custom_output_name=custom_output_name,
+                    mux_subtitles=mux_subtitles,
+                    mux_subtitle_indices=mux_subtitle_indices
                 )
             else:
                 logger.warning(f"First audio is not Vietnamese but no Vietnamese tracks found in {file_path}")

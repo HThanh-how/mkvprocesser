@@ -555,6 +555,11 @@ def _do_process_file(file_path, video_file, file_idx, total_files, input_folder,
         export_subtitles = file_opts.get("export_subtitles", True)  # Default True
         export_subtitle_indices = file_opts.get("export_subtitle_indices", [])
         
+        # Muxing Options
+        mux_audio = file_opts.get("mux_audio", True)
+        mux_subtitles = file_opts.get("mux_subtitles", True)
+        mux_subtitle_indices = file_opts.get("mux_subtitle_indices", [])
+        
         # If file already processed but only needs rename (no force_reprocess), still continue
         skip_file = False
         skip_extract = False  # Default: don't skip extract
@@ -674,7 +679,9 @@ def _do_process_file(file_path, video_file, file_idx, total_files, input_folder,
         # Determine if we should process audio based on GUI selection or auto-detect
         has_vie_audio = any(stream.get('tags', {}).get('language', 'und') == 'vie' 
                            for stream in audio_streams)
-        should_process_audio = bool(selected_audio_indices) or has_vie_audio
+                           
+        # Note: If GUI explicitely disables mux_audio, completely skip video extraction
+        should_process_audio = mux_audio and (bool(selected_audio_indices) or has_vie_audio)
 
         # Extract subtitles if enabled
         if not skip_extract:
@@ -763,7 +770,9 @@ def _do_process_file(file_path, video_file, file_idx, total_files, input_folder,
                         rename_enabled=rename_enabled,
                         temp_work_dir=current_temp_work_dir,  # Output cached to SSD if enabled
                         custom_output_name=custom_output_name,
-                        audio_track=selected_track
+                        audio_track=selected_track,
+                        mux_subtitles=mux_subtitles,
+                        mux_subtitle_indices=mux_subtitle_indices
                     )
                     if processing_success:
                         processed = True  # Mark file as processed only if successful
@@ -777,21 +786,26 @@ def _do_process_file(file_path, video_file, file_idx, total_files, input_folder,
         rename_enabled = file_opts.get("rename_enabled", False)
         force_reprocess_file = file_opts.get("force_process", False)
         
-        # Rename original file if:
-        # 1. File was just processed successfully (processing_success = True) AND rename_enabled = True
-        # 2. OR force_reprocess = True AND rename_enabled = True  
-        # 3. OR file not in processed_files yet AND rename_enabled = True
-        # Note: Always rename if file was just processed successfully, regardless of previous processing status
+        # file_already_processed indicates if it's IN THE LOG FILE before this run.
         file_already_processed = video_file in processed_files or (
             file_signature and file_signature in processed_signatures
         )
-        # If file was just processed successfully, always rename if rename_enabled is True
-        if processing_success and rename_enabled:
-            should_rename = True
-        else:
-            should_rename = rename_enabled and (force_reprocess_file or not file_already_processed)
         
-        # If file was processed (has VIE audio) and should_rename = True, rename original file
+        # Decide if we should rename
+        # 1. If we successfully processed something new (processing_success = True), and rename is enabled -> rename
+        # 2. If it was already processed before, and user requested to rename the file -> rename
+        should_rename = False
+        if rename_enabled:
+            if processing_success:
+                should_rename = True
+            elif force_rename or force_reprocess_file or not file_already_processed:
+                should_rename = True
+            elif file_already_processed: 
+                # This was the bug: previously it evaluated `not file_already_processed` and returned False
+                # But if we force a file to just be renamed without extracting video, it never got renamed!
+                should_rename = True
+                
+        # If file was processed (has VIE audio) OR we just skipped video to do rename only
         if processed and should_rename:
             logger.info(f"\nFile processed. Renaming original file as requested...")
             try:
