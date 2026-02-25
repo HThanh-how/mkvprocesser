@@ -1091,12 +1091,18 @@ def main(input_folder=None, force_reprocess: Optional[bool] = None, dry_run: boo
         if selected_env:
             try:
                 selected_paths = json.loads(selected_env)
-                selected_abs = {os.path.abspath(path) for path in selected_paths}
-                video_files = [
-                    f
-                    for f in video_files
-                    if os.path.abspath(os.path.join(input_folder, f)) in selected_abs
-                ]
+                # Normalize paths from GUI for accurate comparison
+                selected_abs = {os.path.normpath(os.path.abspath(path)) for path in selected_paths}
+                
+                filtered_video_files = []
+                for f in video_files:
+                    # Construct absolute path of the file in the input directory
+                    file_abs_path = os.path.normpath(os.path.abspath(os.path.join(input_folder, f)))
+                    if file_abs_path in selected_abs:
+                        filtered_video_files.append(f)
+                
+                video_files = filtered_video_files
+                
                 unsupported_selected = [
                     path
                     for path in selected_abs
