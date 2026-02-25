@@ -27,6 +27,44 @@ QLabel {
     border-radius: 6px;
 }
 
+/* Settings card & layout */
+#settingsCard {
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 10px;
+}
+#settingsTitle {
+    font-size: 18px;
+    font-weight: 600;
+    color: #f0f6fc;
+}
+#settingsSubtitle {
+    font-size: 12px;
+    color: #8b949e;
+}
+#settingsGroup {
+    background: #0d1117;
+    border-radius: 8px;
+    border: 1px solid #21262d;
+}
+#settingsGroupTitle {
+    font-size: 13px;
+    font-weight: 600;
+    color: #c9d1d9;
+}
+#settingsFieldLabel {
+    color: #8b949e;
+    font-size: 12px;
+}
+#settingsStatusLabel {
+    font-size: 12px;
+    color: #a5b4fc;
+}
+#settingsUpdatesHint {
+    font-size: 12px;
+    color: #94a3b8;
+}
+
 /* Inputs */
 QLineEdit {
     background: #0d1117;
@@ -42,6 +80,66 @@ QLineEdit#pillInput {
     background: #0d1117;
     border-radius: 12px;
     padding: 4px 12px;
+}
+
+/* ComboBox */
+QComboBox {
+    background: #0d1117;
+    color: #c9d1d9;
+    border: 1px solid #30363d;
+    border-radius: 6px;
+    padding: 6px 10px;
+    min-width: 150px;
+}
+QComboBox:hover {
+    border-color: #58a6ff;
+    background: #161b22;
+}
+QComboBox:focus {
+    border-color: #58a6ff;
+    background: #161b22;
+}
+QComboBox::drop-down {
+    border: none;
+    width: 20px;
+    background: transparent;
+}
+QComboBox::down-arrow {
+    image: none;
+    border-left: 4px solid transparent;
+    border-right: 4px solid transparent;
+    border-top: 6px solid #8b949e;
+    width: 0;
+    height: 0;
+    margin-right: 8px;
+}
+QComboBox::down-arrow:hover {
+    border-top-color: #c9d1d9;
+}
+QComboBox QAbstractItemView {
+    background: #161b22;
+    color: #c9d1d9;
+    border: 1px solid #30363d;
+    border-radius: 6px;
+    selection-background-color: #1f6feb;
+    selection-color: white;
+    padding: 4px;
+}
+QComboBox QAbstractItemView::item {
+    padding: 6px 12px;
+    border-radius: 4px;
+}
+QComboBox QAbstractItemView::item:hover {
+    background: #21262d;
+}
+QComboBox QAbstractItemView::item:selected {
+    background: #1f6feb;
+    color: white;
+}
+#languageCombo {
+    background: #161b22;
+    color: #c9d1d9;
+    font-weight: 500;
 }
 
 /* Buttons */
@@ -164,9 +262,12 @@ QCheckBox::indicator:hover {
     padding: 4px;
     border-radius: 4px;
 }
+/* Chỉ apply màu selected khi item được chọn thủ công (không override màu đã set bằng code) */
 #fileTree::item:selected {
     background: #1f6feb;
+    color: white;
 }
+/* Hover chỉ khi không selected và không có màu riêng */
 #fileTree::item:hover {
     background: #21262d;
 }
@@ -341,6 +442,16 @@ QHeaderView::section {
     font-size: 11px;
 }
 
+/* ScrollArea */
+QScrollArea {
+    background: #0d1117;
+    border: 1px solid #30363d;
+    border-radius: 6px;
+}
+QScrollArea > QWidget > QWidget {
+    background: #0d1117;
+}
+
 /* Scrollbars */
 QScrollBar:vertical {
     background: #0d1117;
@@ -398,6 +509,40 @@ QMenu::item:selected {
 }
 QMenu::item:disabled {
     color: #6e7681;
+}
+
+/* Message Box */
+QMessageBox {
+    background: #0d1117;
+    color: #e8eaed;
+}
+QMessageBox QLabel {
+    color: #e8eaed;
+    font-size: 13px;
+}
+QMessageBox QPushButton {
+    background: #21262d;
+    color: #c9d1d9;
+    border: 1px solid #30363d;
+    border-radius: 6px;
+    padding: 8px 20px;
+    min-width: 80px;
+    font-weight: 500;
+}
+QMessageBox QPushButton:hover {
+    background: #30363d;
+    border-color: #58a6ff;
+}
+QMessageBox QPushButton:pressed {
+    background: #161b22;
+}
+QMessageBox QPushButton:default {
+    background: #238636;
+    border-color: #238636;
+    color: white;
+}
+QMessageBox QPushButton:default:hover {
+    background: #2ea043;
 }
 """
 

@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Optional, Tuple, Union
 
 from .utils.file_utils import create_folder, sanitize_filename
-from .utils.system_utils import check_available_ram
+from .utils.system_utils import check_available_ram, ResourceMonitor
 from .utils.temp_utils import temp_directory_in_memory
 from .utils.ffmpeg_runner import run_ffmpeg_command
 from .log_manager import log_processed_file
@@ -80,12 +80,10 @@ def extract_subtitle(
             )
             return final_output_path
         
-        # Check available RAM - subtitles are usually small so require less RAM
-        available_ram = check_available_ram()
-        logger.info(f"Processing subtitle with {available_ram:.2f} GB available RAM")
-        
         # Prefer processing in RAM if enough RAM (>= 0.5GB)
-        try_ram_first = available_ram >= 0.5
+        ram_required = 0.5
+        rm = ResourceMonitor.get_instance()
+        try_ram_first = rm.reserve_ram(ram_required)
         
         if try_ram_first:
             logger.info(f"Trying to extract subtitle in RAM...")
@@ -117,6 +115,8 @@ def extract_subtitle(
                         ram_success = True
             except Exception as ram_error:
                 logger.error(f"Error processing in RAM: {ram_error}")
+            finally:
+                rm.release_ram(ram_required)
                 
             # If RAM processing succeeded
             if ram_success and os.path.exists(final_output_path):

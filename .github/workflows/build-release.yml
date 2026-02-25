@@ -13,6 +13,7 @@ on:
     branches:
       - main
       - master
+      - develop
 
 jobs:
   build-windows-x64:
@@ -292,9 +293,13 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-    # Tự động tạo release cho mọi push/workflow_dispatch (trừ pull_request)
-    # Continue even if some builds fail (use artifacts that succeeded)
-    if: github.event_name != 'pull_request'
+    # Chỉ tạo release cho push/workflow_dispatch (không tạo cho pull_request)
+    # Và chỉ cho 3 nhánh: main, master, develop
+    if: >
+      github.event_name != 'pull_request' &&
+      (github.ref == 'refs/heads/main' ||
+       github.ref == 'refs/heads/master' ||
+       github.ref == 'refs/heads/develop')
     continue-on-error: false
     steps:
       - name: Checkout repository
@@ -304,13 +309,38 @@ jobs:
 
       - name: Generate changelog from commit history
         run: |
-          {
-            echo "## Changelog ($(date -u +"%Y-%m-%d %H:%M:%S") UTC)"
-            echo
-            git log -n 50 --pretty=format:"- %s (%h)"
-          } > release_notes.md
-          if [ ! -s release_notes.md ]; then
-            echo "- No commits found." > release_notes.md
+          echo "## Changelog ($(date -u +"%Y-%m-%d %H:%M:%S") UTC)" > release_notes.md
+          echo "" >> release_notes.md
+          
+          # Xác định loại release dựa trên branch
+          if [[ "${GITHUB_REF}" == "refs/heads/develop" ]]; then
+            # Beta release: tìm beta tag gần nhất (có "beta" trong tên)
+            LATEST_TAG=$(git tag --sort=-creatordate | grep "beta" | head -n 1 || echo "")
+            RELEASE_TYPE="beta"
+          elif [[ "${GITHUB_REF}" == "refs/heads/main" || "${GITHUB_REF}" == "refs/heads/master" ]]; then
+            # Stable release: tìm stable tag gần nhất (không có "beta")
+            LATEST_TAG=$(git tag --sort=-creatordate | grep -v "beta" | head -n 1 || echo "")
+            RELEASE_TYPE="stable"
+          else
+            # Fallback: tìm bất kỳ tag nào gần nhất
+            LATEST_TAG=$(git tag --sort=-creatordate | head -n 1 || echo "")
+            RELEASE_TYPE="unknown"
+          fi
+          echo "Last tag detected: ${LATEST_TAG:-<none>}"
+          
+          if [ -n "$LATEST_TAG" ]; then
+            # Lấy danh sách commit kể từ tag gần nhất
+            COMMITS=$(git log "${LATEST_TAG}..HEAD" --pretty=format:"- %s (%h)" 2>/dev/null || echo "")
+            if [ -n "$COMMITS" ]; then
+              echo "$COMMITS" >> release_notes.md
+            else
+              # Không có commit mới kể từ tag -> vẫn hiển thị commit hiện tại
+              echo "- No new commits since ${LATEST_TAG}." >> release_notes.md
+              echo "- Current HEAD: $(git log -n 1 --pretty=format:'%s (%h)')" >> release_notes.md
+            fi
+          else
+            # Không có tag nào -> lấy 50 commit gần nhất (nếu có)
+            git log -n 50 --pretty=format:"- %s (%h)" >> release_notes.md
           fi
 
       - name: Set release metadata
@@ -321,13 +351,18 @@ jobs:
           YEAR_SEG=$((YEAR - 2024))
           BUILD_SEG=${GITHUB_RUN_NUMBER}
           if [[ "${GITHUB_REF}" == "refs/heads/main" || "${GITHUB_REF}" == "refs/heads/master" ]]; then
+            # Stable release cho main/master
             VERSION="${YEAR_SEG}.${DATE_SEG}.${BUILD_SEG}"
             PRERELEASE=false
             NAME="Release ${VERSION}"
-          else
+          elif [[ "${GITHUB_REF}" == "refs/heads/develop" ]]; then
+            # Beta prerelease cho develop
             VERSION="${YEAR_SEG}.${DATE_SEG}.beta-${BUILD_SEG}"
             PRERELEASE=true
             NAME="Beta ${VERSION}"
+          else
+            echo "Unsupported ref for release: ${GITHUB_REF}"
+            exit 1
           fi
           {
             echo "version=${VERSION}"
@@ -487,6 +522,7 @@ jobs:
           name: ${{ steps.release_meta.outputs.name }}
           body_path: release_notes.md
           prerelease: ${{ steps.release_meta.outputs.prerelease }}
+          draft: false
           files: |
             MKVProcessor_Windows_x64.exe
             MKVProcessor_Windows_x86.exe

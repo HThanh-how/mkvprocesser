@@ -7,14 +7,12 @@ from __future__ import annotations
 import importlib
 import json
 import os
+import sys
 from datetime import datetime
 from pathlib import Path
 
 import requests
 from PySide6 import QtCore, QtGui, QtWidgets
-
-import sys
-from pathlib import Path
 
 # Add src to sys.path to import mkvprocessor
 src_path = Path(__file__).parent.parent.parent
@@ -28,9 +26,31 @@ from mkvprocessor.config_manager import (
     save_user_config,
 )
 
-from .file_options import FileOptions
-from .theme import DARK_THEME, get_status_color
-from .worker import Worker
+# Hỗ trợ import khi chạy như package module hoặc chạy trực tiếp file
+try:
+    from .file_options import FileOptions
+    from .theme import DARK_THEME, get_status_color
+    from .worker import Worker
+    from .metadata_loader import MetadataLoader
+except ImportError:
+    from file_options import FileOptions  # type: ignore
+    from theme import DARK_THEME, get_status_color  # type: ignore
+    from worker import Worker  # type: ignore
+    from metadata_loader import MetadataLoader  # type: ignore
+
+try:
+    from .components.processing_tab import ProcessingTab
+    from .components.settings_tab import SettingsTab
+    from .components.log_tab import LogTab
+except ImportError:
+    # When running outside package context, add gui_pyside_app dir to sys.path
+    _gui_app_dir = str(Path(__file__).parent)
+    if _gui_app_dir not in sys.path:
+        sys.path.insert(0, _gui_app_dir)
+    from components.processing_tab import ProcessingTab  # type: ignore
+    from components.settings_tab import SettingsTab  # type: ignore
+    from components.log_tab import LogTab  # type: ignore
+
 
 
 class DraggableListWidget(QtWidgets.QListWidget):
@@ -48,50 +68,327 @@ class DraggableListWidget(QtWidgets.QListWidget):
         self.orderChanged.emit()
 
 
+class UpdateDownloadWorker(QtCore.QThread):
+    """Worker thread để download update trong background."""
+    
+    progress_signal = QtCore.Signal(int, int, int)  # downloaded, total, percent
+    finished_signal = QtCore.Signal(object)  # download_path or None
+    error_signal = QtCore.Signal(str)  # error message
+    
+    def __init__(self, update_manager, exe_asset, parent=None):
+        super().__init__(parent)
+        self.update_manager = update_manager
+        self.exe_asset = exe_asset
+    
+    def run(self):
+        """Download update file in background thread."""
+        try:
+            def progress_callback(url, downloaded, total):
+                if total > 0:
+                    percent = int((downloaded / total) * 100)
+                    # Emit signal to update UI (thread-safe)
+                    self.progress_signal.emit(downloaded, total, percent)
+            
+            download_path = self.update_manager.download_update(self.exe_asset, progress_callback)
+            self.finished_signal.emit(download_path)
+        except Exception as e:
+            self.error_signal.emit(str(e))
+            self.finished_signal.emit(None)
+
+
 class MainWindow(QtWidgets.QMainWindow):
     """Cửa sổ chính của ứng dụng"""
+    
+    # Supported video file extensions
+    SUPPORTED_VIDEO_EXTENSIONS = (".mkv", ".mp4", ".avi", ".mov", ".m4v", ".flv", ".wmv", ".webm")
 
     def __init__(self):
         super().__init__()
         self.setWindowTitle("MKV Processor (PySide6)")
         self.resize(1200, 800)
+        self.setMinimumSize(600, 400)  # Allow window to be resized smaller
         self.config = load_user_config()
-        # Try importing from new package, fallback to legacy names
-        module_candidates = [
-            "mkvprocessor.processing_core",
-            "mkvprocessor.legacy_api",
-            "processing_core",
-            "legacy_api",
-        ]
+        # Đảm bảo luôn có thuộc tính select_folder để connect signal an toàn
+        # Hàm thực tế sẽ sử dụng folder_edit sau khi build_ui tạo xong.
+        def _select_folder_fallback():
+            folder = QtWidgets.QFileDialog.getExistingDirectory(self, "Chọn thư mục")
+            if folder:
+                # folder_edit sẽ tồn tại sau khi build_ui chạy xong
+                if hasattr(self, "folder_edit"):
+                    self.folder_edit.setText(folder)
+                self.config["input_folder"] = folder
+                save_user_config(self.config)
+                if hasattr(self, "refresh_file_list"):
+                    self.refresh_file_list()
+        self.select_folder = _select_folder_fallback
+        # Lazy import processing_core - chỉ import khi thực sự cần để tăng tốc khởi động
         self.script = None
-        for module_name in module_candidates:
-            try:
-                self.script = importlib.import_module(module_name)
-                break
-            except ModuleNotFoundError:
-                continue
-        if self.script is None:
-            raise ImportError("Cannot import processing_core module")
+        self._script_module_name = None
         self.worker: Worker | None = None
         self.file_options: dict[str, FileOptions] = {}
         self.current_file_path: str | None = None
         self.session_log_file: Path | None = None
         self.log_view: QtWidgets.QPlainTextEdit | None = None
         self.current_selected_path: str | None = None
+        self.metadata_loader_thread: QtCore.QThread | None = None  # Thread để load metadata background
         
-        # Update manager
-        try:
-            from mkvprocessor.update_manager import UpdateManager
-            self.update_manager = UpdateManager()
-        except ImportError:
-            self.update_manager = None
+        # Khởi tạo processing_files_map để tránh AttributeError
+        self.processing_files_map: dict[str, str] = {}  # normalized_filepath -> original_filepath
+        
+        # Lazy import UpdateManager - chỉ import khi cần check updates
+        self.update_manager = None
+        self._update_manager_imported = False
+        
+        # Update download worker thread
+        self.update_download_worker = None
 
         self.build_ui()
-        self.apply_theme()
-        QtCore.QTimer.singleShot(250, self.refresh_system_status)
-        QtCore.QTimer.singleShot(500, self.refresh_file_list)
-        # Auto-check for updates silently after 3 seconds (non-blocking)
-        QtCore.QTimer.singleShot(3000, self.auto_check_for_updates)
+        # Gọi apply_theme an toàn (tránh crash nếu có lỗi nhỏ về theme)
+        apply_theme_fn = getattr(self, "apply_theme", None)
+        if callable(apply_theme_fn):
+            apply_theme_fn()
+        
+        # Set folder_edit from saved config (input_folder)
+        saved_folder = self.config.get("input_folder", "")
+        if saved_folder and hasattr(self, "folder_edit"):
+            self.folder_edit.setText(saved_folder)
+        
+        # Delay các tác vụ không quan trọng để UI hiển thị nhanh hơn
+        # refresh_system_status delay 1 giây (không quan trọng lắm khi khởi động)
+        QtCore.QTimer.singleShot(
+            1000,
+            lambda: getattr(self, "refresh_system_status", lambda: None)()
+        )
+        # refresh_file_list chạy ngay nhưng tối ưu - chỉ hiển thị file list, metadata lazy load
+        QtCore.QTimer.singleShot(
+            100,
+            lambda: self._lazy_refresh_file_list()
+        )
+        # Auto-check for updates delay 5 giây (không quan trọng khi khởi động)
+        QtCore.QTimer.singleShot(
+            5000,
+            lambda: getattr(self, "auto_check_for_updates", lambda: None)()
+        )
+    
+    def _create_message_box(self, icon: QtWidgets.QMessageBox.Icon, title: str, text: str, 
+                           buttons: QtWidgets.QMessageBox.StandardButton = QtWidgets.QMessageBox.Ok,
+                           default_button: QtWidgets.QMessageBox.StandardButton | None = None) -> QtWidgets.QMessageBox:
+        """Create a QMessageBox with dark theme applied."""
+        msg_box = QtWidgets.QMessageBox(self)
+        msg_box.setStyleSheet(DARK_THEME)  # Apply dark theme
+        msg_box.setIcon(icon)
+        msg_box.setWindowTitle(title)
+        msg_box.setText(text)
+        msg_box.setStandardButtons(buttons)
+        if default_button:
+            msg_box.setDefaultButton(default_button)
+        return msg_box
+    
+    def show_info_message(self, title: str, message: str) -> None:
+        """Show information dialog with theme."""
+        msg_box = self._create_message_box(
+            QtWidgets.QMessageBox.Information,
+            title,
+            message
+        )
+        msg_box.exec()
+    
+    def _get_script_module(self):
+        """Lazy load processing_core module - chỉ import khi cần"""
+        if self.script is None:
+            module_candidates = [
+                "mkvprocessor.processing_core",
+                "mkvprocessor.legacy_api",
+                "processing_core",
+                "legacy_api",
+            ]
+            for module_name in module_candidates:
+                try:
+                    self.script = importlib.import_module(module_name)
+                    self._script_module_name = module_name
+                    break
+                except ModuleNotFoundError:
+                    continue
+            if self.script is None:
+                raise ImportError("Cannot import processing_core module")
+        return self.script
+    
+    def _get_update_manager(self):
+        """Lazy load UpdateManager - chỉ import khi cần"""
+        if not self._update_manager_imported:
+            try:
+                # Check if requests is available first
+                try:
+                    import requests
+                except ImportError:
+                    error_msg = "[WARNING] Thư viện 'requests' chưa được cài đặt. Cài đặt bằng: pip install requests"
+                    print(error_msg)
+                    if self.log_view:
+                        self.log_view.appendPlainText(error_msg)
+                    self.update_manager = None
+                    self._update_manager_imported = True
+                    return None
+                
+                # Try multiple import paths (support both source and exe)
+                UpdateManager = None
+                
+                # If running from exe, try to load file directly
+                if hasattr(sys, '_MEIPASS'):
+                    meipass_path = Path(sys._MEIPASS)
+                    # Try to add _MEIPASS to path if not already there
+                    if str(meipass_path) not in sys.path:
+                        sys.path.insert(0, str(meipass_path))
+                    # Also try src path
+                    src_path = meipass_path / "src"
+                    if src_path.exists() and str(src_path) not in sys.path:
+                        sys.path.insert(0, str(src_path))
+                    # Try package folder directly (common in PyInstaller onefile)
+                    meipass_mkv = meipass_path / "mkvprocessor"
+                    if meipass_mkv.exists() and str(meipass_mkv) not in sys.path:
+                        sys.path.insert(0, str(meipass_mkv))
+                    meipass_lib_mkv = meipass_path / "lib" / "mkvprocessor"
+                    if meipass_lib_mkv.exists() and str(meipass_lib_mkv) not in sys.path:
+                        sys.path.insert(0, str(meipass_lib_mkv))
+                    
+                    # Try loading from base_library.zip if present
+                    base_zip = meipass_path / "base_library.zip"
+                    if base_zip.exists():
+                        try:
+                            import zipfile, tempfile
+                            with zipfile.ZipFile(base_zip, "r") as zf:
+                                for candidate in [
+                                    "mkvprocessor/update_manager.py",
+                                    "mkvprocessor/update_manager.pyc",
+                                    "update_manager.py",
+                                    "update_manager.pyc",
+                                ]:
+                                    if candidate in zf.namelist():
+                                        with tempfile.NamedTemporaryFile(delete=False, suffix=Path(candidate).suffix) as tmp:
+                                            tmp.write(zf.read(candidate))
+                                            tmp_path = Path(tmp.name)
+                                        import importlib.util as importlib_util
+                                        spec = importlib_util.spec_from_file_location("update_manager", str(tmp_path))
+                                        if spec and spec.loader:
+                                            module = importlib_util.module_from_spec(spec)
+                                            spec.loader.exec_module(module)
+                                            UpdateManager = getattr(module, 'UpdateManager', None)
+                                            if UpdateManager:
+                                                log_msg = f"[INFO] Loaded UpdateManager from base_library.zip:{candidate}"
+                                                print(log_msg)
+                                                if self.log_view:
+                                                    self.log_view.appendPlainText(log_msg)
+                                                break
+                        except Exception as e:
+                            print(f"[DEBUG] Failed to load UpdateManager from base_library.zip: {e}")
+                    
+                    # Try to load update_manager.py directly from file
+                    possible_paths = [
+                        meipass_path / "mkvprocessor" / "update_manager.py",
+                        meipass_path / "src" / "mkvprocessor" / "update_manager.py",
+                        meipass_path / "lib" / "mkvprocessor" / "update_manager.py",
+                        meipass_path / "update_manager.py",
+                    ]
+                    
+                    for update_manager_path in possible_paths:
+                        if update_manager_path.exists():
+                            try:
+                                # Use importlib.util from global scope, not import locally
+                                import importlib.util as importlib_util
+                                spec = importlib_util.spec_from_file_location(
+                                    "update_manager", str(update_manager_path)
+                                )
+                                if spec and spec.loader:
+                                    module = importlib_util.module_from_spec(spec)
+                                    spec.loader.exec_module(module)
+                                    UpdateManager = getattr(module, 'UpdateManager', None)
+                                    if UpdateManager:
+                                        log_msg = f"[INFO] Loaded UpdateManager from: {update_manager_path}"
+                                        print(log_msg)
+                                        if self.log_view:
+                                            self.log_view.appendPlainText(log_msg)
+                                        break
+                            except Exception as e:
+                                log_msg = f"[DEBUG] Failed to load from {update_manager_path}: {e}"
+                                print(log_msg)
+                                continue
+                
+                # If not loaded yet, try normal import (importlib is already imported at top)
+                if not UpdateManager:
+                    import_candidates = [
+                        "mkvprocessor.update_manager",
+                        "update_manager",
+                    ]
+                    
+                    for module_name in import_candidates:
+                        try:
+                            # Use importlib from global scope (imported at top of file)
+                            module = importlib.import_module(module_name)
+                            UpdateManager = getattr(module, 'UpdateManager', None)
+                            if UpdateManager:
+                                break
+                        except (ImportError, AttributeError):
+                            continue
+                
+                # Final fallback: use embedded copy bundled with GUI
+                if not UpdateManager:
+                    try:
+                        from . import update_manager_fallback  # type: ignore
+                        UpdateManager = getattr(update_manager_fallback, "UpdateManager", None)
+                        if UpdateManager:
+                            log_msg = "[INFO] Loaded embedded update_manager_fallback"
+                            print(log_msg)
+                            if self.log_view:
+                                self.log_view.appendPlainText(log_msg)
+                    except Exception as e:
+                        print(f"[DEBUG] Failed to load embedded update_manager_fallback: {e}")
+                
+                if not UpdateManager:
+                    # Log available paths for debugging
+                    debug_info = "Cannot import UpdateManager. Available paths:\n"
+                    if hasattr(sys, '_MEIPASS'):
+                        debug_info += f"  _MEIPASS: {sys._MEIPASS}\n"
+                        meipass_path = Path(sys._MEIPASS)
+                        debug_info += f"  Files in _MEIPASS: {list(meipass_path.iterdir())[:10]}\n"
+                    debug_info += f"  sys.path: {sys.path[:5]}\n"
+                    print(debug_info)
+                    if self.log_view:
+                        self.log_view.appendPlainText(debug_info)
+                    raise ImportError(f"Cannot import UpdateManager")
+                
+                self.update_manager = UpdateManager()
+                success_msg = "[INFO] UpdateManager đã được khởi tạo thành công"
+                print(success_msg)
+                if self.log_view:
+                    self.log_view.appendPlainText(success_msg)
+            except ImportError as e:
+                error_msg = f"[WARNING] UpdateManager không khả dụng (ImportError): {e}"
+                print(error_msg)
+                if self.log_view:
+                    self.log_view.appendPlainText(error_msg)
+                import traceback
+                traceback.print_exc()
+                if self.log_view:
+                    self.log_view.appendPlainText(traceback.format_exc())
+                self.update_manager = None
+            except Exception as e:
+                error_msg = f"[WARNING] Lỗi khởi tạo UpdateManager: {e}"
+                print(error_msg)
+                if self.log_view:
+                    self.log_view.appendPlainText(error_msg)
+                import traceback
+                traceback.print_exc()
+                if self.log_view:
+                    self.log_view.appendPlainText(traceback.format_exc())
+                self.update_manager = None
+            finally:
+                self._update_manager_imported = True
+        return self.update_manager
+    
+    def _lazy_refresh_file_list(self):
+        """Chỉ refresh file list nếu đã có folder được chọn"""
+        folder = self.folder_edit.text().strip()
+        if folder and os.path.exists(folder):
+            self.refresh_file_list()
 
     def build_ui(self):
         central = QtWidgets.QWidget()
@@ -104,9 +401,60 @@ class MainWindow(QtWidgets.QMainWindow):
         self.tabs = QtWidgets.QTabWidget()
         layout.addWidget(self.tabs, 1)
 
-        self.build_processing_tab()
-        self.settings_tab_index = self.build_settings_tab()
-        self.build_log_tab()
+        self.processing_tab = ProcessingTab(self)
+        self.tabs.addTab(self.processing_tab, "Trình xử lý")
+        
+        self.log_tab = LogTab(self)
+        self.tabs.addTab(self.log_tab, "Log")
+        
+        self.settings_tab = SettingsTab(self, config=self.config, log_view=self.log_view)
+        self.tabs.addTab(self.settings_tab, "Settings")
+
+        # === Wiring & Aliases (Backward Compatibility) ===
+        # Processing Tab
+        self.folder_edit = self.processing_tab.folder_edit
+        self.browse_btn = self.processing_tab.browse_btn
+        self.edit_folder_btn = self.processing_tab.edit_folder_btn
+        self.file_tree = self.processing_tab.file_tree
+        self.select_all_cb = self.processing_tab.select_all_cb
+        self.file_count_label = self.processing_tab.file_count_label
+        self.reload_btn = self.processing_tab.reload_btn
+        self.start_btn = self.processing_tab.start_btn
+        self.stop_btn = self.processing_tab.stop_btn
+        self.file_progress = self.processing_tab.file_progress
+        self.total_progress = self.processing_tab.total_progress
+        
+        # Connect Processing Signals
+        self.browse_btn.clicked.connect(self.select_folder)
+        self.edit_folder_btn.clicked.connect(self.enable_folder_manual_edit)
+        self.folder_edit.editingFinished.connect(self.on_folder_edit_finished)
+        self.reload_btn.clicked.connect(lambda: self.refresh_file_list())
+        self.select_all_cb.clicked.connect(self.on_select_all_clicked)
+        self.start_btn.clicked.connect(lambda: self.start_processing())
+        self.stop_btn.clicked.connect(lambda: self.stop_processing())
+        
+        # Connect File Tree Signals (dropdown config feature)
+        self.file_tree.itemChanged.connect(lambda item, col: self.on_file_item_changed(item, col))
+        self.file_tree.itemClicked.connect(lambda item, col: self.on_file_item_clicked(item, col))
+        self.file_tree.itemDoubleClicked.connect(lambda item, col: self.on_file_double_clicked(item, col))
+        self.file_tree.itemExpanded.connect(lambda item: self.on_file_expanded(item))
+        self.file_tree.itemCollapsed.connect(lambda item: self.on_file_collapsed(item))
+
+        # Settings Tab
+        self.language_combo = self.settings_tab.language_combo
+        self.auto_upload_cb = self.settings_tab.auto_upload_cb
+        self.repo_edit = self.settings_tab.repo_edit
+        self.token_edit = self.settings_tab.token_edit
+        
+        # Connect Settings Signals
+        self.language_combo.currentIndexChanged.connect(lambda index: self.on_language_changed(index))
+
+        # Log Tab
+        self.log_view = self.log_tab.log_view
+        self.history_table = self.log_tab.history_table
+        self.errors_view = self.log_tab.errors_view
+
+
         
         # Track update badge state
         self._has_update_badge = False
@@ -115,162 +463,11 @@ class MainWindow(QtWidgets.QMainWindow):
         self.setStatusBar(self.status_bar)
         self.status_bar.showMessage("Ready")
 
-    def build_processing_tab(self):
-        tab = QtWidgets.QWidget()
-        tab_layout = QtWidgets.QVBoxLayout(tab)
-        tab_layout.setContentsMargins(0, 0, 0, 0)
-        tab_layout.setSpacing(6)
+    # DELETED build_processing_tab (Moved to components/processing_tab.py)
 
-        # Card 1: Folder + Status (super compact - 1 row)
-        header_card = QtWidgets.QFrame()
-        header_card.setObjectName("compactCard")
-        header_layout = QtWidgets.QHBoxLayout(header_card)
-        header_layout.setSpacing(12)
-        header_layout.setContentsMargins(12, 6, 12, 6)
 
-        # Folder input
-        folder_label = QtWidgets.QLabel("📁")
-        header_layout.addWidget(folder_label)
-        
-        self.folder_edit = QtWidgets.QLineEdit(self.config.get("input_folder", "."))
-        self.folder_edit.setObjectName("pillInput")
-        self.folder_edit.setReadOnly(True)
-        self.folder_edit.setPlaceholderText("Chọn thư mục chứa MKV…")
-        self.folder_edit.editingFinished.connect(self.on_folder_edit_finished)
-        self.folder_edit.setMaximumWidth(400)
-        header_layout.addWidget(self.folder_edit)
+    # DELETED on_github_link_clicked (Handled in components/processing_tab.py or simplified)
 
-        edit_folder_btn = QtWidgets.QToolButton()
-        edit_folder_btn.setObjectName("tinyButton")
-        edit_folder_btn.setText("✏️")
-        edit_folder_btn.clicked.connect(self.enable_folder_manual_edit)
-        header_layout.addWidget(edit_folder_btn)
-
-        browse_btn = QtWidgets.QToolButton()
-        browse_btn.setObjectName("tinyButton")
-        browse_btn.setText("📂")
-        browse_btn.clicked.connect(self.select_folder)
-        header_layout.addWidget(browse_btn)
-
-        # Separator
-        sep = QtWidgets.QFrame()
-        sep.setFrameShape(QtWidgets.QFrame.VLine)
-        sep.setStyleSheet("color: #334155;")
-        header_layout.addWidget(sep)
-
-        # Status inline
-        self.status_labels: dict[str, QtWidgets.QLabel] = {}
-        
-        for key, title in [("ffmpeg", "FFmpeg"), ("ram", "RAM"), ("github", "GitHub")]:
-            lbl = QtWidgets.QLabel(f"{title}: …")
-            lbl.setObjectName("statusInline")
-            if key == "github":
-                lbl.setCursor(QtGui.QCursor(QtCore.Qt.PointingHandCursor))
-                lbl.mousePressEvent = self.on_github_link_clicked
-                self.github_link = lbl
-            self.status_labels[key] = lbl
-            header_layout.addWidget(lbl)
-
-        header_layout.addStretch()
-        tab_layout.addWidget(header_card)
-
-        # Card 2: Danh sách file MKV (chiếm phần lớn diện tích)
-        file_card = QtWidgets.QFrame()
-        file_card.setObjectName("card")
-        file_layout = QtWidgets.QVBoxLayout(file_card)
-        file_layout.setSpacing(4)
-        file_layout.setContentsMargins(8, 6, 8, 6)
-
-        # Header compact
-        file_header = QtWidgets.QHBoxLayout()
-        file_header.setSpacing(8)
-        
-        self.select_all_cb = QtWidgets.QCheckBox("MKV Files")
-        self.select_all_cb.setObjectName("selectAllCheckbox")
-        self.select_all_cb.setTristate(True)
-        # Dùng clicked thay vì stateChanged để xử lý user click trực tiếp
-        self.select_all_cb.clicked.connect(self.on_select_all_clicked)
-        file_header.addWidget(self.select_all_cb)
-        
-        file_header.addStretch()
-        
-        self.file_count_label = QtWidgets.QLabel("0 file")
-        self.file_count_label.setObjectName("fileCountLabel")
-        file_header.addWidget(self.file_count_label)
-        
-        reload_btn = QtWidgets.QToolButton()
-        reload_btn.setObjectName("tinyButton")
-        reload_btn.setText("🔄")
-        reload_btn.setToolTip("Làm mới")
-        reload_btn.clicked.connect(self.refresh_file_list)
-        file_header.addWidget(reload_btn)
-        
-        file_layout.addLayout(file_header)
-
-        # File tree - không giới hạn chiều cao
-        self.file_tree = QtWidgets.QTreeWidget()
-        self.file_tree.setObjectName("fileTree")
-        self.file_tree.setHeaderLabels(["File", "Cấu hình"])
-        self.file_tree.setAlternatingRowColors(False)
-        self.file_tree.setRootIsDecorated(True)
-        self.file_tree.setExpandsOnDoubleClick(False)
-        self.file_tree.setAnimated(True)
-        self.file_tree.setUniformRowHeights(False)  # Cho phép row có chiều cao khác nhau
-        self.file_tree.itemChanged.connect(self.on_file_item_changed)
-        self.file_tree.itemClicked.connect(self.on_file_item_clicked)
-        self.file_tree.itemDoubleClicked.connect(self.on_file_double_clicked)
-        self.file_tree.itemExpanded.connect(self.on_file_expanded)
-        self.file_tree.itemCollapsed.connect(self.on_file_collapsed)
-        header = self.file_tree.header()
-        header.setStretchLastSection(True)
-        header.setSectionResizeMode(0, QtWidgets.QHeaderView.Stretch)
-        header.setSectionResizeMode(1, QtWidgets.QHeaderView.ResizeToContents)
-        self.file_tree.setIndentation(16)
-        palette = self.file_tree.palette()
-        palette.setColor(QtGui.QPalette.Base, QtGui.QColor("#0f172a"))
-        palette.setColor(QtGui.QPalette.Text, QtGui.QColor("#f8fafc"))
-        palette.setColor(QtGui.QPalette.Highlight, QtGui.QColor("#2563eb"))
-        palette.setColor(QtGui.QPalette.HighlightedText, QtGui.QColor("#ffffff"))
-        self.file_tree.setPalette(palette)
-        file_layout.addWidget(self.file_tree, 1)
-
-        tab_layout.addWidget(file_card, 1)  # stretch = 1 để chiếm nhiều diện tích
-
-        # Card 3: Controls (compact)
-        controls_card = QtWidgets.QFrame()
-        controls_card.setObjectName("compactCard")
-        controls_layout = QtWidgets.QHBoxLayout(controls_card)
-        controls_layout.setSpacing(8)
-        controls_layout.setContentsMargins(12, 6, 12, 6)
-
-        self.start_btn = QtWidgets.QPushButton("🚀 Start Processing")
-        self.start_btn.setObjectName("primaryButton")
-        self.start_btn.clicked.connect(self.start_processing)
-        self.stop_btn = QtWidgets.QPushButton("⏹ Dừng")
-        self.stop_btn.setObjectName("dangerButton")
-        self.stop_btn.setVisible(False)  # Ẩn nút Dừng ban đầu
-        self.stop_btn.clicked.connect(self.stop_processing)
-
-        controls_layout.addWidget(self.start_btn)
-        controls_layout.addWidget(self.stop_btn)
-        
-        self.progress = QtWidgets.QProgressBar()
-        self.progress.setRange(0, 0)
-        self.progress.setVisible(False)
-        self.progress.setObjectName("progressBar")
-        self.progress.setMaximumWidth(200)
-        controls_layout.addWidget(self.progress)
-        
-        controls_layout.addStretch()
-
-        tab_layout.addWidget(controls_card)
-
-        self.tabs.addTab(tab, "Trình xử lý")
-
-    def on_github_link_clicked(self, event):
-        has_config = get_config_path().exists()
-        if not has_config or not self.config.get("token"):
-            self.tabs.setCurrentIndex(1)
 
     def on_select_all_clicked(self, checked: bool):
         """Xử lý khi user click vào checkbox select all"""
@@ -278,6 +475,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.file_tree.blockSignals(True)
         for i in range(self.file_tree.topLevelItemCount()):
             item = self.file_tree.topLevelItem(i)
+            if item is None:
+                continue
             item.setCheckState(0, QtCore.Qt.Checked if checked else QtCore.Qt.Unchecked)
             path = item.data(0, QtCore.Qt.UserRole)
             if isinstance(path, str) and path in self.file_options:
@@ -293,7 +492,9 @@ class MainWindow(QtWidgets.QMainWindow):
             self.select_all_cb.blockSignals(False)
             return
         
-        checked = sum(1 for i in range(total) if self.file_tree.topLevelItem(i).checkState(0) == QtCore.Qt.Checked)
+        checked = sum(1 for i in range(total) 
+                     if (item := self.file_tree.topLevelItem(i)) is not None 
+                     and item.checkState(0) == QtCore.Qt.Checked)
         
         self.select_all_cb.blockSignals(True)
         if checked == 0:
@@ -316,260 +517,17 @@ class MainWindow(QtWidgets.QMainWindow):
             save_user_config(self.config)
             self.refresh_file_list()
 
-    def build_settings_tab(self):
-        tab = QtWidgets.QWidget()
-        form = QtWidgets.QFormLayout(tab)
-        form.setSpacing(10)
+    # DELETED build_settings_tab (Moved to components/settings_tab.py)
 
-        # Language selector
-        try:
-            from mkvprocessor.i18n import get_supported_languages, set_language, t
-            languages = get_supported_languages()
-            self.language_combo = QtWidgets.QComboBox()
-            current_lang = self.config.get("language", "en")
-            for lang_code, lang_name in languages.items():
-                self.language_combo.addItem(f"{lang_name} ({lang_code})", lang_code)
-                if lang_code == current_lang:
-                    self.language_combo.setCurrentIndex(self.language_combo.count() - 1)
-            self.language_combo.currentIndexChanged.connect(self.on_language_changed)
-            form.addRow("Language / Ngôn ngữ", self.language_combo)
-        except ImportError:
-            # Fallback if i18n not available
-            pass
 
-        self.auto_upload_cb = QtWidgets.QCheckBox("Enable auto upload to GitHub")
-        self.auto_upload_cb.setChecked(self.config.get("auto_upload", False))
-        form.addRow(self.auto_upload_cb)
+    # DELETED toggle_token_visibility (Moved to components/settings_tab.py)
 
-        self.force_reprocess_cb = QtWidgets.QCheckBox("Always reprocess (ignore old log)")
-        self.force_reprocess_cb.setChecked(self.config.get("force_reprocess", False))
-        form.addRow(self.force_reprocess_cb)
 
-        has_config_file = get_config_path().exists()
-        raw_config = load_raw_user_config() if has_config_file else {}
+    # DELETED on_language_changed (Moved to components/settings_tab.py)
 
-        self.repo_edit = QtWidgets.QLineEdit(raw_config.get("repo", ""))
-        self.repo_edit.setPlaceholderText("e.g.: HThanh-how/Subtitles")
-        form.addRow("Repository", self.repo_edit)
 
-        self.repo_url_edit = QtWidgets.QLineEdit(raw_config.get("repo_url", ""))
-        self.repo_url_edit.setPlaceholderText("Git repository URL")
-        form.addRow("Repo URL", self.repo_url_edit)
+    # DELETED build_log_tab (Moved to components/log_tab.py)
 
-        self.branch_edit = QtWidgets.QLineEdit(raw_config.get("branch", ""))
-        self.branch_edit.setPlaceholderText("e.g.: main")
-        form.addRow("Branch", self.branch_edit)
-
-        self.token_edit = QtWidgets.QLineEdit(self.config.get("token", ""))
-        self.token_edit.setEchoMode(QtWidgets.QLineEdit.Password)
-        self.token_edit.setPlaceholderText("GitHub Personal Access Token")
-        form.addRow("Token", self.token_edit)
-
-        btn_row = QtWidgets.QHBoxLayout()
-        save_btn = QtWidgets.QPushButton("💾 Save")
-        save_btn.clicked.connect(self.save_settings)
-        test_btn = QtWidgets.QPushButton("🔄 Test")
-        test_btn.clicked.connect(self.test_token)
-        btn_row.addWidget(save_btn)
-        btn_row.addWidget(test_btn)
-        btn_row.addStretch()
-        form.addRow(btn_row)
-
-        self.settings_status = QtWidgets.QLabel("")
-        form.addRow(self.settings_status)
-        
-        # Update section
-        form.addRow(QtWidgets.QLabel(""))  # Separator
-        update_label = QtWidgets.QLabel("🔄 Updates")
-        update_label.setObjectName("sectionLabel")
-        form.addRow(update_label)
-        
-        # Current version
-        if self.update_manager:
-            # Load version (may fetch from GitHub)
-            current_version = self.update_manager.get_current_version()
-            version_label = QtWidgets.QLabel(f"Current version: <b>{current_version}</b>")
-            form.addRow(version_label)
-            
-            # Update status
-            self.update_status_label = QtWidgets.QLabel("")
-            self.update_status_label.setWordWrap(True)
-            form.addRow(self.update_status_label)
-            
-            # Update buttons
-            update_btn_row = QtWidgets.QHBoxLayout()
-            self.check_update_btn = QtWidgets.QPushButton("🔍 Check for Updates")
-            self.check_update_btn.clicked.connect(self.check_for_updates)
-            update_btn_row.addWidget(self.check_update_btn)
-            
-            self.download_update_btn = QtWidgets.QPushButton("⬇️ Download Update")
-            self.download_update_btn.setEnabled(False)
-            self.download_update_btn.clicked.connect(self.download_update)
-            update_btn_row.addWidget(self.download_update_btn)
-            
-            update_btn_row.addStretch()
-            form.addRow(update_btn_row)
-            
-            # Update progress
-            self.update_progress_bar = QtWidgets.QProgressBar()
-            self.update_progress_bar.setVisible(False)
-            form.addRow(self.update_progress_bar)
-        else:
-            no_update_label = QtWidgets.QLabel("Update manager not available")
-            no_update_label.setStyleSheet("color: #94a3b8;")
-            form.addRow(no_update_label)
-
-        settings_tab_index = self.tabs.addTab(tab, "Settings")
-        return settings_tab_index
-
-    def on_language_changed(self, index: int):
-        """Handle language selection change."""
-        try:
-            from mkvprocessor.i18n import set_language
-            lang_code = self.language_combo.itemData(index)
-            if lang_code:
-                set_language(lang_code)
-                self.config["language"] = lang_code
-                save_user_config(self.config)
-                # Optionally show a message that restart may be needed
-                self.settings_status.setText("Language changed. Some changes may require restart.")
-        except (ImportError, AttributeError):
-            pass
-
-    def build_log_tab(self):
-        tab = QtWidgets.QWidget()
-        layout = QtWidgets.QVBoxLayout(tab)
-        layout.setContentsMargins(4, 4, 4, 4)
-        layout.setSpacing(4)
-
-        # Sub-tabs cho Logs
-        self.log_tabs = QtWidgets.QTabWidget()
-        self.log_tabs.setObjectName("logSubTabs")
-        
-        # === Sub-tab 1: Session (log hiện tại) ===
-        session_tab = QtWidgets.QWidget()
-        session_layout = QtWidgets.QVBoxLayout(session_tab)
-        session_layout.setContentsMargins(0, 4, 0, 0)
-        
-        session_header = QtWidgets.QHBoxLayout()
-        session_header.addStretch()
-        # Copy button - lưu reference để đổi icon sau khi copy
-        self.copy_log_btn = QtWidgets.QToolButton()
-        self.copy_log_btn.setObjectName("tinyButton")
-        self.copy_log_btn.setText("📋")
-        self.copy_log_btn.clicked.connect(self.copy_log)
-        session_header.addWidget(self.copy_log_btn)
-        
-        # Clear button
-        clear_btn = QtWidgets.QToolButton()
-        clear_btn.setObjectName("tinyButton")
-        clear_btn.setText("🗑")
-        clear_btn.clicked.connect(self.clear_log)
-        session_header.addWidget(clear_btn)
-        
-        # Open folder button
-        open_folder_btn = QtWidgets.QToolButton()
-        open_folder_btn.setObjectName("tinyButton")
-        open_folder_btn.setText("📂")
-        open_folder_btn.clicked.connect(self.open_logs_folder)
-        session_header.addWidget(open_folder_btn)
-        
-        session_layout.addLayout(session_header)
-        
-        self.log_view = QtWidgets.QPlainTextEdit()
-        self.log_view.setReadOnly(True)
-        self.log_view.setObjectName("logView")
-        self.log_view.setFont(QtGui.QFont("Consolas", 9))
-        session_layout.addWidget(self.log_view, 1)
-        
-        self.log_tabs.addTab(session_tab, "📝 Session")
-        
-        # === Sub-tab 2: History (lịch sử xử lý) ===
-        history_tab = QtWidgets.QWidget()
-        history_layout = QtWidgets.QVBoxLayout(history_tab)
-        history_layout.setContentsMargins(0, 4, 0, 0)
-        
-        history_header = QtWidgets.QHBoxLayout()
-        history_header.addStretch()
-        refresh_history_btn = QtWidgets.QToolButton()
-        refresh_history_btn.setObjectName("tinyButton")
-        refresh_history_btn.setText("🔄")
-        refresh_history_btn.setToolTip("Refresh lịch sử")
-        refresh_history_btn.clicked.connect(self.refresh_history_view)
-        history_header.addWidget(refresh_history_btn)
-        history_layout.addLayout(history_header)
-        
-        self.history_table = QtWidgets.QTableWidget()
-        self.history_table.setObjectName("historyTable")
-        self.history_table.setColumnCount(4)
-        self.history_table.setHorizontalHeaderLabels(["Tên cũ", "Tên mới", "Thời gian", "Signature"])
-        self.history_table.horizontalHeader().setStretchLastSection(True)
-        self.history_table.horizontalHeader().setSectionResizeMode(0, QtWidgets.QHeaderView.Stretch)
-        self.history_table.horizontalHeader().setSectionResizeMode(1, QtWidgets.QHeaderView.Stretch)
-        self.history_table.setAlternatingRowColors(True)
-        self.history_table.setEditTriggers(QtWidgets.QAbstractItemView.NoEditTriggers)
-        self.history_table.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectRows)
-        history_layout.addWidget(self.history_table, 1)
-        
-        self.log_tabs.addTab(history_tab, "📚 History")
-        
-        # === Sub-tab 3: Errors (chỉ lỗi) ===
-        errors_tab = QtWidgets.QWidget()
-        errors_layout = QtWidgets.QVBoxLayout(errors_tab)
-        errors_layout.setContentsMargins(0, 4, 0, 0)
-        
-        errors_header = QtWidgets.QHBoxLayout()
-        errors_header.addStretch()
-        clear_errors_btn = QtWidgets.QToolButton()
-        clear_errors_btn.setObjectName("tinyButton")
-        clear_errors_btn.setText("🗑")
-        clear_errors_btn.setToolTip("Clear errors")
-        clear_errors_btn.clicked.connect(self.clear_errors)
-        errors_header.addWidget(clear_errors_btn)
-        errors_layout.addLayout(errors_header)
-        
-        self.errors_view = QtWidgets.QPlainTextEdit()
-        self.errors_view.setReadOnly(True)
-        self.errors_view.setObjectName("errorsView")
-        self.errors_view.setFont(QtGui.QFont("Consolas", 9))
-        # Style lỗi với màu đỏ
-        palette = self.errors_view.palette()
-        palette.setColor(QtGui.QPalette.Text, QtGui.QColor("#f87171"))
-        self.errors_view.setPalette(palette)
-        errors_layout.addWidget(self.errors_view, 1)
-        
-        self.log_tabs.addTab(errors_tab, "⚠️ Errors")
-        
-        # === Sub-tab 4: SRT (log subtitle riêng) ===
-        srt_tab = QtWidgets.QWidget()
-        srt_layout = QtWidgets.QVBoxLayout(srt_tab)
-        srt_layout.setContentsMargins(0, 4, 0, 0)
-        
-        srt_header = QtWidgets.QHBoxLayout()
-        srt_header.addStretch()
-        clear_srt_btn = QtWidgets.QToolButton()
-        clear_srt_btn.setObjectName("tinyButton")
-        clear_srt_btn.setText("🗑")
-        clear_srt_btn.setToolTip("Xóa log SRT")
-        clear_srt_btn.clicked.connect(self.clear_srt_log)
-        srt_header.addWidget(clear_srt_btn)
-        srt_layout.addLayout(srt_header)
-        
-        self.srt_view = QtWidgets.QPlainTextEdit()
-        self.srt_view.setReadOnly(True)
-        self.srt_view.setObjectName("srtView")
-        self.srt_view.setFont(QtGui.QFont("Consolas", 9))
-        # Style SRT với màu xanh lá
-        palette = self.srt_view.palette()
-        palette.setColor(QtGui.QPalette.Text, QtGui.QColor("#4ade80"))
-        self.srt_view.setPalette(palette)
-        srt_layout.addWidget(self.srt_view, 1)
-        
-        self.srt_count = 0  # Counter cho SRT
-        self.log_tabs.addTab(srt_tab, "📄 SRT (0)")
-        
-        layout.addWidget(self.log_tabs, 1)
-        self.tabs.addTab(tab, "Log")
 
     def apply_theme(self):
         self.setAcceptDrops(True)
@@ -682,11 +640,53 @@ class MainWindow(QtWidgets.QMainWindow):
             subs, audios = self.probe_tracks(file_path)
             print(f"[DEBUG] Tìm thấy {len(subs)} subtitle tracks và {len(audios)} audio tracks")
             
-            # Cache resolution
-            if not options.cached_resolution:
-                video_stream = next((s for s in probe["streams"] if s["codec_type"] == "video"), None)
-                if video_stream and "width" in video_stream and "height" in video_stream:
-                    w, h = int(video_stream["width"]), int(video_stream["height"])
+            # Cache resolution - ALWAYS try to get it, even if cached_resolution exists
+            # (because it might be "?" from previous failed attempt)
+            video_stream = None
+            # Try to find video stream
+            for stream in probe.get("streams", []):
+                if stream.get("codec_type") == "video":
+                    video_stream = stream
+                    break
+            
+            if video_stream:
+                # Try multiple ways to get width/height
+                w = None
+                h = None
+                
+                # Method 1: Direct width/height
+                if "width" in video_stream and "height" in video_stream:
+                    try:
+                        w = int(video_stream["width"])
+                        h = int(video_stream["height"])
+                    except (ValueError, TypeError) as e:
+                        log_msg = f"[DEBUG] Failed to parse width/height: {e}"
+                        print(log_msg)
+                
+                # Method 2: coded_width/coded_height (for some codecs)
+                if (w is None or h is None) and "coded_width" in video_stream and "coded_height" in video_stream:
+                    try:
+                        w = int(video_stream["coded_width"])
+                        h = int(video_stream["coded_height"])
+                    except (ValueError, TypeError):
+                        pass
+                
+                # Method 3: display_aspect_ratio and sample_aspect_ratio (fallback)
+                if w is None or h is None:
+                    # Try to get from tags or other metadata
+                    tags = video_stream.get("tags", {})
+                    if "width" in tags:
+                        try:
+                            w = int(tags["width"])
+                        except (ValueError, TypeError):
+                            pass
+                    if "height" in tags:
+                        try:
+                            h = int(tags["height"])
+                        except (ValueError, TypeError):
+                            pass
+                
+                if w and h:
                     if w >= 7680 or h >= 4320:
                         options.cached_resolution = "8K"
                     elif w >= 3840 or h >= 2160:
@@ -701,8 +701,30 @@ class MainWindow(QtWidgets.QMainWindow):
                         options.cached_resolution = "480p"
                     else:
                         options.cached_resolution = f"{w}p"
+                    log_msg = f"[INFO] Đã lấy resolution: {options.cached_resolution} ({w}x{h}) từ {os.path.basename(file_path)}"
+                    print(log_msg)
+                    if self.log_view:
+                        self.log_view.appendPlainText(log_msg)
                 else:
+                    # Log warning if can't get resolution
+                    log_msg = f"[WARNING] Không thể lấy resolution từ {os.path.basename(file_path)}: width={w}, height={h}"
+                    print(log_msg)
+                    if self.log_view:
+                        self.log_view.appendPlainText(log_msg)
+                        self.log_view.appendPlainText(
+                            f"[DEBUG] video_stream keys: {list(video_stream.keys())[:20]}"
+                        )
                     options.cached_resolution = "unknown"
+            else:
+                # No video stream found
+                log_msg = f"[WARNING] Không tìm thấy video stream trong {os.path.basename(file_path)}"
+                print(log_msg)
+                if self.log_view:
+                    self.log_view.appendPlainText(log_msg)
+                    self.log_view.appendPlainText(
+                        f"[DEBUG] Streams: {[s.get('codec_type') for s in probe.get('streams', [])]}"
+                    )
+                options.cached_resolution = "unknown"
             
             # Cache year
             if not options.cached_year:
@@ -798,33 +820,40 @@ class MainWindow(QtWidgets.QMainWindow):
         base_name = os.path.splitext(os.path.basename(options.file_path))[0]
         
         # Lấy audio đầu tiên được chọn
+        lang_part = None
         if options.selected_audio_indices and options.audio_meta:
             first_audio_idx = options.selected_audio_indices[0]
             audio_info = options.audio_meta.get(first_audio_idx)
             if audio_info:
                 lang = audio_info.get("lang", "und")
-                title = audio_info.get("title", "")
-                lang_abbr = self.get_language_abbreviation(lang)
-                if title and title != lang_abbr:
-                    lang_part = f"{lang_abbr}_{title}"
-                else:
-                    lang_part = lang_abbr
-            else:
-                lang_part = "UNK"
-        else:
-            lang_part = "UNK"
+                # Chỉ thêm lang_part nếu có language hợp lệ (không phải "und" hoặc "UNK")
+                if lang and lang.lower() != "und":
+                    title = audio_info.get("title", "")
+                    lang_abbr = self.get_language_abbreviation(lang)
+                    # Chỉ thêm nếu không phải UNK
+                    if lang_abbr != "UNK":
+                        if title and title != lang_abbr:
+                            lang_part = f"{lang_abbr}_{title}"
+                        else:
+                            lang_part = lang_abbr
         
         # Tạo tên file mới
-        new_name = f"{resolution}_{lang_part}"
+        parts = []
+        if resolution and resolution != "unknown" and resolution != "?":
+            parts.append(resolution)
+        if lang_part:
+            parts.append(lang_part)
         if year:
-            new_name += f"_{year}"
-        new_name += f"_{base_name}.mkv"
+            parts.append(year)
+        parts.append(base_name)
+        
+        new_name = "_".join(parts)
         
         # Rút gọn nếu quá dài
         if len(new_name) > 50:
             new_name = new_name[:47] + "..."
-        
-        return new_name
+            
+        return new_name + ".mkv"
 
     def get_file_config_summary(self, options: FileOptions) -> str:
         parts = []
@@ -872,10 +901,68 @@ class MainWindow(QtWidgets.QMainWindow):
         return " | ".join(parts)
 
     def refresh_file_list(self):
+        # Log start
+        log_msg = "[INFO] Bắt đầu refresh file list..."
+        print(log_msg)
+        if self.log_view:
+            self.log_view.appendPlainText(log_msg)
+        
+        # Không refresh nếu đang xử lý (tránh mất trạng thái đang xử lý)
+        if self.worker and self.worker.isRunning():
+            msg = "Không thể làm mới danh sách khi đang xử lý file.\nVui lòng đợi hoàn thành hoặc dừng xử lý."
+            self.show_info_message("Đang xử lý", msg)
+            return
+        
+        # Disable nút và hiển thị đang refresh
+        if hasattr(self, 'reload_btn'):
+            self.reload_btn.setEnabled(False)
+            self.reload_btn.setText("⏳")
+            self.reload_btn.setToolTip("Đang làm mới...")
+        
+        # Cập nhật file count label để hiển thị đang refresh
+        if hasattr(self, 'file_count_label'):
+            old_text = self.file_count_label.text()
+            self.file_count_label.setText("Đang tải...")
+            # Force update UI ngay lập tức
+            QtWidgets.QApplication.processEvents()
+        
         folder = self.folder_edit.text().strip()
-        if not folder or not os.path.exists(folder):
+        log_msg = f"[INFO] Folder được chọn: {folder}"
+        print(log_msg)
+        if self.log_view:
+            self.log_view.appendPlainText(log_msg)
+        
+        if not folder:
+            log_msg = "[WARNING] Chưa chọn folder"
+            print(log_msg)
+            if self.log_view:
+                self.log_view.appendPlainText(log_msg)
             self.file_tree.clear()
             self.update_select_all_state()
+            # Re-enable nút
+            if hasattr(self, 'reload_btn'):
+                self.reload_btn.setEnabled(True)
+                self.reload_btn.setText("🔄")
+                self.reload_btn.setToolTip("Làm mới")
+            if hasattr(self, 'file_count_label'):
+                self.file_count_label.setText("0 file")
+            return
+        
+        if not os.path.exists(folder):
+            log_msg = f"[ERROR] Folder không tồn tại: {folder}"
+            print(log_msg)
+            if self.log_view:
+                self.log_view.appendPlainText(log_msg)
+            self.file_tree.clear()
+            self.update_select_all_state()
+            # Re-enable nút
+            if hasattr(self, 'reload_btn'):
+                self.reload_btn.setEnabled(True)
+                self.reload_btn.setText("🔄")
+                self.reload_btn.setToolTip("Làm mới")
+            if hasattr(self, 'file_count_label'):
+                self.file_count_label.setText("0 file")
+            QtWidgets.QMessageBox.warning(self, "Lỗi", f"Folder không tồn tại:\n{folder}")
             return
 
         try:
@@ -924,12 +1011,22 @@ class MainWindow(QtWidgets.QMainWindow):
                     except (json.JSONDecodeError, IOError) as e:
                         print(f"[WARNING] Không thể đọc {json_file}: {e}")
 
-            # Đọc danh sách file MKV từ thư mục
+            # Đọc danh sách file video từ thư mục
             try:
                 all_files = os.listdir(folder)
-                print(f"[DEBUG] Tìm thấy {len(all_files)} file trong thư mục: {folder}")
-                mkv_files = sorted(f for f in all_files if f.lower().endswith(".mkv"))
-                print(f"[DEBUG] Tìm thấy {len(mkv_files)} file MKV")
+                log_msg = f"[INFO] Tìm thấy {len(all_files)} file trong thư mục: {folder}"
+                print(log_msg)
+                if self.log_view:
+                    self.log_view.appendPlainText(log_msg)
+                
+                video_files = sorted(
+                    f for f in all_files 
+                    if any(f.lower().endswith(ext) for ext in self.SUPPORTED_VIDEO_EXTENSIONS)
+                )
+                log_msg = f"[INFO] Tìm thấy {len(video_files)} file video (hỗ trợ: {', '.join(self.SUPPORTED_VIDEO_EXTENSIONS)})"
+                print(log_msg)
+                if self.log_view:
+                    self.log_view.appendPlainText(log_msg)
             except PermissionError as e:
                 QtWidgets.QMessageBox.warning(
                     self, 
@@ -948,53 +1045,64 @@ class MainWindow(QtWidgets.QMainWindow):
             # Phân loại: đã xử lý (có tiền tố HOẶC có trong log) vs chưa xử lý
             processed_files = []
             pending_files = []
-            for mkv in mkv_files:
+            for video_file in video_files:
                 # Check: có tiền tố resolution HOẶC có trong log (cả old_name và new_name)
-                has_prefix = self.is_already_processed_by_name(mkv)
-                in_log = mkv in processed_old_names or mkv in processed_new_names
+                has_prefix = self.is_already_processed_by_name(video_file)
+                in_log = video_file in processed_old_names or video_file in processed_new_names
                 
                 if has_prefix or in_log:
-                    processed_files.append(mkv)
+                    processed_files.append(video_file)
                 else:
-                    pending_files.append(mkv)
+                    pending_files.append(video_file)
 
             self.file_tree.blockSignals(True)
             self.file_tree.clear()
             
             # Hiển thị file chưa xử lý trước (màu vàng)
-            for mkv in pending_files:
-                file_path = os.path.abspath(os.path.join(folder, mkv))
+            # Tối ưu: Không đọc metadata ngay, chỉ hiển thị file list nhanh
+            # Metadata sẽ được đọc lazy khi user expand item
+            for video_file in pending_files:
+                file_path = os.path.abspath(os.path.join(folder, video_file))
                 if not os.path.exists(file_path):
                     print(f"[WARNING] File không tồn tại: {file_path}")
                     continue
                     
                 options = self.file_options.setdefault(file_path, FileOptions(file_path))
 
-                # Đọc metadata, nếu lỗi thì vẫn hiển thị file nhưng không có metadata
-                try:
-                    self.ensure_options_metadata(file_path, options)
-                except Exception as e:
-                    print(f"[WARNING] Không thể đọc metadata của {mkv}: {e}")
-                    # Vẫn tiếp tục hiển thị file nhưng không có metadata
+                # Chỉ đọc metadata nếu đã có cache (từ lần trước), không đọc mới
+                # Metadata sẽ được đọc khi user expand item (lazy load)
+                if not options.metadata_ready:
+                    # Set default values để hiển thị ngay
+                    options.cached_subs = []
+                    options.cached_audios = []
+                    options.cached_resolution = "?"
+                    options.cached_year = ""
 
                 try:
                     size = self.format_file_size(os.path.getsize(file_path))
                 except Exception as e:
-                    print(f"[WARNING] Không thể đọc kích thước file {mkv}: {e}")
+                    print(f"[WARNING] Không thể đọc kích thước file {video_file}: {e}")
                     size = "?"
                 
                 item = QtWidgets.QTreeWidgetItem(self.file_tree)
                 item.setFlags(item.flags() | QtCore.Qt.ItemIsUserCheckable)
                 item.setCheckState(0, QtCore.Qt.Checked if options.process_enabled else QtCore.Qt.Unchecked)
                 
-                item.setText(0, f"{mkv} ({size})")
-                item.setText(1, self.get_file_config_summary(options))
+                item.setText(0, f"{video_file} ({size})")
+                # Hiển thị summary đơn giản nếu chưa có metadata
+                if options.metadata_ready:
+                    item.setText(1, self.get_file_config_summary(options))
+                else:
+                    item.setText(1, "Chưa load metadata...")
                 item.setData(0, QtCore.Qt.UserRole, file_path)
                 
                 # Màu vàng cho file chưa xử lý
                 fg = QtGui.QColor("#facc15")
                 bg = QtGui.QColor("#2f1b09")
                 for col in range(2):
+                    # Sử dụng setData trước để đảm bảo màu được áp dụng
+                    item.setData(col, QtCore.Qt.ForegroundRole, fg)
+                    item.setData(col, QtCore.Qt.BackgroundRole, bg)
                     item.setForeground(col, fg)
                     item.setBackground(col, bg)
                 
@@ -1004,25 +1112,28 @@ class MainWindow(QtWidgets.QMainWindow):
                 ph.setText(0, "Loading...")
 
             # Hiển thị file đã xử lý sau (màu xanh)
-            for mkv in processed_files:
-                file_path = os.path.abspath(os.path.join(folder, mkv))
+            # Tối ưu: Không đọc metadata ngay, chỉ hiển thị file list nhanh
+            for video_file in processed_files:
+                file_path = os.path.abspath(os.path.join(folder, video_file))
                 if not os.path.exists(file_path):
                     print(f"[WARNING] File không tồn tại: {file_path}")
                     continue
                     
                 options = self.file_options.setdefault(file_path, FileOptions(file_path))
 
-                # Đọc metadata, nếu lỗi thì vẫn hiển thị file nhưng không có metadata
-                try:
-                    self.ensure_options_metadata(file_path, options)
-                except Exception as e:
-                    print(f"[WARNING] Không thể đọc metadata của {mkv}: {e}")
-                    # Vẫn tiếp tục hiển thị file nhưng không có metadata
+                # Chỉ đọc metadata nếu đã có cache (từ lần trước), không đọc mới
+                # Metadata sẽ được đọc khi user expand item (lazy load)
+                if not options.metadata_ready:
+                    # Set default values để hiển thị ngay
+                    options.cached_subs = []
+                    options.cached_audios = []
+                    options.cached_resolution = "?"
+                    options.cached_year = ""
 
                 try:
                     size = self.format_file_size(os.path.getsize(file_path))
                 except Exception as e:
-                    print(f"[WARNING] Không thể đọc kích thước file {mkv}: {e}")
+                    print(f"[WARNING] Không thể đọc kích thước file {video_file}: {e}")
                     size = "?"
                 
                 item = QtWidgets.QTreeWidgetItem(self.file_tree)
@@ -1031,14 +1142,21 @@ class MainWindow(QtWidgets.QMainWindow):
                 options.process_enabled = False
                 item.setCheckState(0, QtCore.Qt.Unchecked)
                 
-                item.setText(0, f"✓ {mkv} ({size})")
-                item.setText(1, self.get_file_config_summary(options))
+                item.setText(0, f"✓ {video_file} ({size})")
+                # Hiển thị summary đơn giản nếu chưa có metadata
+                if options.metadata_ready:
+                    item.setText(1, self.get_file_config_summary(options))
+                else:
+                    item.setText(1, "Đã xử lý")
                 item.setData(0, QtCore.Qt.UserRole, file_path)
                 
                 # Màu xanh cho file đã xử lý
                 fg = QtGui.QColor("#bbf7d0")
                 bg = QtGui.QColor("#0f2f1a")
                 for col in range(2):
+                    # Sử dụng setData trước để đảm bảo màu được áp dụng
+                    item.setData(col, QtCore.Qt.ForegroundRole, fg)
+                    item.setData(col, QtCore.Qt.BackgroundRole, bg)
                     item.setForeground(col, fg)
                     item.setBackground(col, bg)
                 
@@ -1047,7 +1165,24 @@ class MainWindow(QtWidgets.QMainWindow):
                 ph.setData(0, QtCore.Qt.UserRole, "placeholder")
                 ph.setText(0, "Loading...")
 
-            self.file_count_label.setText(f"{len(processed_files)}/{len(mkv_files)}")
+            self.file_count_label.setText(f"{len(processed_files)}/{len(video_files)}")
+            
+            # Start background metadata loader sau khi hiển thị file list
+            # Lấy danh sách file paths cần load metadata
+            files_to_load_metadata = []
+            for i in range(self.file_tree.topLevelItemCount()):
+                item = self.file_tree.topLevelItem(i)
+                if item is None:
+                    continue
+                path = item.data(0, QtCore.Qt.UserRole)
+                if path and isinstance(path, str) and path not in ("placeholder", "options"):
+                    options = self.file_options.get(path)
+                    if options and not options.metadata_ready:
+                        files_to_load_metadata.append(path)
+            
+            # Start background loader nếu có file cần load
+            if files_to_load_metadata:
+                self._start_metadata_loader(files_to_load_metadata)
 
         except Exception as e:
             import traceback
@@ -1058,6 +1193,55 @@ class MainWindow(QtWidgets.QMainWindow):
         finally:
             self.file_tree.blockSignals(False)
             self.update_select_all_state()
+            # Re-enable nút và khôi phục icon
+            if hasattr(self, 'reload_btn'):
+                self.reload_btn.setEnabled(True)
+                self.reload_btn.setText("🔄")
+                self.reload_btn.setToolTip("Làm mới")
+    
+    def _start_metadata_loader(self, file_paths: list[str]):
+        """Start background thread để load metadata cho các file."""
+        # Stop loader cũ nếu đang chạy
+        if self.metadata_loader_thread and self.metadata_loader_thread.isRunning():
+            self.metadata_loader_thread.requestInterruption()
+            self.metadata_loader_thread.wait(1000)  # Đợi tối đa 1 giây
+        
+        # Tạo loader mới
+        self.metadata_loader_thread = MetadataLoader(file_paths)
+        self.metadata_loader_thread.metadata_loaded_signal.connect(self._on_metadata_loaded)
+        self.metadata_loader_thread.start()
+    
+    def _on_metadata_loaded(self, file_path: str, success: bool):
+        """Callback khi metadata đã được load xong trong background."""
+        if not file_path or file_path not in self.file_options:
+            return
+        
+        options = self.file_options[file_path]
+        
+        # Nếu chưa có metadata, load lại để cập nhật vào options
+        if not options.metadata_ready:
+            try:
+                self.ensure_options_metadata(file_path, options)
+            except Exception as e:
+                print(f"[WARNING] Không thể cập nhật metadata cho {os.path.basename(file_path)}: {e}")
+                return
+        
+        # Tìm item trong tree và cập nhật summary
+        normalized_filepath = os.path.normpath(os.path.abspath(file_path))
+        for i in range(self.file_tree.topLevelItemCount()):
+            item = self.file_tree.topLevelItem(i)
+            if item is None:
+                continue
+            path = item.data(0, QtCore.Qt.UserRole)
+            if not path or not isinstance(path, str):
+                continue
+            
+            item_normalized = os.path.normpath(os.path.abspath(path))
+            if item_normalized == normalized_filepath:
+                # Cập nhật summary khi metadata đã ready
+                if options.metadata_ready:
+                    item.setText(1, self.get_file_config_summary(options))
+                break
 
     def on_file_item_clicked(self, item, column):
         """Single click - mở config khi click vào column 1 (Cấu hình)"""
@@ -1069,7 +1253,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 # Đóng tất cả các item khác trước khi mở item này
                 for i in range(self.file_tree.topLevelItemCount()):
                     other_item = self.file_tree.topLevelItem(i)
-                    if other_item != item and other_item.isExpanded():
+                    if other_item is not None and other_item != item and other_item.isExpanded():
                         other_item.setExpanded(False)
                 
                 # Toggle expand (mở/đóng config)
@@ -1082,7 +1266,7 @@ class MainWindow(QtWidgets.QMainWindow):
             # Đóng tất cả các item khác trước khi mở item này
             for i in range(self.file_tree.topLevelItemCount()):
                 other_item = self.file_tree.topLevelItem(i)
-                if other_item != item and other_item.isExpanded():
+                if other_item is not None and other_item != item and other_item.isExpanded():
                     other_item.setExpanded(False)
             
             # Toggle expand (mở/đóng config)
@@ -1095,16 +1279,40 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # Clear placeholder
         while item.childCount() > 0:
-            item.removeChild(item.child(0))
+            child = item.child(0)
+            if child and child.data(0, QtCore.Qt.UserRole) in ("placeholder", "loading"):
+                item.removeChild(child)
+            else:
+                break
 
         options = self.file_options.setdefault(file_path, FileOptions(file_path))
 
+        # Lazy load metadata - chỉ đọc khi user expand item
+        # Đây là tối ưu quan trọng: không đọc metadata cho tất cả file ngay
         try:
+            if not options.metadata_ready:
+                # Hiển thị "Loading..." trong khi đọc metadata
+                loading_item = QtWidgets.QTreeWidgetItem(item)
+                loading_item.setData(0, QtCore.Qt.UserRole, "loading")
+                loading_item.setText(0, "⏳ Đang đọc metadata...")
+                self.file_tree.viewport().update()
+                QtWidgets.QApplication.processEvents()  # Force update UI để hiển thị loading
+            
             if not self.ensure_options_metadata(file_path, options):
                 raise RuntimeError("Cannot read metadata")
+            
+            # Xóa loading item nếu có
+            for i in range(item.childCount()):
+                child = item.child(i)
+                if child and child.data(0, QtCore.Qt.UserRole) == "loading":
+                    item.removeChild(child)
+                    break
 
             subs = options.cached_subs
             audios = options.cached_audios
+            
+            # Cập nhật summary trong tree sau khi có metadata
+            item.setText(1, self.get_file_config_summary(options))
 
             widget = self.create_options_widget(file_path, subs, audios, options, item)
             child = QtWidgets.QTreeWidgetItem(item)
@@ -1208,7 +1416,17 @@ class MainWindow(QtWidgets.QMainWindow):
         export_header.addWidget(export_none_btn)
         export_layout.addLayout(export_header)
 
+        # Tạo scroll area cho export list để tránh scroll giật khi có nhiều subtitle
+        export_scroll = QtWidgets.QScrollArea()
+        export_scroll.setWidgetResizable(True)
+        export_scroll.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
+        export_scroll.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAsNeeded)
+        export_scroll.setMaximumHeight(300)  # Giới hạn chiều cao tối đa
+        export_scroll.setMinimumHeight(80)
+        export_scroll.setFrameShape(QtWidgets.QFrame.NoFrame)
+        
         export_list = QtWidgets.QWidget()
+        export_list.setStyleSheet("background: #0d1117;")
         export_list_layout = QtWidgets.QVBoxLayout(export_list)
         export_list_layout.setSpacing(2)
         export_list_layout.setContentsMargins(0, 0, 0, 0)
@@ -1225,7 +1443,9 @@ class MainWindow(QtWidgets.QMainWindow):
             export_list_layout.addWidget(cb)
             export_cbs.append(cb)
         
-        export_layout.addWidget(export_list)
+        export_list_layout.addStretch()  # Thêm stretch để các checkbox không bị kéo dãn
+        export_scroll.setWidget(export_list)
+        export_layout.addWidget(export_scroll)
         
         def select_all_export():
             for cb in export_cbs:
@@ -1282,10 +1502,9 @@ class MainWindow(QtWidgets.QMainWindow):
 
         audio_list = DraggableListWidget()
         audio_list.setObjectName("audioList")
-        # Tính chiều cao dựa trên số audio tracks (mỗi item ~36px)
-        audio_height = max(80, min(350, len(audios) * 36 + 20))
-        audio_list.setMinimumHeight(audio_height)
-        audio_list.setMaximumHeight(audio_height)
+        # Giới hạn chiều cao để tránh scroll giật, sử dụng scrollbar tự động khi cần
+        audio_list.setMaximumHeight(300)
+        audio_list.setMinimumHeight(80)
 
         # Order: selected first, then others
         ordered = []
@@ -1330,7 +1549,17 @@ class MainWindow(QtWidgets.QMainWindow):
         srt_mux_header.addWidget(srt_mux_none_btn)
         srt_col_layout.addLayout(srt_mux_header)
 
+        # Tạo scroll area cho srt mux list để tránh scroll giật khi có nhiều subtitle
+        srt_mux_scroll = QtWidgets.QScrollArea()
+        srt_mux_scroll.setWidgetResizable(True)
+        srt_mux_scroll.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
+        srt_mux_scroll.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAsNeeded)
+        srt_mux_scroll.setMaximumHeight(300)  # Giới hạn chiều cao tối đa
+        srt_mux_scroll.setMinimumHeight(80)
+        srt_mux_scroll.setFrameShape(QtWidgets.QFrame.NoFrame)
+        
         srt_mux_list = QtWidgets.QWidget()
+        srt_mux_list.setStyleSheet("background: #0d1117;")
         srt_mux_list_layout = QtWidgets.QVBoxLayout(srt_mux_list)
         srt_mux_list_layout.setSpacing(2)
         srt_mux_list_layout.setContentsMargins(0, 0, 0, 0)
@@ -1347,10 +1576,12 @@ class MainWindow(QtWidgets.QMainWindow):
             srt_mux_list_layout.addWidget(cb)
             srt_mux_cbs.append(cb)
         
-        srt_col_layout.addWidget(srt_mux_list)
+        srt_mux_list_layout.addStretch()  # Thêm stretch để các checkbox không bị kéo dãn
+        srt_mux_scroll.setWidget(srt_mux_list)
+        srt_col_layout.addWidget(srt_mux_scroll)
         
         # Enable/disable dựa trên mux_audio (không cần check mux_subtitles vì đã bỏ checkbox riêng)
-        srt_mux_list.setEnabled(options.mux_audio)
+        srt_mux_scroll.setEnabled(options.mux_audio)
         
         # Thêm 2 cột vào layout
         mux_columns.addWidget(audio_col, 1)
@@ -1360,7 +1591,7 @@ class MainWindow(QtWidgets.QMainWindow):
         def on_mux_audio_toggle(c):
             options.mux_audio = c
             audio_list.setEnabled(c)
-            srt_mux_list.setEnabled(c)
+            srt_mux_scroll.setEnabled(c)
             # Nếu tắt mux, bỏ chọn tất cả audio và SRT
             if not c:
                 for i in range(audio_list.count()):
@@ -1380,13 +1611,13 @@ class MainWindow(QtWidgets.QMainWindow):
                 mux_audio_cb.setChecked(False)
                 options.mux_audio = False
                 audio_list.setEnabled(False)
-                srt_mux_list.setEnabled(False)
+                srt_mux_scroll.setEnabled(False)
             elif selected_count > 0 and not options.mux_audio:
                 # Tự động bật mux nếu có audio được chọn
                 mux_audio_cb.setChecked(True)
                 options.mux_audio = True
                 audio_list.setEnabled(True)
-                srt_mux_list.setEnabled(True)
+                srt_mux_scroll.setEnabled(True)
             self.update_item_summary(file_path, parent_item)
             update_force_process_state()
 
@@ -1491,6 +1722,13 @@ class MainWindow(QtWidgets.QMainWindow):
         return [ordered[0][0]]
 
     def start_processing(self):
+        # Đảm bảo script module đã được load
+        try:
+            self._get_script_module()
+        except ImportError as e:
+            QtWidgets.QMessageBox.critical(self, "Error", f"Không thể import processing module:\n{e}")
+            return
+        
         folder = self.folder_edit.text().strip()
         if not folder:
             QtWidgets.QMessageBox.warning(self, "Error", "Please select a folder first.")
@@ -1502,14 +1740,20 @@ class MainWindow(QtWidgets.QMainWindow):
         options_data = {}
         for i in range(self.file_tree.topLevelItemCount()):
             item = self.file_tree.topLevelItem(i)
+            if item is None:
+                continue
             path = item.data(0, QtCore.Qt.UserRole)
             if item.checkState(0) == QtCore.Qt.Checked and path and os.path.exists(path):
                 selected.append(path)
-                if path in self.file_options:
-                    options_data[path] = self.file_options[path].to_dict()
+            if path in self.file_options:
+                # Lấy options hiện tại (có thể chưa có metadata, backend sẽ tự đọc khi cần)
+                opts = self.file_options[path]
+                if opts.rename_enabled:
+                    opts.custom_output_name = self.get_rename_preview(opts)
+                options_data[path] = opts.to_dict()
 
         if not selected:
-            QtWidgets.QMessageBox.information(self, "Info", "Chọn ít nhất 1 file.")
+            self.show_info_message("Info", "Chọn ít nhất 1 file.")
             return
 
         if self.log_view:
@@ -1527,8 +1771,19 @@ class MainWindow(QtWidgets.QMainWindow):
         self.worker = Worker(folder, selected)
         self.worker.log_signal.connect(self.log_message)
         self.worker.progress_signal.connect(self.update_progress)
+        self.worker.file_status_signal.connect(self.update_file_status)
         self.worker.finished_signal.connect(self.finish_processing)
         self.worker.start()
+        
+        # Lưu mapping filepath (normalized) -> filepath để cập nhật UI
+        # Dùng filepath thay vì filename để tránh collision khi có file cùng tên ở folder khác
+        self.processing_files_map.clear()  # Clear trước khi thêm mới
+        for filepath in selected:
+            try:
+                normalized = os.path.normpath(os.path.abspath(filepath))
+                self.processing_files_map[normalized] = filepath
+            except Exception as e:
+                print(f"[ERROR] Không thể normalize path {filepath}: {e}")
         
         # Setup progress bar với range thực tế
         self.progress.setRange(0, len(selected))
@@ -1549,28 +1804,198 @@ class MainWindow(QtWidgets.QMainWindow):
         self.status_bar.showMessage("Đã dừng", 3000)
 
     def update_progress(self, current: int, total: int, filename: str):
-        """Cập nhật thanh tiến độ"""
+        """Cập nhật thanh tiến độ và UI của file đang xử lý"""
         self.progress.setRange(0, total)
         self.progress.setValue(current)
         # Rút gọn tên file nếu quá dài
         short_name = filename if len(filename) <= 40 else filename[:37] + "..."
         self.status_bar.showMessage(f"[{current}/{total}] {short_name}")
+        
+        # Tìm filepath từ filename (có thể có nhiều file cùng tên, lấy file đầu tiên match)
+        # Ưu tiên file đang trong processing_files_map
+        matched_filepath = None
+        for normalized_path, original_path in self.processing_files_map.items():
+            try:
+                if os.path.basename(original_path) == filename:
+                    matched_filepath = original_path
+                    break
+            except Exception as e:
+                print(f"[ERROR] Lỗi khi so sánh filename {original_path}: {e}")
+                continue
+        
+        # Nếu không tìm thấy, thử tìm trong tree
+        if not matched_filepath:
+            folder = self.folder_edit.text().strip()
+            if folder:
+                try:
+                    potential_path = os.path.normpath(os.path.abspath(os.path.join(folder, filename)))
+                    if potential_path in self.processing_files_map:
+                        matched_filepath = self.processing_files_map[potential_path]
+                except Exception as e:
+                    print(f"[ERROR] Lỗi khi tìm file {filename} trong folder {folder}: {e}")
+        
+        if matched_filepath:
+            self.update_file_status(matched_filepath, "started")
+        else:
+            print(f"[WARNING] Không tìm thấy filepath cho filename: {filename}")
 
     def finish_processing(self, success: bool):
         self.progress.setVisible(False)
         self.start_btn.setVisible(True)   # Hiện nút Bắt đầu
         self.stop_btn.setVisible(False)  # Ẩn nút Dừng
         os.environ.pop("MKV_FILE_OPTIONS", None)
-        self.refresh_file_list()
+        
+        # Đánh dấu tất cả file còn lại trong processing_files_map là completed (nếu success)
+        # File đã được đánh dấu completed trong quá trình xử lý sẽ không bị override
+        if success:
+            for filepath in self.processing_files_map.values():
+                # Chỉ đánh dấu nếu file chưa được đánh dấu (tránh override failed status)
+                normalized = os.path.normpath(os.path.abspath(filepath))
+                # Kiểm tra xem file có đang ở trạng thái failed không
+                for i in range(self.file_tree.topLevelItemCount()):
+                    item = self.file_tree.topLevelItem(i)
+                    if item is None:
+                        continue
+                    path = item.data(0, QtCore.Qt.UserRole)
+                    if path and isinstance(path, str):
+                        item_normalized = os.path.normpath(os.path.abspath(path))
+                        if item_normalized == normalized:
+                            # Nếu file không có icon ❌, đánh dấu completed
+                            text = item.text(0)
+                            if not text.startswith("❌"):
+                                self.update_file_status(filepath, "completed")
+                            break
+        
+        self.processing_files_map.clear()
+        # Refresh để cập nhật danh sách (file đã xử lý sẽ chuyển sang màu xanh)
+        QtCore.QTimer.singleShot(500, self.refresh_file_list)  # Delay một chút để đảm bảo file đã được ghi log
         self.status_bar.showMessage("Completed" if success else "Error - see log", 5000)
+    
+    def update_file_status(self, filepath: str, status: str):
+        """Cập nhật trạng thái hiển thị của file trong tree"""
+        if not filepath:
+            return
+        
+        # Normalize filepath để so sánh chính xác
+        try:
+            normalized_filepath = os.path.normpath(os.path.abspath(filepath))
+        except Exception as e:
+            print(f"[ERROR] Không thể normalize path {filepath}: {e}")
+            return
+        
+        # Nếu file không tồn tại và status là completed, vẫn cho phép (file có thể đã được rename)
+        if status != "completed" and not os.path.exists(filepath):
+            print(f"[WARNING] File không tồn tại: {filepath}")
+            return
+        
+        # Tìm item trong tree theo filepath (so sánh normalized paths)
+        found_item = None
+        for i in range(self.file_tree.topLevelItemCount()):
+            item = self.file_tree.topLevelItem(i)
+            if item is None:
+                continue
+            path = item.data(0, QtCore.Qt.UserRole)
+            if not path or not isinstance(path, str):
+                continue
+            
+            # Normalize path từ tree để so sánh
+            try:
+                normalized_path = os.path.normpath(os.path.abspath(path))
+            except Exception as e:
+                print(f"[ERROR] Không thể normalize path từ tree {path}: {e}")
+                continue
+                
+            # So sánh cả normalized path và filename để tìm chính xác
+            if normalized_path == normalized_filepath or path == filepath:
+                found_item = item
+                break
+        
+        # Nếu không tìm thấy bằng path, thử tìm bằng filename
+        if found_item is None:
+            filename = os.path.basename(filepath)
+            for i in range(self.file_tree.topLevelItemCount()):
+                item = self.file_tree.topLevelItem(i)
+                if item is None:
+                    continue
+                item_text = item.text(0)
+                # Loại bỏ icon và size để so sánh filename
+                item_filename = item_text.lstrip("✓❌⏳").strip()
+                if " (" in item_filename:
+                    item_filename = item_filename.split(" (")[0]
+                if item_filename == filename or item_filename.endswith(filename):
+                    found_item = item
+                    break
+        
+        if found_item is None:
+            print(f"[WARNING] Không tìm thấy file trong tree: {filepath}")
+            return
+        
+        item = found_item
+        path = item.data(0, QtCore.Qt.UserRole)
+        
+        if status == "started":
+            # Màu cam cho file đang xử lý
+            fg = QtGui.QColor("#fb923c")  # Cam
+            bg = QtGui.QColor("#431407")  # Nền cam đậm
+            # Thêm icon ⏳ vào đầu tên file
+            text = item.text(0)
+            if not text.startswith("⏳"):
+                # Loại bỏ các icon cũ
+                text = text.lstrip("✓❌⏳").strip()
+                item.setText(0, f"⏳ {text}")
+        elif status == "completed":
+            # Màu xanh cho file đã xử lý
+            fg = QtGui.QColor("#bbf7d0")  # Xanh lá
+            bg = QtGui.QColor("#0f2f1a")  # Nền xanh đậm
+            # Thêm icon ✓ vào đầu tên file
+            text = item.text(0)
+            # Loại bỏ các icon cũ
+            text = text.lstrip("✓❌⏳").strip()
+            if not text.startswith("✓"):
+                item.setText(0, f"✓ {text}")
+            # Bỏ chọn file đã xử lý
+            item.setCheckState(0, QtCore.Qt.Unchecked)
+            if path and isinstance(path, str) and path in self.file_options:
+                self.file_options[path].process_enabled = False
+        elif status == "failed":
+            # Màu đỏ cho file xử lý lỗi
+            fg = QtGui.QColor("#f87171")  # Đỏ
+            bg = QtGui.QColor("#431407")  # Nền đỏ đậm
+            # Thêm icon ❌ vào đầu tên file
+            text = item.text(0)
+            # Loại bỏ các icon cũ
+            text = text.lstrip("✓❌⏳").strip()
+            if not text.startswith("❌"):
+                item.setText(0, f"❌ {text}")
+        
+        # Áp dụng màu sắc - đảm bảo override theme
+        # Sử dụng setData trước để đảm bảo màu được áp dụng
+        for col in range(2):
+            item.setData(col, QtCore.Qt.ForegroundRole, fg)
+            item.setData(col, QtCore.Qt.BackgroundRole, bg)
+            item.setForeground(col, fg)
+            item.setBackground(col, bg)
+        
+        # Bỏ selection của item này để màu riêng được hiển thị (tránh bị override bởi selected style)
+        # Chỉ clear selection nếu item này đang được selected
+        current_item = self.file_tree.currentItem()
+        if current_item == item:
+            self.file_tree.clearSelection()
+        
+        # Force update UI - cần repaint để màu hiển thị
+        item.setData(0, QtCore.Qt.UserRole, path)  # Giữ lại path
+        self.file_tree.viewport().update()
+        self.file_tree.repaint()
+        QtWidgets.QApplication.processEvents()
 
     def log_message(self, text: str, level: str = "INFO"):
         if self.session_log_file:
             try:
                 with self.session_log_file.open("a", encoding="utf-8") as f:
                     f.write(f"[{level}] {text}\n")
-            except:
-                pass
+            except Exception as e:
+                # Log nhưng không crash nếu không thể ghi log
+                print(f"[WARNING] Không thể ghi log: {e}")
         
         # Phân loại log
         is_srt_log = text.endswith('.srt') or '.srt (' in text or '_vie)' in text or '_und)' in text
@@ -1725,6 +2150,19 @@ class MainWindow(QtWidgets.QMainWindow):
         logs_dir.mkdir(parents=True, exist_ok=True)
         QtGui.QDesktopServices.openUrl(QtCore.QUrl.fromLocalFile(str(logs_dir.resolve())))
 
+    def _browse_output_folder(self, folder_type: str):
+        """Browse for output folder and update the corresponding field."""
+        folder = QtWidgets.QFileDialog.getExistingDirectory(self, f"Chọn thư mục {folder_type}")
+        if folder:
+            if folder_type == "dubbed":
+                self.dubbed_folder_edit.setText(folder)
+            elif folder_type == "subtitles":
+                self.subs_folder_edit.setText(folder)
+            elif folder_type == "original":
+                self.original_folder_edit.setText(folder)
+            elif folder_type == "cache":
+                self.cache_dir_edit.setText(folder)
+
     def save_settings(self):
         # Save language if available
         try:
@@ -1745,6 +2183,15 @@ class MainWindow(QtWidgets.QMainWindow):
             "branch": self.branch_edit.text(),
             "token": self.token_edit.text(),
             "force_reprocess": self.force_reprocess_cb.isChecked(),
+            "prefer_beta_updates": self.beta_stable_combo.currentData() == "beta" if hasattr(self, 'beta_stable_combo') else False,
+            "auto_download_updates": self.auto_download_cb.isChecked() if hasattr(self, 'auto_download_cb') else False,
+            # Output folder settings
+            "output_folder_dubbed": self.dubbed_folder_edit.text().strip() if hasattr(self, 'dubbed_folder_edit') else "",
+            "output_folder_subtitles": self.subs_folder_edit.text().strip() if hasattr(self, 'subs_folder_edit') else "",
+            "output_folder_original": self.original_folder_edit.text().strip() if hasattr(self, 'original_folder_edit') else "",
+            # SSD Cache settings
+            "use_ssd_cache": self.use_ssd_cache_cb.isChecked() if hasattr(self, 'use_ssd_cache_cb') else True,
+            "temp_cache_dir": self.cache_dir_edit.text().strip() if hasattr(self, 'cache_dir_edit') else "",
         })
         save_user_config(self.config)
         self.settings_status.setText("✅ Saved")
@@ -1759,25 +2206,30 @@ class MainWindow(QtWidgets.QMainWindow):
             r = requests.get(f"https://api.github.com/repos/{repo}", 
                            headers={"Authorization": f"Bearer {token}"}, timeout=10)
             if r.status_code == 200:
-                QtWidgets.QMessageBox.information(self, "OK", "Token hợp lệ!")
+                self.show_info_message("OK", "Token hợp lệ!")
             else:
                 QtWidgets.QMessageBox.critical(self, "Error", f"Status code {r.status_code}")
         except Exception as e:
             QtWidgets.QMessageBox.critical(self, "Error", str(e))
 
     def refresh_system_status(self):
+        """Refresh system status - lazy load script module"""
         try:
-            ok = self.script.check_ffmpeg_available()
+            script = self._get_script_module()
+            ok = script.check_ffmpeg_available()
             self.status_labels["ffmpeg"].setText(f"FFmpeg: {'✓' if ok else '✗'}")
             self.status_labels["ffmpeg"].setStyleSheet(f"color: {get_status_color('success' if ok else 'warning')};")
-        except:
+        except Exception as e:
+            print(f"[WARNING] Không thể kiểm tra FFmpeg: {e}")
             self.status_labels["ffmpeg"].setText("FFmpeg: ?")
 
         try:
-            ram = self.script.check_available_ram()
+            script = self._get_script_module()
+            ram = script.check_available_ram()
             self.status_labels["ram"].setText(f"RAM: {ram:.1f}GB")
             self.status_labels["ram"].setStyleSheet(f"color: {get_status_color('info')};")
-        except:
+        except Exception as e:
+            print(f"[WARNING] Không thể kiểm tra RAM: {e}")
             self.status_labels["ram"].setText("RAM: ?")
 
         has_config = get_config_path().exists()
@@ -1795,18 +2247,43 @@ class MainWindow(QtWidgets.QMainWindow):
     
     def check_for_updates(self):
         """Manually check for updates."""
-        if not self.update_manager:
-            QtWidgets.QMessageBox.warning(self, "Error", "Update manager not available")
+        update_manager = self._get_update_manager()
+        if not update_manager:
+            QtWidgets.QMessageBox.warning(
+                self, 
+                "Update Manager", 
+                "Update manager không khả dụng.\n\n"
+                "Có thể do:\n"
+                "- Thiếu thư viện requests (pip install requests)\n"
+                "- Lỗi import module\n\n"
+                "Vui lòng kiểm tra console để xem chi tiết lỗi."
+            )
             return
         
+        self.update_manager = update_manager
         self.check_update_btn.setEnabled(False)
         self.check_update_btn.setText("Checking...")
         
         try:
-            has_update, release_info = self.update_manager.check_for_updates()
+            # Show checking status
+            self.update_status_label.setText("Đang kiểm tra...")
+            QtWidgets.QApplication.processEvents()
+            
+            # Get prefer_beta setting
+            prefer_beta = self.config.get("prefer_beta_updates", False)
+            update_manager.set_prefer_beta(prefer_beta)
+            
+            has_update, release_info = update_manager.check_for_updates(prefer_beta=prefer_beta)
             
             if has_update and release_info:
                 version = release_info.get("version", "new version")
+                is_beta = release_info.get("is_beta", False)
+                version_type = "Beta" if is_beta else "Stable"
+                
+                # Update latest version label
+                self.latest_version_label.setText(
+                    f"📥 Bản sắp update: <b style='color: #10b981;'>{version}</b> <span style='color: #8b949e;'>({version_type})</span>"
+                )
                 name = release_info.get("name", "")
                 body = release_info.get("body", "")
                 html_url = release_info.get("html_url", "")
@@ -1817,11 +2294,15 @@ class MainWindow(QtWidgets.QMainWindow):
                     f"{name}<br/>"
                     f"<a href='{html_url}'>View on GitHub</a>"
                 )
-                self.download_update_btn.setEnabled(True)
+                if hasattr(self, '_set_update_buttons'):
+                    self._set_update_buttons(download_enabled=True, restart_enabled=False)
+                else:
+                    self.download_update_btn.setEnabled(True)
                 self.latest_release_info = release_info
                 
-                # Show message box
+                # Show message box with theme
                 msg = QtWidgets.QMessageBox(self)
+                msg.setStyleSheet(DARK_THEME)  # Apply dark theme
                 msg.setIcon(QtWidgets.QMessageBox.Information)
                 msg.setWindowTitle("Update Available")
                 msg.setText(f"New version {version} is available!")
@@ -1834,28 +2315,52 @@ class MainWindow(QtWidgets.QMainWindow):
                 if msg.exec() == QtWidgets.QMessageBox.Yes:
                     self.download_update()
             else:
-                current_version = self.update_manager.get_current_version()
+                # No update available
+                current_version = update_manager.get_current_version()
+                is_current_beta = "beta" in current_version.lower()
+                version_type = "Beta" if is_current_beta else "Stable"
                 self.update_status_label.setText(
-                    f"<b style='color: #94a3b8;'>You are using the latest version: {current_version}</b>"
+                    f"<b style='color: #10b981;'>Bạn đang dùng phiên bản mới nhất: {current_version} ({version_type})</b>"
+                )
+                self.latest_version_label.setText(
+                    f"📥 Bản sắp update: <span style='color: #8b949e;'>Không có bản mới</span>"
                 )
                 self.download_update_btn.setEnabled(False)
-                QtWidgets.QMessageBox.information(
-                    self, "Up to Date", 
-                    f"You are using the latest version: {current_version}"
+                if hasattr(self, '_set_update_buttons'):
+                    self._set_update_buttons(download_enabled=False, restart_enabled=False)
+                else:
+                    self.restart_update_btn.setEnabled(False)
+                self.show_info_message(
+                    "Up to Date",
+                    f"Bạn đang dùng phiên bản mới nhất: "
+                    f"{current_version} ({version_type})"
                 )
                 
         except Exception as e:
+            error_msg = str(e)
+            print(f"[ERROR] Lỗi khi check updates: {error_msg}")
+            import traceback
+            traceback.print_exc()
+            
             self.update_status_label.setText(
-                f"<b style='color: #ef4444;'>Error checking for updates: {str(e)}</b>"
+                f"<b style='color: #ef4444;'>Lỗi: {error_msg}</b>"
             )
-            QtWidgets.QMessageBox.critical(self, "Error", f"Failed to check for updates:\n{str(e)}")
+            QtWidgets.QMessageBox.warning(
+                self, "Update Error",
+                f"Không thể kiểm tra cập nhật:\n{error_msg}\n\n"
+                "Kiểm tra:\n"
+                "- Kết nối internet\n"
+                "- GitHub API có thể truy cập\n"
+                "- Xem console để biết chi tiết lỗi"
+            )
         finally:
             self.check_update_btn.setEnabled(True)
             self.check_update_btn.setText("🔍 Check for Updates")
     
     def download_update(self):
-        """Download and install the update."""
-        if not self.update_manager or not hasattr(self, 'latest_release_info'):
+        """Download update file (but don't install yet - user will click Restart to install)."""
+        update_manager = self._get_update_manager()
+        if not update_manager or not hasattr(self, 'latest_release_info'):
             QtWidgets.QMessageBox.warning(self, "Error", "No update information available")
             return
         
@@ -1867,7 +2372,7 @@ class MainWindow(QtWidgets.QMainWindow):
             return
         
         # Find executable asset
-        exe_asset = self.update_manager.find_exe_asset(assets)
+        exe_asset = update_manager.find_exe_asset(assets)
         if not exe_asset:
             QtWidgets.QMessageBox.warning(
                 self, "Error", 
@@ -1876,15 +2381,111 @@ class MainWindow(QtWidgets.QMainWindow):
             )
             return
         
-        # Confirm download
-        file_name = exe_asset.get("name", "update.exe")
-        file_size = exe_asset.get("size", 0)
-        size_mb = file_size / 1024 / 1024
+        # Confirm download (skip if auto download is enabled)
+        auto_download = self.config.get("auto_download_updates", False)
+        if not auto_download:
+            file_name = exe_asset.get("name", "update.exe")
+            file_size = exe_asset.get("size", 0)
+            size_mb = file_size / 1024 / 1024
+            
+            reply = QtWidgets.QMessageBox.question(
+                self, "Download Update",
+                f"Download {file_name} ({size_mb:.1f} MB)?\n\n"
+                "Sau khi download, nhấn nút 'Restart & Update' để cài đặt.",
+                QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
+                QtWidgets.QMessageBox.Yes
+            )
+            
+            if reply != QtWidgets.QMessageBox.Yes:
+                return
         
+        # Download with progress in background thread
+        self.download_update_btn.setEnabled(False)
+        self.update_progress_bar.setVisible(True)
+        self.update_progress_bar.setRange(0, 100)
+        self.update_progress_bar.setValue(0)
+        
+        # Stop any existing download worker
+        if self.update_download_worker and self.update_download_worker.isRunning():
+            self.update_download_worker.terminate()
+            self.update_download_worker.wait()
+        
+        # Create and start download worker thread
+        self.update_download_worker = UpdateDownloadWorker(update_manager, exe_asset, self)
+        self.update_download_worker.progress_signal.connect(self._on_download_progress)
+        self.update_download_worker.finished_signal.connect(self._on_download_finished)
+        self.update_download_worker.error_signal.connect(self._on_download_error)
+        self.update_download_worker.start()
+    
+    def _on_download_progress(self, downloaded: int, total: int, percent: int):
+        """Update progress bar and status label from download worker."""
+        self.update_progress_bar.setValue(percent)
+        self.update_status_label.setText(
+            f"Downloading: {downloaded / 1024 / 1024:.1f} MB / {total / 1024 / 1024:.1f} MB"
+        )
+        # Process events to keep UI responsive
+        QtWidgets.QApplication.processEvents()
+    
+    def _on_download_finished(self, download_path):
+        """Handle download completion."""
+        self.update_progress_bar.setVisible(False)
+        
+        if not download_path:
+            self.update_status_label.setText(
+                "<b style='color: #ef4444;'>Download thất bại!</b>"
+            )
+            if hasattr(self, '_set_update_buttons'):
+                self._set_update_buttons(download_enabled=True, restart_enabled=False)
+            else:
+                self.download_update_btn.setEnabled(True)
+            return
+        
+        # Save downloaded file path for later installation
+        self.downloaded_update_file = download_path
+        self.update_status_label.setText(
+            f"<b style='color: #10b981;'>Download hoàn tất!</b><br/>"
+            f"File: {download_path.name}<br/>"
+            f"Nhấn nút 'Restart & Update' để cài đặt."
+        )
+        self.update_progress_bar.setValue(100)
+        if hasattr(self, '_set_update_buttons'):
+            self._set_update_buttons(download_enabled=False, restart_enabled=True)
+        else:
+            self.restart_update_btn.setEnabled(True)
+            self.download_update_btn.setEnabled(False)
+    
+    def _on_download_error(self, error_msg: str):
+        """Handle download error."""
+        self.update_status_label.setText(
+            f"<b style='color: #ef4444;'>Error: {error_msg}</b>"
+        )
+        QtWidgets.QMessageBox.critical(
+            self, "Update Error",
+            f"Failed to download update:\n{error_msg}\n\n"
+            "Please try downloading manually from GitHub."
+        )
+        self.update_progress_bar.setVisible(False)
+        if hasattr(self, '_set_update_buttons'):
+            self._set_update_buttons(download_enabled=True, restart_enabled=False)
+        else:
+            self.download_update_btn.setEnabled(True)
+    
+    def restart_and_update(self):
+        """Install downloaded update and restart application."""
+        if not hasattr(self, 'downloaded_update_file') or self.downloaded_update_file is None:
+            QtWidgets.QMessageBox.warning(self, "Error", "No update file downloaded. Please download first.")
+            return
+        
+        update_manager = self._get_update_manager()
+        if not update_manager:
+            QtWidgets.QMessageBox.warning(self, "Error", "Update manager not available")
+            return
+        
+        # Confirm restart
         reply = QtWidgets.QMessageBox.question(
-            self, "Download Update",
-            f"Download {file_name} ({size_mb:.1f} MB)?\n\n"
-            "The application will restart after installation.",
+            self, "Restart & Update",
+            "Cài đặt update và khởi động lại ứng dụng?\n\n"
+            "Ứng dụng sẽ tự động đóng và khởi động lại.",
             QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
             QtWidgets.QMessageBox.Yes
         )
@@ -1892,60 +2493,51 @@ class MainWindow(QtWidgets.QMainWindow):
         if reply != QtWidgets.QMessageBox.Yes:
             return
         
-        # Download with progress
-        self.download_update_btn.setEnabled(False)
-        self.update_progress_bar.setVisible(True)
-        self.update_progress_bar.setRange(0, 100)
-        self.update_progress_bar.setValue(0)
-        
-        def progress_callback(url, downloaded, total):
-            if total > 0:
-                percent = int((downloaded / total) * 100)
-                self.update_progress_bar.setValue(percent)
-                self.update_status_label.setText(
-                    f"Downloading: {downloaded / 1024 / 1024:.1f} MB / {total / 1024 / 1024:.1f} MB"
-                )
-        
         try:
-            download_path = self.update_manager.download_update(exe_asset, progress_callback)
+            self.update_status_label.setText("Đang cài đặt update...")
+            QtWidgets.QApplication.processEvents()
             
-            if not download_path:
-                raise Exception("Download failed")
-            
-            # Install update
-            self.update_status_label.setText("Installing update...")
-            self.update_progress_bar.setValue(100)
-            
-            if self.update_manager.install_update(download_path):
-                # Restart application
-                reply = QtWidgets.QMessageBox.question(
-                    self, "Update Installed",
-                    "Update installed successfully!\n\n"
-                    "The application will now restart.",
-                    QtWidgets.QMessageBox.Ok
+            if update_manager.install_update(self.downloaded_update_file):
+                self.update_status_label.setText(
+                    "<b style='color: #10b981;'>Cài đặt thành công! Đang khởi động lại...</b>"
                 )
+                QtWidgets.QApplication.processEvents()
                 
-                if reply == QtWidgets.QMessageBox.Ok:
-                    self.update_manager.restart_application()
+                # Small delay to show message
+                QtCore.QTimer.singleShot(1000, lambda: update_manager.restart_application())
             else:
-                raise Exception("Installation failed")
+                raise Exception("Cài đặt thất bại")
                 
         except Exception as e:
             self.update_status_label.setText(
-                f"<b style='color: #ef4444;'>Error: {str(e)}</b>"
+                f"<b style='color: #ef4444;'>Lỗi: {str(e)}</b>"
             )
             QtWidgets.QMessageBox.critical(
                 self, "Update Error",
-                f"Failed to download/install update:\n{str(e)}\n\n"
-                "Please try downloading manually from GitHub."
+                f"Không thể cài đặt update:\n{str(e)}\n\n"
+                "Vui lòng thử tải lại hoặc cài đặt thủ công."
             )
-        finally:
-            self.update_progress_bar.setVisible(False)
-            self.download_update_btn.setEnabled(True)
+    
+    def on_beta_stable_changed(self, index: int):
+        """Handle beta/stable selection change."""
+        prefer_beta = self.beta_stable_combo.currentData() == "beta"
+        self.config["prefer_beta_updates"] = prefer_beta
+        save_user_config(self.config)
+        
+        # Update UpdateManager preference
+        update_manager = self._get_update_manager()
+        if update_manager:
+            update_manager.set_prefer_beta(prefer_beta)
+    
+    def on_auto_download_changed(self, checked: bool):
+        """Handle auto download checkbox change."""
+        self.config["auto_download_updates"] = checked
+        save_user_config(self.config)
     
     def auto_check_for_updates(self):
         """Silently check for updates on startup (non-blocking)."""
-        if not self.update_manager:
+        update_manager = self._get_update_manager()
+        if not update_manager:
             print("[UPDATE] UpdateManager not available")
             return
         
@@ -1953,12 +2545,26 @@ class MainWindow(QtWidgets.QMainWindow):
         def check_in_background():
             try:
                 print("[UPDATE] Checking for updates...")
-                has_update, release_info = self.update_manager.check_for_updates(timeout=10)
+                prefer_beta = self.config.get("prefer_beta_updates", False)
+                update_manager.set_prefer_beta(prefer_beta)
+                
+                has_update, release_info = update_manager.check_for_updates(timeout=10, prefer_beta=prefer_beta)
                 print(f"[UPDATE] Check result: has_update={has_update}, release_info={release_info is not None}")
+                
                 if has_update and release_info:
-                    print(f"[UPDATE] Update available: {release_info.get('version', 'unknown')}")
-                    # Update UI in main thread using signal
+                    version = release_info.get('version', 'unknown')
+                    is_beta = release_info.get('is_beta', False)
+                    version_type = "Beta" if is_beta else "Stable"
+                    print(f"[UPDATE] Update available: {version} ({version_type})")
+                    
+                    # Update UI in main thread
                     QtCore.QTimer.singleShot(0, lambda: self._show_update_notification(release_info))
+                    
+                    # Auto download if enabled
+                    auto_download = self.config.get("auto_download_updates", False)
+                    if auto_download:
+                        print("[UPDATE] Auto download enabled, starting download...")
+                        QtCore.QTimer.singleShot(1000, lambda: self._auto_download_update(release_info))
                 else:
                     print("[UPDATE] No update available or already up to date")
             except Exception as e:
@@ -1972,19 +2578,103 @@ class MainWindow(QtWidgets.QMainWindow):
         thread = threading.Thread(target=check_in_background, daemon=True)
         thread.start()
     
+    def _auto_download_update(self, release_info: dict):
+        """Auto download update in background."""
+        try:
+            self.latest_release_info = release_info
+            assets = release_info.get("assets", [])
+            if not assets:
+                return
+            
+            update_manager = self._get_update_manager()
+            if not update_manager:
+                return
+            
+            exe_asset = update_manager.find_exe_asset(assets)
+            if not exe_asset:
+                return
+            
+            # Show progress bar
+            if hasattr(self, 'update_progress_bar'):
+                self.update_progress_bar.setVisible(True)
+                self.update_progress_bar.setRange(0, 100)
+                self.update_progress_bar.setValue(0)
+            
+            # Stop any existing download worker
+            if self.update_download_worker and self.update_download_worker.isRunning():
+                self.update_download_worker.terminate()
+                self.update_download_worker.wait()
+            
+            # Create and start download worker thread
+            self.update_download_worker = UpdateDownloadWorker(update_manager, exe_asset, self)
+            self.update_download_worker.progress_signal.connect(self._on_auto_download_progress)
+            self.update_download_worker.finished_signal.connect(self._on_auto_download_finished)
+            self.update_download_worker.error_signal.connect(self._on_auto_download_error)
+            self.update_download_worker.start()
+        except Exception as e:
+            print(f"[UPDATE] Error during auto download: {e}")
+            import traceback
+            traceback.print_exc()
+    
+    def _on_auto_download_progress(self, downloaded: int, total: int, percent: int):
+        """Update progress for auto download."""
+        if hasattr(self, 'update_progress_bar'):
+            self.update_progress_bar.setValue(percent)
+        if hasattr(self, 'update_status_label'):
+            self.update_status_label.setText(
+                f"Đang tự động tải: {downloaded / 1024 / 1024:.1f} MB / {total / 1024 / 1024:.1f} MB"
+            )
+        QtWidgets.QApplication.processEvents()
+    
+    def _on_auto_download_finished(self, download_path):
+        """Handle auto download completion."""
+        if download_path:
+            self.downloaded_update_file = download_path
+            if hasattr(self, '_set_update_buttons'):
+                self._set_update_buttons(download_enabled=False, restart_enabled=True)
+            elif hasattr(self, 'restart_update_btn'):
+                self.restart_update_btn.setEnabled(True)
+            if hasattr(self, 'update_status_label'):
+                version = self.latest_release_info.get("version", "unknown") if hasattr(self, 'latest_release_info') else "unknown"
+                self.update_status_label.setText(
+                    f"<b style='color: #10b981;'>Đã tải xong {version}!</b><br/>"
+                    f"Nhấn 'Restart & Update' để cài đặt."
+                )
+            print(f"[UPDATE] Auto download completed: {download_path}")
+    
+    def _on_auto_download_error(self, error_msg: str):
+        """Handle auto download error."""
+        if hasattr(self, 'update_status_label'):
+            self.update_status_label.setText(
+                f"<b style='color: #ef4444;'>Lỗi tự động tải: {error_msg}</b>"
+            )
+        print(f"[UPDATE] Error during auto download: {error_msg}")
+    
     def _show_update_notification(self, release_info: dict):
         """Show update notification (called from background thread)."""
         version = release_info.get("version", "new version")
+        is_beta = release_info.get("is_beta", False)
+        version_type = "Beta" if is_beta else "Stable"
         name = release_info.get("name", "")
         html_url = release_info.get("html_url", "")
         
+        # Update latest version label
+        if hasattr(self, 'latest_version_label'):
+            self.latest_version_label.setText(
+                f"📥 Bản sắp update: <b style='color: #10b981;'>{version}</b> <span style='color: #8b949e;'>({version_type})</span>"
+            )
+        
         # Update UI
-        self.update_status_label.setText(
-            f"<b style='color: #10b981;'>Update available: {version}</b><br/>"
-            f"{name}<br/>"
-            f"<a href='{html_url}'>View on GitHub</a>"
-        )
-        self.download_update_btn.setEnabled(True)
+        if hasattr(self, 'update_status_label'):
+            self.update_status_label.setText(
+                f"<b style='color: #10b981;'>Update available: {version} ({version_type})</b><br/>"
+                f"{name}<br/>"
+                f"<a href='{html_url}'>View on GitHub</a>"
+            )
+        
+        if hasattr(self, 'download_update_btn'):
+            self.download_update_btn.setEnabled(True)
+        
         self.latest_release_info = release_info
         
         # Show red dot badge on Settings tab
@@ -2013,3 +2703,11 @@ class MainWindow(QtWidgets.QMainWindow):
             self.tabs.setTabText(tab_index, current_text.replace(" ●", ""))
             self.tabs.tabBar().setTabTextColor(tab_index, QtGui.QColor())  # Reset to default
             self._has_update_badge = False
+
+
+if __name__ == "__main__":
+    # Cho phép chạy trực tiếp file này để mở UI
+    app = QtWidgets.QApplication(sys.argv)
+    window = MainWindow()
+    window.show()
+    sys.exit(app.exec())

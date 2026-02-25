@@ -27,7 +27,7 @@
     "processing_started": "Đã bắt đầu xử lý",
     "processing_completed": "Đã hoàn thành xử lý",
     "processing_error": "Đã xảy ra lỗi khi xử lý",
-    "no_files_found": "Không tìm thấy file MKV",
+    "no_files_found": "Không tìm thấy file video được hỗ trợ",
     "ffmpeg_not_found": "Không tìm thấy FFmpeg. Vui lòng cài đặt FFmpeg.",
     "insufficient_ram": "Không đủ RAM",
     "insufficient_disk_space": "Không đủ dung lượng ổ đĩa",

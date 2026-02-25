@@ -36,6 +36,7 @@ class UpdateManager:
         self.api_url = GITHUB_API_URL
         self.releases_url = GITHUB_RELEASES_URL
         self._current_version = None  # Lazy load
+        self._prefer_beta = False  # Default to stable releases
         
     def _get_version_from_file(self) -> Optional[str]:
         """Try to get version from bundled version.txt file."""
@@ -189,12 +190,17 @@ class UpdateManager:
         else:
             return 0
     
-    def check_for_updates(self, timeout: int = 10) -> Tuple[bool, Optional[dict]]:
+    def set_prefer_beta(self, prefer_beta: bool):
+        """Set whether to prefer beta releases over stable."""
+        self._prefer_beta = prefer_beta
+    
+    def check_for_updates(self, timeout: int = 10, prefer_beta: Optional[bool] = None) -> Tuple[bool, Optional[dict]]:
         """
         Check for available updates from GitHub Releases.
         
         Args:
             timeout: Request timeout in seconds
+            prefer_beta: If True, check for beta releases. If None, use self._prefer_beta
             
         Returns:
             Tuple of (has_update, release_info)
@@ -202,9 +208,34 @@ class UpdateManager:
             - release_info: Dict with release info (tag_name, html_url, assets, etc.) or None
         """
         try:
-            response = requests.get(self.api_url, timeout=timeout)
-            response.raise_for_status()
-            release_data = response.json()
+            # Determine if we want beta or stable
+            want_beta = prefer_beta if prefer_beta is not None else self._prefer_beta
+            
+            if want_beta:
+                # Get all releases and find latest beta
+                response = requests.get(self.releases_url, timeout=timeout)
+                response.raise_for_status()
+                releases = response.json()
+                
+                # Filter for beta releases (contain "beta" in tag_name or name)
+                beta_releases = [
+                    r for r in releases 
+                    if "beta" in r.get("tag_name", "").lower() or "beta" in r.get("name", "").lower()
+                ]
+                
+                if not beta_releases:
+                    # No beta releases, fall back to latest stable
+                    response = requests.get(self.api_url, timeout=timeout)
+                    response.raise_for_status()
+                    release_data = response.json()
+                else:
+                    # Get latest beta (first in list, sorted by published_at desc)
+                    release_data = beta_releases[0]
+            else:
+                # Get latest stable release
+                response = requests.get(self.api_url, timeout=timeout)
+                response.raise_for_status()
+                release_data = response.json()
             
             latest_version = release_data.get("tag_name", "").lstrip('vV')
             
@@ -219,6 +250,7 @@ class UpdateManager:
             
             if comparison < 0:
                 # Newer version available
+                is_beta = "beta" in latest_version.lower() or "beta" in release_data.get("name", "").lower()
                 return True, {
                     "tag_name": release_data.get("tag_name", ""),
                     "version": latest_version,
@@ -227,6 +259,8 @@ class UpdateManager:
                     "html_url": release_data.get("html_url", ""),
                     "published_at": release_data.get("published_at", ""),
                     "assets": release_data.get("assets", []),
+                    "is_beta": is_beta,
+                    "prerelease": release_data.get("prerelease", False),
                 }
             else:
                 # Already up to date
@@ -379,30 +413,66 @@ class UpdateManager:
             print(f"[UPDATE] Creating backup: {backup_path}")
             shutil.copy2(current_exe, backup_path)
             
+            # Get working directory (where exe is located)
+            exe_dir = current_exe.parent.resolve()  # Use resolve() to get absolute path
+            exe_path = current_exe.resolve()
+            update_file_path = update_file.resolve()
+            
             # Create batch script to replace exe after current process exits
-            batch_script = current_exe.parent / "update_installer.bat"
-            with open(batch_script, 'w') as f:
+            # Use a separate temp directory to avoid holding files in _MEIPASS
+            batch_script = exe_dir / "update_installer.bat"
+            with open(batch_script, 'w', encoding='utf-8') as f:
                 f.write("@echo off\n")
-                f.write("timeout /t 2 /nobreak >nul\n")  # Wait 2 seconds
-                f.write(f'copy /Y "{update_file}" "{current_exe}"\n')
-                f.write(f'if %ERRORLEVEL% EQU 0 (\n')
-                f.write(f'    del "{batch_script}"\n')
-                f.write(f'    start "" "{current_exe}"\n')
+                f.write("setlocal enabledelayedexpansion\n")  # Enable delayed expansion for variables
+                f.write(f'cd /d "{exe_dir}"\n')  # Set working directory
+                f.write("\n")
+                f.write("REM Wait for application to fully close and PyInstaller cleanup\n")
+                f.write("REM Increase wait time to allow PyInstaller to clean up _MEIPASS\n")
+                f.write("timeout /t 5 /nobreak >nul\n")  # Wait 5 seconds for app to close and cleanup
+                f.write("\n")
+                f.write("REM Try to copy update file\n")
+                f.write(f'if exist "{update_file_path}" (\n')
+                f.write(f'    copy /Y "{update_file_path}" "{exe_path}" >nul 2>&1\n')
+                f.write(f'    if !ERRORLEVEL! EQU 0 (\n')
+                f.write(f'        REM Delete batch script first\n')
+                f.write(f'        del "{batch_script}" >nul 2>&1\n')
+                f.write(f'        REM Start application with correct working directory\n')
+                f.write(f'        cd /d "{exe_dir}"\n')
+                f.write(f'        start "" /D "{exe_dir}" "{exe_path}"\n')
+                f.write(f'        exit /b 0\n')
+                f.write(f'    ) else (\n')
+                f.write(f'        echo Update installation failed: Copy error\n')
+                f.write(f'        pause\n')
+                f.write(f'        exit /b 1\n')
+                f.write(f'    )\n')
+                f.write(f') else (\n')
+                f.write(f'    echo Update file not found: {update_file_path}\n')
+                f.write(f'    pause\n')
+                f.write(f'    exit /b 1\n')
                 f.write(f')\n')
             
-            # Run batch script in background
+            # Run batch script in background with DETACHED_PROCESS to avoid holding _MEIPASS
+            # This ensures the batch script runs independently and doesn't block PyInstaller cleanup
+            CREATE_NEW_PROCESS_GROUP = 0x00000200
+            DETACHED_PROCESS = 0x00000008
             subprocess.Popen(
                 [str(batch_script)],
-                creationflags=subprocess.CREATE_NO_WINDOW,
-                shell=True
+                creationflags=subprocess.CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP | DETACHED_PROCESS,
+                shell=True,
+                cwd=str(exe_dir),  # Set working directory for the batch script
+                close_fds=True  # Close file descriptors to avoid holding _MEIPASS files
             )
             
             print("[UPDATE] Update will be installed after application closes")
             print(f"[UPDATE] Backup saved at: {backup_path}")
+            print(f"[UPDATE] Update file: {update_file_path}")
+            print(f"[UPDATE] Target exe: {exe_path}")
             return True
             
         except Exception as e:
             print(f"[UPDATE] Error creating update script: {e}")
+            import traceback
+            traceback.print_exc()
             return False
     
     def restart_application(self) -> None:
@@ -410,20 +480,32 @@ class UpdateManager:
         try:
             if hasattr(sys, '_MEIPASS'):
                 # Running from PyInstaller bundle
-                exe_path = sys.executable
+                exe_path = Path(sys.executable)
             else:
                 # Running from source
-                exe_path = sys.executable
+                exe_path = Path(sys.executable)
             
-            # Restart
+            # Get working directory (where exe is located)
+            exe_dir = exe_path.parent
+            
+            # Restart with correct working directory
             if platform.system() == "Windows":
-                subprocess.Popen([exe_path], creationflags=subprocess.CREATE_NEW_CONSOLE)
+                # Use start command with working directory to ensure proper initialization
+                subprocess.Popen(
+                    ["cmd", "/c", "start", "", "/D", str(exe_dir), str(exe_path)],
+                    creationflags=subprocess.CREATE_NO_WINDOW
+                )
             else:
-                subprocess.Popen([exe_path])
+                subprocess.Popen(
+                    [str(exe_path)],
+                    cwd=str(exe_dir)  # Set working directory
+                )
             
             # Exit current instance
             sys.exit(0)
             
         except Exception as e:
             print(f"[UPDATE] Error restarting application: {e}")
+            import traceback
+            traceback.print_exc()
 
