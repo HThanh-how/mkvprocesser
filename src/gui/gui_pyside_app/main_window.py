@@ -847,13 +847,13 @@ class MainWindow(QtWidgets.QMainWindow):
             parts.append(year)
         parts.append(base_name)
         
-        new_name = "_".join(parts) + ".mkv"
+        new_name = "_".join(parts)
         
         # Rút gọn nếu quá dài
         if len(new_name) > 50:
             new_name = new_name[:47] + "..."
-        
-        return new_name
+            
+        return new_name + ".mkv"
 
     def get_file_config_summary(self, options: FileOptions) -> str:
         parts = []
@@ -1745,9 +1745,12 @@ class MainWindow(QtWidgets.QMainWindow):
             path = item.data(0, QtCore.Qt.UserRole)
             if item.checkState(0) == QtCore.Qt.Checked and path and os.path.exists(path):
                 selected.append(path)
-                if path in self.file_options:
-                    # Lấy options hiện tại (có thể chưa có metadata, backend sẽ tự đọc khi cần)
-                    options_data[path] = self.file_options[path].to_dict()
+            if path in self.file_options:
+                # Lấy options hiện tại (có thể chưa có metadata, backend sẽ tự đọc khi cần)
+                opts = self.file_options[path]
+                if opts.rename_enabled:
+                    opts.custom_output_name = self.get_rename_preview(opts)
+                options_data[path] = opts.to_dict()
 
         if not selected:
             self.show_info_message("Info", "Chọn ít nhất 1 file.")

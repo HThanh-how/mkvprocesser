@@ -549,6 +549,8 @@ def _do_process_file(file_path, video_file, file_idx, total_files, input_folder,
         file_abs_path = os.path.abspath(file_path)
         file_opts = file_options_map.get(file_abs_path, {})
         rename_enabled = file_opts.get("rename_enabled", False)
+        custom_output_name = file_opts.get("custom_output_name", None)
+        selected_audio_indices = file_opts.get("selected_audio_indices", [])
         force_rename = file_opts.get("force_process", False) or rename_enabled
         export_subtitles = file_opts.get("export_subtitles", True)  # Default True
         export_subtitle_indices = file_opts.get("export_subtitle_indices", [])
@@ -641,7 +643,7 @@ def _do_process_file(file_path, video_file, file_idx, total_files, input_folder,
             # If cannot read file information, only rename if rename_enabled = True
             if rename_enabled:
                 try:
-                    new_path = rename_simple(file_path)
+                    new_path = rename_simple(file_path, custom_name=custom_output_name)
                     log_processed_file(
                         log_file,
                         video_file,
@@ -668,28 +670,38 @@ def _do_process_file(file_path, video_file, file_idx, total_files, input_folder,
         # Check for Vietnamese subtitle and audio (needed for rename logic too)
         has_vie_subtitle = any(stream.get('tags', {}).get('language', 'und') == 'vie' 
                              for stream in subtitle_streams)
+        
+        # Determine if we should process audio based on GUI selection or auto-detect
         has_vie_audio = any(stream.get('tags', {}).get('language', 'und') == 'vie' 
                            for stream in audio_streams)
+        should_process_audio = bool(selected_audio_indices) or has_vie_audio
 
         # Extract subtitles if enabled
         if not skip_extract:
-            # Default: Always extract Vietnamese subtitles if export_subtitles is enabled
-            vie_subtitle_streams = [stream for stream in subtitle_streams
-                                    if stream.get('tags', {}).get('language', 'und') == 'vie']
-            if vie_subtitle_streams:
-                logger.info(t("messages.extracting_subtitle", language=f"{len(vie_subtitle_streams)} Vietnamese"))
+            if export_subtitle_indices:
+                # GUI specified exact subtitle streams to extract
+                vie_subtitle_streams = [stream for stream in subtitle_streams if stream.get('index') in export_subtitle_indices]
+                if vie_subtitle_streams:
+                    logger.info(t("messages.extracting_subtitle", language=f"{len(vie_subtitle_streams)} (selected)"))
+            else:
+                # Fallback: Always extract Vietnamese subtitles if export_subtitles is enabled but no selection
+                vie_subtitle_streams = [stream for stream in subtitle_streams
+                                        if stream.get('tags', {}).get('language', 'und') == 'vie']
+                if vie_subtitle_streams:
+                    logger.info(t("messages.extracting_subtitle", language=f"{len(vie_subtitle_streams)} Vietnamese"))
+                    
             for stream in vie_subtitle_streams:
                 subtitle_info = (
-                    stream['index'],
-                    'vie',
+                    stream.get('index', -1),
+                    stream.get('tags', {}).get('language', 'und'),
                     stream.get('tags', {}).get('title', ''),
                     stream.get('codec_name', '')
                 )
                 extract_subtitle(file_path, subtitle_info, log_file, probe_data, file_signature=file_signature)
 
-        # Process video if has Vietnamese audio
+        # Process video if we have audio to extract
         processing_success = False
-        if has_vie_audio:
+        if should_process_audio:
             current_temp_work_dir = None
             
             # SSD Caching Strategy (Optimized)
@@ -713,18 +725,34 @@ def _do_process_file(file_path, video_file, file_idx, total_files, input_folder,
                     current_temp_work_dir = None
 
             try:
-                logger.info("\nDetected Vietnamese audio. Starting processing...")
-                # Find Vietnamese audio track with most channels
-                vie_audio_tracks = [(stream.get('index', i), stream.get('channels', 0), 'vie', 
-                                  stream.get('tags', {}).get('title', 'VIE'))
-                                  for i, stream in enumerate(audio_streams)
-                                  if stream.get('tags', {}).get('language', 'und') == 'vie']
-                if vie_audio_tracks:
-                    # Sort by channel count descending
-                    vie_audio_tracks.sort(key=lambda x: x[1], reverse=True)
-                    selected_track = vie_audio_tracks[0]
-                    logger.info(f"Selected Vietnamese audio track index={selected_track[0]} with {selected_track[1]} channels")
-                    
+                selected_track = None
+                if selected_audio_indices:
+                    # GUI specified an exact audio track index to extract
+                    target_idx = selected_audio_indices[0]
+                    target_stream = next((s for s in audio_streams if s.get('index') == target_idx), None)
+                    if target_stream:
+                        selected_track = (
+                            target_stream.get('index', -1),
+                            target_stream.get('channels', 0),
+                            target_stream.get('tags', {}).get('language', 'und'),
+                            target_stream.get('tags', {}).get('title', '')
+                        )
+                        logger.info(f"Using GUI selected audio track index={selected_track[0]}")
+                
+                if not selected_track:
+                    # Fallback to auto-detection: Find Vietnamese audio track with most channels
+                    logger.info("\nDetected Vietnamese audio. Auto-selecting track...")
+                    vie_audio_tracks = [(stream.get('index', i), stream.get('channels', 0), 'vie', 
+                                      stream.get('tags', {}).get('title', 'VIE'))
+                                      for i, stream in enumerate(audio_streams)
+                                      if stream.get('tags', {}).get('language', 'und') == 'vie']
+                    if vie_audio_tracks:
+                        # Sort by channel count descending
+                        vie_audio_tracks.sort(key=lambda x: x[1], reverse=True)
+                        selected_track = vie_audio_tracks[0]
+                        logger.info(f"Auto-selected Vietnamese audio track index={selected_track[0]} with {selected_track[1]} channels")
+                
+                if selected_track:
                     processing_success = extract_video_with_audio(
                         file_path,  # Read directly from source (HDD)
                         vn_folder,
@@ -734,6 +762,8 @@ def _do_process_file(file_path, video_file, file_idx, total_files, input_folder,
                         file_signature=file_signature,
                         rename_enabled=rename_enabled,
                         temp_work_dir=current_temp_work_dir,  # Output cached to SSD if enabled
+                        custom_output_name=custom_output_name,
+                        audio_track=selected_track
                     )
                     if processing_success:
                         processed = True  # Mark file as processed only if successful
@@ -765,7 +795,7 @@ def _do_process_file(file_path, video_file, file_idx, total_files, input_folder,
         if processed and should_rename:
             logger.info(f"\nFile processed. Renaming original file as requested...")
             try:
-                new_path = rename_simple(file_path)
+                new_path = rename_simple(file_path, custom_name=custom_output_name)
                 log_processed_file(
                     log_file,
                     video_file,
@@ -790,7 +820,7 @@ def _do_process_file(file_path, video_file, file_idx, total_files, input_folder,
         elif not processed and has_vie_subtitle and not has_vie_audio and should_rename:
             logger.info(f"\nExtracted subtitle. Renaming video file as requested...")
             try:
-                new_path = rename_simple(file_path)
+                new_path = rename_simple(file_path, custom_name=custom_output_name)
                 log_processed_file(
                     log_file,
                     video_file,
@@ -817,7 +847,7 @@ def _do_process_file(file_path, video_file, file_idx, total_files, input_folder,
             if not has_vie_subtitle and not has_vie_audio and should_rename:
                 logger.info(f"\nNo Vietnamese subtitle or audio found. Only renaming file...")
                 try:
-                    new_path = rename_simple(file_path)
+                    new_path = rename_simple(file_path, custom_name=custom_output_name)
                     log_processed_file(
                         log_file,
                         video_file,

@@ -27,38 +27,44 @@ from .utils.ffmpeg_runner import run_ffmpeg_command
 logger = logging.getLogger(__name__)
 
 
-def rename_simple(file_path: Union[str, Path]) -> Union[str, Path]:
-    """Simple rename for files without audio to extract.
+def rename_simple(file_path: Union[str, Path], custom_name: Optional[str] = None) -> Union[str, Path]:
+    """Simple rename for files without audio to extract or when custom name provided from GUI.
     
     Args:
         file_path: Path to video file
+        custom_name: Exact output name to rename to (must include extension).
     
     Returns:
         New file path after renaming
     """
     try:
-        resolution_label = get_video_resolution_label(str(file_path))
-        probe = ffmpeg.probe(str(file_path))
-        # Get language from first audio stream
-        audio_stream = next((stream for stream in probe['streams'] 
-                           if stream['codec_type'] == 'audio'), None)
-        language = 'und'  # default is undefined
-        audio_title = ''
-        if audio_stream:
-            language = audio_stream.get('tags', {}).get('language', 'und')
-            audio_title = audio_stream.get('tags', {}).get('title', '')
-        
-        language_abbr = get_language_abbreviation(language)
-        # Only add audio_title if different from language_abbr and not empty
-        if audio_title and audio_title != language_abbr:
-            lang_part = f"{language_abbr}_{audio_title}"
-        else:
-            lang_part = language_abbr
-        
+        dir_path = os.path.dirname(file_path)
         base_name = os.path.splitext(os.path.basename(file_path))[0]
         
-        new_name = f"{resolution_label}_{lang_part}_{base_name}.mkv"
-        new_name = sanitize_filename(new_name)
+        if custom_name:
+            new_name = sanitize_filename(custom_name)
+        else:
+            # Fallback format if custom_name is not provided
+            resolution_label = get_video_resolution_label(str(file_path))
+            probe = ffmpeg.probe(str(file_path))
+            # Get language from first audio stream
+            audio_stream = next((stream for stream in probe['streams'] 
+                               if stream['codec_type'] == 'audio'), None)
+            language = 'und'  # default is undefined
+            audio_title = ''
+            if audio_stream:
+                language = audio_stream.get('tags', {}).get('language', 'und')
+                audio_title = audio_stream.get('tags', {}).get('title', '')
+            
+            language_abbr = get_language_abbreviation(language)
+            # Only add audio_title if different from language_abbr and not empty
+            if audio_title and audio_title != language_abbr:
+                lang_part = f"{language_abbr}_{audio_title}"
+            else:
+                lang_part = language_abbr
+            
+            new_name = f"{resolution_label}_{lang_part}_{base_name}.mkv"
+            new_name = sanitize_filename(new_name)
         
         dir_path = os.path.dirname(file_path)
         new_path = os.path.join(dir_path, new_name)
@@ -120,6 +126,7 @@ def process_video(
     file_signature: Optional[str] = None,
     rename_enabled: bool = False,
     temp_work_dir: Optional[str] = None,
+    custom_output_name: Optional[str] = None,
 ) -> bool:
     """Process video with selected audio track and extract subtitles.
     
@@ -132,6 +139,7 @@ def process_video(
         file_signature: Optional file signature for deduplication
         rename_enabled: Whether to rename output files
         temp_work_dir: Optional temporary working directory (e.g. on SSD) for faster processing
+        custom_output_name: Exact output name to use (must include extension)
     
     Returns:
         True if processing succeeded, False otherwise
@@ -177,6 +185,10 @@ def process_video(
                 output_name += f"_{year}"
             source_name += f"_{base_name}.mkv"
             output_name += f"_{base_name}.mkv"
+            
+            # Override output_name if custom_output_name provided
+            if custom_output_name:
+                output_name = custom_output_name
             
             # Final output path
             final_output_path = os.path.join(output_folder, sanitize_filename(output_name))
@@ -353,6 +365,8 @@ def extract_video_with_audio(
     file_signature: Optional[str] = None,
     rename_enabled: bool = False,
     temp_work_dir: Optional[str] = None,
+    custom_output_name: Optional[str] = None,
+    audio_track: Optional[Tuple[int, int, str, str]] = None,
 ) -> bool:
     """Extract video with audio as required.
     
@@ -365,6 +379,8 @@ def extract_video_with_audio(
         file_signature: Optional file signature
         rename_enabled: Whether to rename output files
         temp_work_dir: Optional temporary working directory
+        custom_output_name: Exact output name to use
+        audio_track: Explicit audio track to extract (index, channels, lang, title). Bypasses auto-detection.
     
     Returns:
         True if processing succeeded, False otherwise
@@ -375,7 +391,7 @@ def extract_video_with_audio(
         if not audio_streams:
             if rename_enabled:
                 logger.info(f"No audio found in {file_path}. Performing simple rename.")
-                new_path = rename_simple(file_path)
+                new_path = rename_simple(file_path, custom_name=custom_output_name)
                 log_processed_file(
                     log_file,
                     os.path.basename(file_path),
@@ -393,6 +409,16 @@ def extract_video_with_audio(
         # Get first audio information to determine case
         first_audio = audio_streams[0]
         first_audio_language = first_audio.get('tags', {}).get('language', 'und')
+        
+        # If audio_track was explicitly provided by GUI, bypass auto-detection
+        if audio_track:
+            target_folder = original_folder if first_audio_language == 'vie' else vn_folder
+            return process_video(
+                file_path, target_folder, audio_track, log_file, 
+                probe_data, file_signature=file_signature, 
+                rename_enabled=rename_enabled, temp_work_dir=temp_work_dir,
+                custom_output_name=custom_output_name
+            )
 
         # Create list of audio tracks with necessary information
         audio_tracks = []
@@ -417,7 +443,8 @@ def extract_video_with_audio(
                 return process_video(
                     file_path, original_folder, selected_track, log_file, 
                     probe_data, file_signature=file_signature, 
-                    rename_enabled=rename_enabled, temp_work_dir=temp_work_dir
+                    rename_enabled=rename_enabled, temp_work_dir=temp_work_dir,
+                    custom_output_name=custom_output_name
                 )
             else:
                 logger.warning(f"First audio is Vietnamese but no non-Vietnamese tracks found in {file_path}")
@@ -430,7 +457,8 @@ def extract_video_with_audio(
                 return process_video(
                     file_path, vn_folder, selected_track, log_file, 
                     probe_data, file_signature=file_signature, 
-                    rename_enabled=rename_enabled, temp_work_dir=temp_work_dir
+                    rename_enabled=rename_enabled, temp_work_dir=temp_work_dir,
+                    custom_output_name=custom_output_name
                 )
             else:
                 logger.warning(f"First audio is not Vietnamese but no Vietnamese tracks found in {file_path}")
