@@ -23,16 +23,7 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "git_sparse_paths": ["logs"],
     "git_user_name": "MKV Processor Bot",
     "git_user_email": "bot@example.com",
-    # Output folder settings (empty = use default from i18n)
-    "output_folder_dubbed": "",      # Thư mục lồng tiếng/thuyết minh
-    "output_folder_subtitles": "",   # Thư mục subtitles
-    "output_folder_original": "",    # Thư mục original
-    "language": "vi",  # Language code: 'en' for English, 'vi' for Vietnamese
-    # SSD Caching settings
-    "use_ssd_cache": True,           # Enable SSD caching/staging
-    "temp_cache_dir": "",            # Custom cache directory (empty = system temp)
-    # Processing settings
-    "max_workers": 1,                # Maximum concurrent processing threads
+    "language": "en",  # Language code: 'en' for English, 'vi' for Vietnamese
 }
 
 
@@ -89,7 +80,7 @@ def load_user_config() -> Dict[str, Any]:
             user_cfg = json.loads(path.read_text(encoding="utf-8"))
             config.update(user_cfg)
         except (json.JSONDecodeError, IOError) as exc:
-            logger.error("Failed to read config file: %s", exc)
+            logger.error(f"Failed to read config file: {exc}")
     return config
 
 
@@ -105,7 +96,7 @@ def load_raw_user_config() -> Dict[str, Any]:
         try:
             return json.loads(path.read_text(encoding="utf-8"))
         except (json.JSONDecodeError, IOError) as exc:
-            logger.error("Failed to read config file: %s", exc)
+            logger.error(f"Failed to read config file: {exc}")
     return {}
 
 

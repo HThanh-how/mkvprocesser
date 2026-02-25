@@ -42,7 +42,6 @@ class Worker(QtCore.QThread):
 
     log_signal = QtCore.Signal(str, str)  # text, level
     progress_signal = QtCore.Signal(int, int, str)  # current, total, filename
-    file_status_signal = QtCore.Signal(str, str)  # filepath, status (started/completed)
     finished_signal = QtCore.Signal(bool)  # success
 
     def __init__(self, folder: str, selected_files: list[str] | None = None):
@@ -50,7 +49,6 @@ class Worker(QtCore.QThread):
         self.folder = folder
         self.selected_files = selected_files or []
         self.log_handler = None
-        self._current_processing_file = None  # Track file đang xử lý
 
     def run(self):
         selected_backup = None
@@ -126,47 +124,16 @@ class Worker(QtCore.QThread):
                     text = text.strip()
                     if text:
                         self.signal.emit(text, self.level)
-                        import re
                         # Detect progress from log
                         if text.startswith("Processing file") or text.startswith("Đang xử lý file"):
                             # Parse "Processing file X/Y: filename"
+                            import re
                             match = re.search(r"(\d+)/(\d+):\s*(.+)", text)
                             if match:
                                 current = int(match.group(1))
                                 total = int(match.group(2))
                                 filename = match.group(3)
                                 worker_ref.progress_signal.emit(current, total, filename)
-                        # Detect file started processing
-                        elif "PROCESSING FILE:" in text:
-                            # Parse "===== PROCESSING FILE: /path/to/file.mkv ====="
-                            match = re.search(r"PROCESSING FILE:\s*(.+)", text)
-                            if match:
-                                import os
-                                filepath = match.group(1).strip()
-                                normalized_filepath = os.path.normpath(os.path.abspath(filepath))
-                                worker_ref.file_status_signal.emit(normalized_filepath, "started")
-                                
-                        # Detect explicitly file completion (thread-safe)
-                        elif "COMPLETED FILE:" in text:
-                            match = re.search(r"COMPLETED FILE:\s*(.+)", text)
-                            if match:
-                                import os
-                                filepath = match.group(1).strip()
-                                normalized_filepath = os.path.normpath(os.path.abspath(filepath))
-                                worker_ref.file_status_signal.emit(normalized_filepath, "completed")
-                                
-                        # Detect explicit file error
-                        elif "ERROR FILE:" in text:
-                            match = re.search(r"ERROR FILE:\s*(.+)", text)
-                            if match:
-                                import os
-                                filepath = match.group(1).strip()
-                                normalized_filepath = os.path.normpath(os.path.abspath(filepath))
-                                worker_ref.file_status_signal.emit(normalized_filepath, "failed")
-                                
-                        # Detect overall completion
-                        elif "PROCESSING COMPLETED" in text:
-                            pass # Individual files are now handled above
 
                 def flush(self):
                     pass

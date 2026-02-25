@@ -1,3 +1,8 @@
+"""Legacy API shim for backwards compatibility."""
+
+from __future__ import annotations
+
+from .processing_core import *  # noqa: F401,F403
 """
 Main script for MKV video processing.
 
@@ -20,6 +25,8 @@ from pathlib import Path
 from typing import Optional, List, Dict, Any, Union, Tuple
 
 import requests
+import argparse
+
 from .config_manager import load_user_config, get_config_dir
 from .github_sync import build_auto_push_config, RemoteSyncManager
 from .i18n import set_language, t, get_language
@@ -59,7 +66,6 @@ from .video_processor import (
     extract_video_with_audio,
 )
 from .subtitle_extractor import extract_subtitle
-from .utils.ffmpeg_runner import run_ffmpeg_command
 
 # Configure logging - only add StreamHandler if stdout is valid
 def setup_logging():
@@ -125,7 +131,139 @@ try:
 except ImportError:
     pass  # If import fails, will use system FFmpeg
 
+# Helper to run FFmpeg with local path if available
+def run_ffmpeg_command(cmd: Union[List[str], str], **kwargs) -> subprocess.CompletedProcess:
+    """Wrapper for subprocess.run to automatically use local FFmpeg if available and hide console.
+    
+    Args:
+        cmd: FFmpeg command as list of strings or single string
+        **kwargs: Additional arguments for subprocess.run
+    
+    Returns:
+        CompletedProcess object from subprocess.run
+    """
+    try:
+        from .ffmpeg_helper import get_ffmpeg_command
+        cmd = get_ffmpeg_command(cmd)
+    except ImportError:
+        pass  # Fallback to original command
+    # Hide console window on Windows
+    if platform.system() == "Windows":
+        kwargs.setdefault('creationflags', CREATE_NO_WINDOW)
+    return subprocess.run(cmd, **kwargs)
+
 # Kiểm tra và hướng dẫn cài đặt các package cần thiết
+if __name__ == '__main__':
+    try:
+        # Thử import các module cần thiết
+        try:
+            import ffmpeg  # type: ignore
+            import psutil  # type: ignore
+            # Nếu import thành công, tiếp tục chạy script
+            print("Đã tìm thấy các thư viện cần thiết.")
+        except ImportError as e:
+            # Nếu không import được, hiển thị hướng dẫn cài đặt
+            print(f"\n{'='*50}")
+            print("HƯỚNG DẪN CÀI ĐẶT THƯ VIỆN".center(50))
+            print(f"{'='*50}")
+            print(f"\nKhông thể tìm thấy thư viện: {e}")
+            print("\nVui lòng cài đặt các thư viện cần thiết bằng một trong các cách sau:")
+            
+            # Hướng dẫn cài đặt trên hệ thống Linux
+            if platform.system() == "Linux":
+                print("\n--- CHO UBUNTU/DEBIAN ---")
+                print("1. Cài đặt python3-pip và ffmpeg:")
+                print("   sudo apt update")
+                print("   sudo apt install -y python3-pip ffmpeg")
+                print("\n2. Cài đặt các thư viện Python:")
+                print("   python3 -m pip install ffmpeg-python psutil --user")
+                
+                print("\n--- CHO FEDORA/RHEL ---")
+                print("1. Cài đặt python3-pip và ffmpeg:")
+                print("   sudo dnf install -y python3-pip ffmpeg")
+                print("\n2. Cài đặt các thư viện Python:")
+                print("   python3 -m pip install ffmpeg-python psutil --user")
+                
+                print("\n--- SỬ DỤNG SNAP (NẾU CÓ) ---")
+                print("1. Cài đặt ffmpeg qua snap:")
+                print("   sudo snap install ffmpeg")
+            
+            # Hướng dẫn cài đặt trên MacOS
+            elif platform.system() == "Darwin":
+                print("\n--- CHO MACOS ---")
+                print("1. Cài đặt Homebrew (nếu chưa có):")
+                print("   /bin/bash -c \"$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\"")
+                print("\n2. Cài đặt ffmpeg:")
+                print("   brew install ffmpeg")
+                print("\n3. Cài đặt các thư viện Python:")
+                print("   pip3 install ffmpeg-python psutil")
+            
+            # Hướng dẫn cài đặt trên Windows
+            elif platform.system() == "Windows":
+                print("\n--- CHO WINDOWS ---")
+                print("1. Tải và cài đặt FFmpeg từ trang chủ:")
+                print("   https://ffmpeg.org/download.html")
+                print("\n2. Thêm đường dẫn FFmpeg vào biến môi trường PATH")
+                print("\n3. Cài đặt các thư viện Python:")
+                print("   pip install ffmpeg-python psutil")
+            
+            # Hướng dẫn chung
+            print("\n--- CÁCH NHANH NHẤT (TẤT CẢ HỆ ĐIỀU HÀNH) ---")
+            print("Sử dụng môi trường ảo (khuyến nghị):")
+            print("1. Tạo môi trường ảo:")
+            print("   python3 -m venv venv")
+            print("\n2. Kích hoạt môi trường ảo:")
+            print("   - Linux/MacOS: source venv/bin/activate")
+            print("   - Windows: venv\\Scripts\\activate")
+            print("\n3. Cài đặt các thư viện:")
+            print("   pip install ffmpeg-python psutil")
+            print("\n4. Chạy script trong môi trường ảo:")
+            print("   python script.py")
+            
+            print(f"\n{'='*50}")
+            print("LƯU Ý: Script này cần FFmpeg để xử lý video.")
+            print("Vui lòng đảm bảo FFmpeg đã được cài đặt và có sẵn trong PATH")
+            
+            sys.exit(1)
+            
+        # Kiểm tra FFmpeg đã được cài đặt chưa
+        try:
+            # Sử dụng helper để tìm FFmpeg local
+            try:
+                from ffmpeg_helper import find_ffmpeg_binary
+                ffmpeg_path = find_ffmpeg_binary()
+                if ffmpeg_path:
+                    subprocess.check_call([ffmpeg_path, '-version'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                else:
+                    subprocess.check_call(['ffmpeg', '-version'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            except ImportError:
+                subprocess.check_call(['ffmpeg', '-version'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            print("Đã tìm thấy FFmpeg trên hệ thống.")
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            print("\nCẢNH BÁO: Không tìm thấy FFmpeg trên hệ thống!")
+            print("Script này yêu cầu FFmpeg để xử lý video.")
+            
+            print("\nHướng dẫn cài đặt FFmpeg:")
+            if platform.system() == "Linux":
+                print("- Ubuntu/Debian: sudo add-apt-repository universe && sudo apt update && sudo apt install -y ffmpeg")
+                print("- Fedora/RHEL: sudo dnf install -y ffmpeg")
+                print("- Sử dụng snap: sudo snap install ffmpeg")
+            elif platform.system() == "Darwin":
+                print("- macOS: brew install ffmpeg")
+            elif platform.system() == "Windows":
+                print("- Windows: Tải từ https://ffmpeg.org/download.html và thêm vào PATH")
+            
+            response = input("\nBạn có muốn tiếp tục mà không có FFmpeg không? (y/n): ")
+            if response.lower() != 'y':
+                sys.exit(1)
+                
+        # Nếu mọi thứ đã sẵn sàng, tiếp tục thực hiện script
+        print("\nMọi thư viện đã sẵn sàng. Bắt đầu xử lý...")
+        
+    except Exception as e:
+        print(f"Lỗi: {e}")
+        sys.exit(1)
+
 # Import các thư viện cần thiết
 import ffmpeg  # type: ignore
 import psutil  # type: ignore
@@ -887,27 +1025,8 @@ def main(input_folder=None, force_reprocess: Optional[bool] = None, dry_run: boo
             file_already_processed = mkv_file in processed_files or (file_signature and file_signature in processed_signatures)
             should_rename = rename_enabled and (force_reprocess_file or not file_already_processed)
             
-            # If file was processed (has VIE audio) and should_rename = True, rename original file
-            if processed and should_rename:
-                logger.info(f"\nFile processed. Renaming original file as requested...")
-                try:
-                    new_path = rename_simple(file_path)
-                    log_processed_file(
-                        log_file,
-                        mkv_file,
-                        os.path.basename(new_path),
-                        signature=file_signature,
-                        metadata={
-                            "category": "video",
-                            "source_path": file_path,
-                            "output_path": os.path.abspath(new_path),
-                        },
-                    )
-                    logger.info(t("messages.renamed_file", old=mkv_file, new=os.path.basename(new_path)))
-                except Exception as rename_err:
-                    logger.error(f"Cannot rename: {rename_err}")
             # If only extract SRT (no VIE audio) and should_rename = True, rename video file
-            elif not processed and has_vie_subtitle and not has_vie_audio and should_rename:
+            if not processed and has_vie_subtitle and not has_vie_audio and should_rename:
                 logger.info(f"\nExtracted subtitle. Renaming video file as requested...")
                 try:
                     new_path = rename_simple(file_path)
@@ -966,3 +1085,14 @@ def main(input_folder=None, force_reprocess: Optional[bool] = None, dry_run: boo
             except Exception:
                 pass
 
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="MKV Processor CLI")
+    parser.add_argument("folder", nargs="?", help="Directory containing MKV files")
+    parser.add_argument("--force", action="store_true", help="Ignore old log, reprocess all")
+    parser.add_argument("--dry-run", action="store_true", help="Only list file status (no processing)")
+    args = parser.parse_args()
+
+    if args.folder:
+        main(args.folder, force_reprocess=args.force, dry_run=args.dry_run)
+    else:
+        main(force_reprocess=args.force, dry_run=args.dry_run)
