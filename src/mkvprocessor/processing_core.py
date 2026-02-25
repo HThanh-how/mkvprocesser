@@ -797,7 +797,7 @@ def _do_process_file(file_path, video_file, file_idx, total_files, input_folder,
         if rename_enabled:
             if processing_success:
                 should_rename = True
-            elif force_rename or force_reprocess_file or not file_already_processed:
+            elif force_reprocess_file or not file_already_processed:
                 should_rename = True
             elif file_already_processed: 
                 # This was the bug: previously it evaluated `not file_already_processed` and returned False
@@ -805,7 +805,7 @@ def _do_process_file(file_path, video_file, file_idx, total_files, input_folder,
                 should_rename = True
                 
         # If file was processed (has VIE audio) OR we just skipped video to do rename only
-        if processed and should_rename:
+        if (processed or skip_video) and should_rename:
             logger.info(f"\nFile processed. Renaming original file as requested...")
             try:
                 new_path = rename_simple(file_path, custom_name=custom_output_name)
