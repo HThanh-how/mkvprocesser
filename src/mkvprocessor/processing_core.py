@@ -563,20 +563,25 @@ def _do_process_file(file_path, video_file, file_idx, total_files, input_folder,
         # If file already processed but only needs rename (no force_reprocess), still continue
         skip_file = False
         skip_extract = False  # Default: don't skip extract
-        if not force_reprocess and not force_rename:
-            if video_file in processed_files:
-                logger.info(f"File {video_file} already processed as {processed_files[video_file]['new_name']} at {processed_files[video_file]['time']}. Skipping.")
+        skip_video = False    # Default: don't skip video extraction
+        
+        # Check if file is already in the processed logs
+        file_already_processed = video_file in processed_files or (
+            file_signature and file_signature in processed_signatures
+        )
+        
+        force_reprocess_file = file_opts.get("force_process", False)
+        
+        if file_already_processed and not force_reprocess and not force_reprocess_file:
+            if rename_enabled:
+                # File already processed but user wants to rename it or extract subtitles
+                logger.info(f"File {video_file} already processed. Only performing rename/subtitle extract as requested...")
+                skip_file = False
+                skip_video = True
+                skip_extract = not export_subtitles
+            else:
+                logger.info(f"File {video_file} already processed. Skipping entirely.")
                 skip_file = True
-            elif file_signature and file_signature in processed_signatures:
-                logger.info(f"File {video_file} has same content as already processed file {processed_signatures[file_signature]['new_name']}. Skipping.")
-                skip_file = True
-        elif video_file in processed_files and rename_enabled:
-            # File already processed but only needs rename
-            # Still extract subtitles if export_subtitles is enabled
-            logger.info(f"File {video_file} already processed. Only performing rename as requested...")
-            skip_file = False  # Don't skip, will rename at end
-            # Only skip extract if export_subtitles is disabled
-            skip_extract = not export_subtitles
         
         if skip_file:
             return False  # Return False to indicate skipped
@@ -681,7 +686,7 @@ def _do_process_file(file_path, video_file, file_idx, total_files, input_folder,
                            for stream in audio_streams)
                            
         # Note: If GUI explicitely disables mux_audio, completely skip video extraction
-        should_process_audio = mux_audio and (bool(selected_audio_indices) or has_vie_audio)
+        should_process_audio = not skip_video and mux_audio and (bool(selected_audio_indices) or has_vie_audio)
 
         # Extract subtitles if enabled
         if not skip_extract:
@@ -784,12 +789,6 @@ def _do_process_file(file_path, video_file, file_idx, total_files, input_folder,
 
         # Check rename_enabled option (re-read in case it changed)
         rename_enabled = file_opts.get("rename_enabled", False)
-        force_reprocess_file = file_opts.get("force_process", False)
-        
-        # file_already_processed indicates if it's IN THE LOG FILE before this run.
-        file_already_processed = video_file in processed_files or (
-            file_signature and file_signature in processed_signatures
-        )
         
         # Decide if we should rename
         # 1. If we successfully processed something new (processing_success = True), and rename is enabled -> rename
