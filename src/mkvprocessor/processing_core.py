@@ -1039,7 +1039,7 @@ def main(input_folder=None, force_reprocess: Optional[bool] = None, dry_run: boo
         if not force_reprocess:
             for entry in remote_entries:
                 if entry.get("category") != "video":
-                    return
+                    continue  # Skip non-video entries, DO NOT return
                 info = {
                     "new_name": entry.get("new_name", ""),
                     "time": entry.get("timestamp", ""),
