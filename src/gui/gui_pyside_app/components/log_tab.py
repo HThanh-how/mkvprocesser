@@ -141,7 +141,10 @@ class LogTab(QtWidgets.QWidget):
         layout.addWidget(self.log_tabs)
 
     def copy_log(self):
-        self.log_view.copy()
+        from PySide6.QtWidgets import QApplication
+        QApplication.clipboard().setText(self.log_view.toPlainText())
+        self.copy_log_btn.setText("✅")
+        QtCore.QTimer.singleShot(2000, lambda: self.copy_log_btn.setText("📋"))
         
     def clear_log(self):
         self.log_view.clear()
@@ -155,39 +158,37 @@ class LogTab(QtWidgets.QWidget):
         self.log_tabs.setTabText(3, "📄 SRT (0)")
         
     def open_logs_folder(self):
-        """Open logs folder in file explorer."""
-        try:
-            log_folder = Path("logs")
-            if not log_folder.exists():
-                log_folder.mkdir()
-            os.startfile(log_folder)
-        except Exception as e:
-            self.log_view.appendPlainText(f"[ERROR] Không thể mở thư mục logs: {e}")
+        """Delegate to parent (MainWindow) for correct folder context."""
+        if self.parent and hasattr(self.parent, 'open_logs_folder'):
+            self.parent.open_logs_folder()
+        else:
+            try:
+                log_folder = Path("logs")
+                log_folder.mkdir(parents=True, exist_ok=True)
+                os.startfile(log_folder)
+            except Exception as e:
+                self.log_view.appendPlainText(f"[ERROR] Không thể mở thư mục logs: {e}")
 
     def refresh_history_view(self):
-        """Refresh history logic."""
-        try:
-            history_file = Path("history.json")
-            if not history_file.exists():
-                return
-                
-            with open(history_file, 'r', encoding='utf-8') as f:
-                history_data = json.load(f)
-                
-            # Filter valid entries
-            history_list = []
-            if isinstance(history_data, list):
-                history_list = history_data
-            elif isinstance(history_data, dict):
-                history_list = history_data.get("history", [])
-                
-            self.history_table.setRowCount(0)
-            for item in reversed(history_list[-50:]): # Show last 50
-                row = self.history_table.rowCount()
-                self.history_table.insertRow(row)
-                self.history_table.setItem(row, 0, QtWidgets.QTableWidgetItem(item.get("original_name", "")))
-                self.history_table.setItem(row, 1, QtWidgets.QTableWidgetItem(item.get("new_name", "")))
-                self.history_table.setItem(row, 2, QtWidgets.QTableWidgetItem(item.get("timestamp", "")))
-                self.history_table.setItem(row, 3, QtWidgets.QTableWidgetItem(item.get("signature", "")))
-        except Exception as e:
-            self.log_view.appendPlainText(f"[ERROR] Lỗi đọc history: {e}")
+        """Delegate to parent (MainWindow) for correct folder and data context."""
+        if self.parent and hasattr(self.parent, 'refresh_history_view'):
+            self.parent.refresh_history_view()
+        else:
+            # Fallback nếu không có parent
+            try:
+                history_file = Path("history.json")
+                if not history_file.exists():
+                    return
+                with open(history_file, 'r', encoding='utf-8') as f:
+                    history_data = json.load(f)
+                history_list = history_data if isinstance(history_data, list) else history_data.get("history", [])
+                self.history_table.setRowCount(0)
+                for item in reversed(history_list[-50:]):
+                    row = self.history_table.rowCount()
+                    self.history_table.insertRow(row)
+                    self.history_table.setItem(row, 0, QtWidgets.QTableWidgetItem(item.get("original_name", "")))
+                    self.history_table.setItem(row, 1, QtWidgets.QTableWidgetItem(item.get("new_name", "")))
+                    self.history_table.setItem(row, 2, QtWidgets.QTableWidgetItem(item.get("timestamp", "")))
+                    self.history_table.setItem(row, 3, QtWidgets.QTableWidgetItem(item.get("signature", "")))
+            except Exception as e:
+                self.log_view.appendPlainText(f"[ERROR] Lỗi đọc history: {e}")

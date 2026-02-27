@@ -45,14 +45,21 @@ class SettingsTab(QtWidgets.QWidget):
     
     def __init__(self, parent=None, config=None, log_view=None):
         super().__init__(parent)
+        self._parent = parent
         self.config = config if config else {}
         self.log_view = log_view
         self.update_manager = None
         self._update_manager_imported = False
         self.update_download_worker = None
-        self.status_labels = getattr(parent, "status_labels", {}) if parent else {}
         
         self.build_ui()
+
+    @property
+    def status_labels(self):
+        """Lazy access to parent's status_labels (created after components init)."""
+        if self._parent and hasattr(self._parent, 'status_labels'):
+            return self._parent.status_labels
+        return {}
         
     def _create_message_box(self, icon: QtWidgets.QMessageBox.Icon, title: str, text: str, 
                            buttons: QtWidgets.QMessageBox.StandardButton = QtWidgets.QMessageBox.Ok,

@@ -446,15 +446,20 @@ class MainWindow(QtWidgets.QMainWindow):
         self.repo_edit = self.settings_tab.repo_edit
         self.token_edit = self.settings_tab.token_edit
         
-        # Connect Settings Signals
-        self.language_combo.currentIndexChanged.connect(lambda index: self.on_language_changed(index))
+        # NOTE: on_language_changed đã connect trong settings_tab.build_ui, KHÔNG connect lại
 
         # Log Tab
         self.log_view = self.log_tab.log_view
         self.history_table = self.log_tab.history_table
         self.errors_view = self.log_tab.errors_view
+        self.srt_view = self.log_tab.srt_view
+        self.log_tabs = self.log_tab.log_tabs
 
+        # Processing Tab proxies
+        self.status_labels = self.processing_tab.status_labels
 
+        # Settings Tab index for update badge
+        self.settings_tab_index = 2
         
         # Track update badge state
         self._has_update_badge = False
@@ -1785,11 +1790,12 @@ class MainWindow(QtWidgets.QMainWindow):
             except Exception as e:
                 print(f"[ERROR] Không thể normalize path {filepath}: {e}")
         
-        # Setup progress bar với range thực tế
-        self.progress.setRange(0, len(selected))
-        self.progress.setValue(0)
-        self.progress.setFormat("%v/%m")
-        self.progress.setVisible(True)
+        # Setup progress bars
+        self.total_progress.setRange(0, len(selected))
+        self.total_progress.setValue(0)
+        self.total_progress.setFormat("Total: %v/%m files")
+        self.file_progress.setRange(0, 100)
+        self.file_progress.setValue(0)
         self.start_btn.setVisible(False)  # Ẩn nút Bắt đầu
         self.stop_btn.setVisible(True)    # Hiện nút Dừng
         self.status_bar.showMessage(f"Processing 0/{len(selected)} files…")
@@ -1798,15 +1804,17 @@ class MainWindow(QtWidgets.QMainWindow):
         if self.worker and self.worker.isRunning():
             self.worker.requestInterruption()
             self.worker.terminate()
-        self.progress.setVisible(False)
+        self.file_progress.setValue(0)
+        self.total_progress.setValue(0)
+        self.start_btn.setEnabled(True)
         self.start_btn.setVisible(True)   # Hiện nút Bắt đầu
         self.stop_btn.setVisible(False)  # Ẩn nút Dừng
         self.status_bar.showMessage("Đã dừng", 3000)
 
     def update_progress(self, current: int, total: int, filename: str):
         """Cập nhật thanh tiến độ và UI của file đang xử lý"""
-        self.progress.setRange(0, total)
-        self.progress.setValue(current)
+        self.total_progress.setRange(0, total)
+        self.total_progress.setValue(current)
         # Rút gọn tên file nếu quá dài
         short_name = filename if len(filename) <= 40 else filename[:37] + "..."
         self.status_bar.showMessage(f"[{current}/{total}] {short_name}")
@@ -1840,7 +1848,9 @@ class MainWindow(QtWidgets.QMainWindow):
             print(f"[WARNING] Không tìm thấy filepath cho filename: {filename}")
 
     def finish_processing(self, success: bool):
-        self.progress.setVisible(False)
+        self.file_progress.setValue(0)
+        self.total_progress.setValue(0)
+        self.start_btn.setEnabled(True)
         self.start_btn.setVisible(True)   # Hiện nút Bắt đầu
         self.stop_btn.setVisible(False)  # Ẩn nút Dừng
         os.environ.pop("MKV_FILE_OPTIONS", None)
@@ -2007,10 +2017,10 @@ class MainWindow(QtWidgets.QMainWindow):
             self.srt_view.appendPlainText(text.replace("[INFO] - ", ""))
             self.srt_view.moveCursor(QtGui.QTextCursor.End)
             # Cập nhật counter
-            if hasattr(self, 'srt_count'):
-                self.srt_count += 1
+            if hasattr(self.log_tab, 'srt_count'):
+                self.log_tab.srt_count += 1
                 if hasattr(self, 'log_tabs'):
-                    self.log_tabs.setTabText(3, f"📄 SRT ({self.srt_count})")
+                    self.log_tabs.setTabText(3, f"📄 SRT ({self.log_tab.srt_count})")
             return  # Không hiển thị trong Session
         
         # Log thường -> Session
@@ -2029,33 +2039,6 @@ class MainWindow(QtWidgets.QMainWindow):
             if hasattr(self, 'log_tabs'):
                 self.log_tabs.setTabText(2, "⚠️ Errors ●")
 
-    def copy_log(self):
-        if self.log_view:
-            QtWidgets.QApplication.clipboard().setText(self.log_view.toPlainText())
-            # Đổi icon để báo đã copy
-            if hasattr(self, 'copy_log_btn'):
-                self.copy_log_btn.setText("✅")
-                # Đổi lại sau 2 giây
-                QtCore.QTimer.singleShot(2000, lambda: self.copy_log_btn.setText("📋"))
-
-    def clear_log(self):
-        if self.log_view:
-            self.log_view.clear()
-
-    def clear_errors(self):
-        """Xóa tab Errors"""
-        if hasattr(self, 'errors_view') and self.errors_view:
-            self.errors_view.clear()
-            if hasattr(self, 'log_tabs'):
-                self.log_tabs.setTabText(2, "⚠️ Errors")
-
-    def clear_srt_log(self):
-        """Xóa tab SRT"""
-        if hasattr(self, 'srt_view') and self.srt_view:
-            self.srt_view.clear()
-            self.srt_count = 0
-            if hasattr(self, 'log_tabs'):
-                self.log_tabs.setTabText(3, "📄 SRT (0)")
 
     def refresh_history_view(self):
         """Refresh bảng lịch sử xử lý và auto-migrate data cũ"""
@@ -2145,563 +2128,57 @@ class MainWindow(QtWidgets.QMainWindow):
             self.history_table.setItem(row, 3, QtWidgets.QTableWidgetItem(short_sig))
 
     def open_logs_folder(self):
+        """Open logs folder - delegate sử dụng folder context."""
         folder = self.folder_edit.text().strip()
         logs_dir = Path(folder) / "Subtitles" / "logs" if folder else Path("logs")
         logs_dir.mkdir(parents=True, exist_ok=True)
         QtGui.QDesktopServices.openUrl(QtCore.QUrl.fromLocalFile(str(logs_dir.resolve())))
 
-    def _browse_output_folder(self, folder_type: str):
-        """Browse for output folder and update the corresponding field."""
-        folder = QtWidgets.QFileDialog.getExistingDirectory(self, f"Chọn thư mục {folder_type}")
-        if folder:
-            if folder_type == "dubbed":
-                self.dubbed_folder_edit.setText(folder)
-            elif folder_type == "subtitles":
-                self.subs_folder_edit.setText(folder)
-            elif folder_type == "original":
-                self.original_folder_edit.setText(folder)
-            elif folder_type == "cache":
-                self.cache_dir_edit.setText(folder)
+    # === Delegate methods to components ===
+    # Settings functions (save, test_token, updates) → self.settings_tab
+    # Log functions (copy, clear, clear_errors, clear_srt) → self.log_tab
+    # System status → self.processing_tab
 
     def save_settings(self):
-        # Save language if available
-        try:
-            if hasattr(self, 'language_combo'):
-                lang_code = self.language_combo.currentData()
-                if lang_code:
-                    self.config["language"] = lang_code
-                    from mkvprocessor.i18n import set_language
-                    set_language(lang_code)
-        except (ImportError, AttributeError):
-            pass
-        
-        self.config.update({
-            "input_folder": self.folder_edit.text(),
-            "auto_upload": self.auto_upload_cb.isChecked(),
-            "repo": self.repo_edit.text(),
-            "repo_url": self.repo_url_edit.text(),
-            "branch": self.branch_edit.text(),
-            "token": self.token_edit.text(),
-            "force_reprocess": self.force_reprocess_cb.isChecked(),
-            "prefer_beta_updates": self.beta_stable_combo.currentData() == "beta" if hasattr(self, 'beta_stable_combo') else False,
-            "auto_download_updates": self.auto_download_cb.isChecked() if hasattr(self, 'auto_download_cb') else False,
-            # Output folder settings
-            "output_folder_dubbed": self.dubbed_folder_edit.text().strip() if hasattr(self, 'dubbed_folder_edit') else "",
-            "output_folder_subtitles": self.subs_folder_edit.text().strip() if hasattr(self, 'subs_folder_edit') else "",
-            "output_folder_original": self.original_folder_edit.text().strip() if hasattr(self, 'original_folder_edit') else "",
-            # SSD Cache settings
-            "use_ssd_cache": self.use_ssd_cache_cb.isChecked() if hasattr(self, 'use_ssd_cache_cb') else True,
-            "temp_cache_dir": self.cache_dir_edit.text().strip() if hasattr(self, 'cache_dir_edit') else "",
-        })
-        save_user_config(self.config)
-        self.settings_status.setText("✅ Saved")
-        self.refresh_system_status()
-
-    def test_token(self):
-        token, repo = self.token_edit.text().strip(), self.repo_edit.text().strip()
-        if not token or not repo:
-            QtWidgets.QMessageBox.warning(self, "Error", "Token and repo are required.")
-            return
-        try:
-            r = requests.get(f"https://api.github.com/repos/{repo}", 
-                           headers={"Authorization": f"Bearer {token}"}, timeout=10)
-            if r.status_code == 200:
-                self.show_info_message("OK", "Token hợp lệ!")
-            else:
-                QtWidgets.QMessageBox.critical(self, "Error", f"Status code {r.status_code}")
-        except Exception as e:
-            QtWidgets.QMessageBox.critical(self, "Error", str(e))
+        """Delegate to settings_tab."""
+        self.settings_tab.save_settings()
 
     def refresh_system_status(self):
-        """Refresh system status - lazy load script module"""
-        try:
-            script = self._get_script_module()
-            ok = script.check_ffmpeg_available()
-            self.status_labels["ffmpeg"].setText(f"FFmpeg: {'✓' if ok else '✗'}")
-            self.status_labels["ffmpeg"].setStyleSheet(f"color: {get_status_color('success' if ok else 'warning')};")
-        except Exception as e:
-            print(f"[WARNING] Không thể kiểm tra FFmpeg: {e}")
-            self.status_labels["ffmpeg"].setText("FFmpeg: ?")
+        """Delegate to processing_tab."""
+        self.processing_tab.refresh_system_status()
 
-        try:
-            script = self._get_script_module()
-            ram = script.check_available_ram()
-            self.status_labels["ram"].setText(f"RAM: {ram:.1f}GB")
-            self.status_labels["ram"].setStyleSheet(f"color: {get_status_color('info')};")
-        except Exception as e:
-            print(f"[WARNING] Không thể kiểm tra RAM: {e}")
-            self.status_labels["ram"].setText("RAM: ?")
-
-        has_config = get_config_path().exists()
-        if not has_config or not self.config.get("token"):
-            self.status_labels["github"].setText("GitHub: Cấu hình →")
-            self.status_labels["github"].setStyleSheet(f"color: {get_status_color('warning')}; text-decoration: underline;")
-        elif self.config.get("auto_upload"):
-            self.status_labels["github"].setText("GitHub: ✓ Auto")
-            self.status_labels["github"].setStyleSheet(f"color: {get_status_color('success')};")
-        else:
-            self.status_labels["github"].setText("GitHub: Tắt")
-            self.status_labels["github"].setStyleSheet(f"color: {get_status_color('warning')};")
-
-        QtCore.QTimer.singleShot(60000, self.refresh_system_status)
-    
-    def check_for_updates(self):
-        """Manually check for updates."""
-        update_manager = self._get_update_manager()
-        if not update_manager:
-            QtWidgets.QMessageBox.warning(
-                self, 
-                "Update Manager", 
-                "Update manager không khả dụng.\n\n"
-                "Có thể do:\n"
-                "- Thiếu thư viện requests (pip install requests)\n"
-                "- Lỗi import module\n\n"
-                "Vui lòng kiểm tra console để xem chi tiết lỗi."
-            )
-            return
-        
-        self.update_manager = update_manager
-        self.check_update_btn.setEnabled(False)
-        self.check_update_btn.setText("Checking...")
-        
-        try:
-            # Show checking status
-            self.update_status_label.setText("Đang kiểm tra...")
-            QtWidgets.QApplication.processEvents()
-            
-            # Get prefer_beta setting
-            prefer_beta = self.config.get("prefer_beta_updates", False)
-            update_manager.set_prefer_beta(prefer_beta)
-            
-            has_update, release_info = update_manager.check_for_updates(prefer_beta=prefer_beta)
-            
-            if has_update and release_info:
-                version = release_info.get("version", "new version")
-                is_beta = release_info.get("is_beta", False)
-                version_type = "Beta" if is_beta else "Stable"
-                
-                # Update latest version label
-                self.latest_version_label.setText(
-                    f"📥 Bản sắp update: <b style='color: #10b981;'>{version}</b> <span style='color: #8b949e;'>({version_type})</span>"
-                )
-                name = release_info.get("name", "")
-                body = release_info.get("body", "")
-                html_url = release_info.get("html_url", "")
-                
-                # Update UI
-                self.update_status_label.setText(
-                    f"<b style='color: #10b981;'>Update available: {version}</b><br/>"
-                    f"{name}<br/>"
-                    f"<a href='{html_url}'>View on GitHub</a>"
-                )
-                if hasattr(self, '_set_update_buttons'):
-                    self._set_update_buttons(download_enabled=True, restart_enabled=False)
-                else:
-                    self.download_update_btn.setEnabled(True)
-                self.latest_release_info = release_info
-                
-                # Show message box with theme
-                msg = QtWidgets.QMessageBox(self)
-                msg.setStyleSheet(DARK_THEME)  # Apply dark theme
-                msg.setIcon(QtWidgets.QMessageBox.Information)
-                msg.setWindowTitle("Update Available")
-                msg.setText(f"New version {version} is available!")
-                msg.setInformativeText(f"{name}\n\nDo you want to download it now?")
-                msg.setStandardButtons(
-                    QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No
-                )
-                msg.setDefaultButton(QtWidgets.QMessageBox.Yes)
-                
-                if msg.exec() == QtWidgets.QMessageBox.Yes:
-                    self.download_update()
-            else:
-                # No update available
-                current_version = update_manager.get_current_version()
-                is_current_beta = "beta" in current_version.lower()
-                version_type = "Beta" if is_current_beta else "Stable"
-                self.update_status_label.setText(
-                    f"<b style='color: #10b981;'>Bạn đang dùng phiên bản mới nhất: {current_version} ({version_type})</b>"
-                )
-                self.latest_version_label.setText(
-                    f"📥 Bản sắp update: <span style='color: #8b949e;'>Không có bản mới</span>"
-                )
-                self.download_update_btn.setEnabled(False)
-                if hasattr(self, '_set_update_buttons'):
-                    self._set_update_buttons(download_enabled=False, restart_enabled=False)
-                else:
-                    self.restart_update_btn.setEnabled(False)
-                self.show_info_message(
-                    "Up to Date",
-                    f"Bạn đang dùng phiên bản mới nhất: "
-                    f"{current_version} ({version_type})"
-                )
-                
-        except Exception as e:
-            error_msg = str(e)
-            print(f"[ERROR] Lỗi khi check updates: {error_msg}")
-            import traceback
-            traceback.print_exc()
-            
-            self.update_status_label.setText(
-                f"<b style='color: #ef4444;'>Lỗi: {error_msg}</b>"
-            )
-            QtWidgets.QMessageBox.warning(
-                self, "Update Error",
-                f"Không thể kiểm tra cập nhật:\n{error_msg}\n\n"
-                "Kiểm tra:\n"
-                "- Kết nối internet\n"
-                "- GitHub API có thể truy cập\n"
-                "- Xem console để biết chi tiết lỗi"
-            )
-        finally:
-            self.check_update_btn.setEnabled(True)
-            self.check_update_btn.setText("🔍 Check for Updates")
-    
-    def download_update(self):
-        """Download update file (but don't install yet - user will click Restart to install)."""
-        update_manager = self._get_update_manager()
-        if not update_manager or not hasattr(self, 'latest_release_info'):
-            QtWidgets.QMessageBox.warning(self, "Error", "No update information available")
-            return
-        
-        release_info = self.latest_release_info
-        assets = release_info.get("assets", [])
-        
-        if not assets:
-            QtWidgets.QMessageBox.warning(self, "Error", "No download available for this release")
-            return
-        
-        # Find executable asset
-        exe_asset = update_manager.find_exe_asset(assets)
-        if not exe_asset:
-            QtWidgets.QMessageBox.warning(
-                self, "Error", 
-                "No compatible executable found for your platform.\n"
-                "Please download manually from GitHub."
-            )
-            return
-        
-        # Confirm download (skip if auto download is enabled)
-        auto_download = self.config.get("auto_download_updates", False)
-        if not auto_download:
-            file_name = exe_asset.get("name", "update.exe")
-            file_size = exe_asset.get("size", 0)
-            size_mb = file_size / 1024 / 1024
-            
-            reply = QtWidgets.QMessageBox.question(
-                self, "Download Update",
-                f"Download {file_name} ({size_mb:.1f} MB)?\n\n"
-                "Sau khi download, nhấn nút 'Restart & Update' để cài đặt.",
-                QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
-                QtWidgets.QMessageBox.Yes
-            )
-            
-            if reply != QtWidgets.QMessageBox.Yes:
-                return
-        
-        # Download with progress in background thread
-        self.download_update_btn.setEnabled(False)
-        self.update_progress_bar.setVisible(True)
-        self.update_progress_bar.setRange(0, 100)
-        self.update_progress_bar.setValue(0)
-        
-        # Stop any existing download worker
-        if self.update_download_worker and self.update_download_worker.isRunning():
-            self.update_download_worker.terminate()
-            self.update_download_worker.wait()
-        
-        # Create and start download worker thread
-        self.update_download_worker = UpdateDownloadWorker(update_manager, exe_asset, self)
-        self.update_download_worker.progress_signal.connect(self._on_download_progress)
-        self.update_download_worker.finished_signal.connect(self._on_download_finished)
-        self.update_download_worker.error_signal.connect(self._on_download_error)
-        self.update_download_worker.start()
-    
-    def _on_download_progress(self, downloaded: int, total: int, percent: int):
-        """Update progress bar and status label from download worker."""
-        self.update_progress_bar.setValue(percent)
-        self.update_status_label.setText(
-            f"Downloading: {downloaded / 1024 / 1024:.1f} MB / {total / 1024 / 1024:.1f} MB"
-        )
-        # Process events to keep UI responsive
-        QtWidgets.QApplication.processEvents()
-    
-    def _on_download_finished(self, download_path):
-        """Handle download completion."""
-        self.update_progress_bar.setVisible(False)
-        
-        if not download_path:
-            self.update_status_label.setText(
-                "<b style='color: #ef4444;'>Download thất bại!</b>"
-            )
-            if hasattr(self, '_set_update_buttons'):
-                self._set_update_buttons(download_enabled=True, restart_enabled=False)
-            else:
-                self.download_update_btn.setEnabled(True)
-            return
-        
-        # Save downloaded file path for later installation
-        self.downloaded_update_file = download_path
-        self.update_status_label.setText(
-            f"<b style='color: #10b981;'>Download hoàn tất!</b><br/>"
-            f"File: {download_path.name}<br/>"
-            f"Nhấn nút 'Restart & Update' để cài đặt."
-        )
-        self.update_progress_bar.setValue(100)
-        if hasattr(self, '_set_update_buttons'):
-            self._set_update_buttons(download_enabled=False, restart_enabled=True)
-        else:
-            self.restart_update_btn.setEnabled(True)
-            self.download_update_btn.setEnabled(False)
-    
-    def _on_download_error(self, error_msg: str):
-        """Handle download error."""
-        self.update_status_label.setText(
-            f"<b style='color: #ef4444;'>Error: {error_msg}</b>"
-        )
-        QtWidgets.QMessageBox.critical(
-            self, "Update Error",
-            f"Failed to download update:\n{error_msg}\n\n"
-            "Please try downloading manually from GitHub."
-        )
-        self.update_progress_bar.setVisible(False)
-        if hasattr(self, '_set_update_buttons'):
-            self._set_update_buttons(download_enabled=True, restart_enabled=False)
-        else:
-            self.download_update_btn.setEnabled(True)
-    
-    def restart_and_update(self):
-        """Install downloaded update and restart application."""
-        if not hasattr(self, 'downloaded_update_file') or self.downloaded_update_file is None:
-            QtWidgets.QMessageBox.warning(self, "Error", "No update file downloaded. Please download first.")
-            return
-        
-        update_manager = self._get_update_manager()
-        if not update_manager:
-            QtWidgets.QMessageBox.warning(self, "Error", "Update manager not available")
-            return
-        
-        # Confirm restart
-        reply = QtWidgets.QMessageBox.question(
-            self, "Restart & Update",
-            "Cài đặt update và khởi động lại ứng dụng?\n\n"
-            "Ứng dụng sẽ tự động đóng và khởi động lại.",
-            QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
-            QtWidgets.QMessageBox.Yes
-        )
-        
-        if reply != QtWidgets.QMessageBox.Yes:
-            return
-        
-        try:
-            self.update_status_label.setText("Đang cài đặt update...")
-            QtWidgets.QApplication.processEvents()
-            
-            if update_manager.install_update(self.downloaded_update_file):
-                self.update_status_label.setText(
-                    "<b style='color: #10b981;'>Cài đặt thành công! Đang khởi động lại...</b>"
-                )
-                QtWidgets.QApplication.processEvents()
-                
-                # Small delay to show message
-                QtCore.QTimer.singleShot(1000, lambda: update_manager.restart_application())
-            else:
-                raise Exception("Cài đặt thất bại")
-                
-        except Exception as e:
-            self.update_status_label.setText(
-                f"<b style='color: #ef4444;'>Lỗi: {str(e)}</b>"
-            )
-            QtWidgets.QMessageBox.critical(
-                self, "Update Error",
-                f"Không thể cài đặt update:\n{str(e)}\n\n"
-                "Vui lòng thử tải lại hoặc cài đặt thủ công."
-            )
-    
-    def on_beta_stable_changed(self, index: int):
-        """Handle beta/stable selection change."""
-        prefer_beta = self.beta_stable_combo.currentData() == "beta"
-        self.config["prefer_beta_updates"] = prefer_beta
-        save_user_config(self.config)
-        
-        # Update UpdateManager preference
-        update_manager = self._get_update_manager()
-        if update_manager:
-            update_manager.set_prefer_beta(prefer_beta)
-    
-    def on_auto_download_changed(self, checked: bool):
-        """Handle auto download checkbox change."""
-        self.config["auto_download_updates"] = checked
-        save_user_config(self.config)
-    
     def auto_check_for_updates(self):
-        """Silently check for updates on startup (non-blocking)."""
-        update_manager = self._get_update_manager()
-        if not update_manager:
-            print("[UPDATE] UpdateManager not available")
-            return
-        
-        # Check in background thread to avoid blocking UI
-        def check_in_background():
-            try:
-                print("[UPDATE] Checking for updates...")
-                prefer_beta = self.config.get("prefer_beta_updates", False)
-                update_manager.set_prefer_beta(prefer_beta)
-                
-                has_update, release_info = update_manager.check_for_updates(timeout=10, prefer_beta=prefer_beta)
-                print(f"[UPDATE] Check result: has_update={has_update}, release_info={release_info is not None}")
-                
-                if has_update and release_info:
-                    version = release_info.get('version', 'unknown')
-                    is_beta = release_info.get('is_beta', False)
-                    version_type = "Beta" if is_beta else "Stable"
-                    print(f"[UPDATE] Update available: {version} ({version_type})")
-                    
-                    # Update UI in main thread
-                    QtCore.QTimer.singleShot(0, lambda: self._show_update_notification(release_info))
-                    
-                    # Auto download if enabled
-                    auto_download = self.config.get("auto_download_updates", False)
-                    if auto_download:
-                        print("[UPDATE] Auto download enabled, starting download...")
-                        QtCore.QTimer.singleShot(1000, lambda: self._auto_download_update(release_info))
-                else:
-                    print("[UPDATE] No update available or already up to date")
-            except Exception as e:
-                # Log error but don't show to user (silent fail)
-                print(f"[UPDATE] Error during auto-check: {e}")
-                import traceback
-                traceback.print_exc()
-        
-        # Run in background
-        import threading
-        thread = threading.Thread(target=check_in_background, daemon=True)
-        thread.start()
-    
-    def _auto_download_update(self, release_info: dict):
-        """Auto download update in background."""
+        """Silently check for updates on startup - delegate to settings_tab."""
         try:
-            self.latest_release_info = release_info
-            assets = release_info.get("assets", [])
-            if not assets:
-                return
-            
-            update_manager = self._get_update_manager()
-            if not update_manager:
-                return
-            
-            exe_asset = update_manager.find_exe_asset(assets)
-            if not exe_asset:
-                return
-            
-            # Show progress bar
-            if hasattr(self, 'update_progress_bar'):
-                self.update_progress_bar.setVisible(True)
-                self.update_progress_bar.setRange(0, 100)
-                self.update_progress_bar.setValue(0)
-            
-            # Stop any existing download worker
-            if self.update_download_worker and self.update_download_worker.isRunning():
-                self.update_download_worker.terminate()
-                self.update_download_worker.wait()
-            
-            # Create and start download worker thread
-            self.update_download_worker = UpdateDownloadWorker(update_manager, exe_asset, self)
-            self.update_download_worker.progress_signal.connect(self._on_auto_download_progress)
-            self.update_download_worker.finished_signal.connect(self._on_auto_download_finished)
-            self.update_download_worker.error_signal.connect(self._on_auto_download_error)
-            self.update_download_worker.start()
+            if hasattr(self.settings_tab, 'auto_check_for_updates'):
+                self.settings_tab.auto_check_for_updates()
+            elif hasattr(self.settings_tab, 'check_for_updates'):
+                # Fallback: gọi check_for_updates nếu không có auto version
+                import threading
+                def _silent_check():
+                    try:
+                        self.settings_tab.check_for_updates()
+                    except Exception:
+                        pass
+                threading.Thread(target=_silent_check, daemon=True).start()
         except Exception as e:
-            print(f"[UPDATE] Error during auto download: {e}")
-            import traceback
-            traceback.print_exc()
-    
-    def _on_auto_download_progress(self, downloaded: int, total: int, percent: int):
-        """Update progress for auto download."""
-        if hasattr(self, 'update_progress_bar'):
-            self.update_progress_bar.setValue(percent)
-        if hasattr(self, 'update_status_label'):
-            self.update_status_label.setText(
-                f"Đang tự động tải: {downloaded / 1024 / 1024:.1f} MB / {total / 1024 / 1024:.1f} MB"
-            )
-        QtWidgets.QApplication.processEvents()
-    
-    def _on_auto_download_finished(self, download_path):
-        """Handle auto download completion."""
-        if download_path:
-            self.downloaded_update_file = download_path
-            if hasattr(self, '_set_update_buttons'):
-                self._set_update_buttons(download_enabled=False, restart_enabled=True)
-            elif hasattr(self, 'restart_update_btn'):
-                self.restart_update_btn.setEnabled(True)
-            if hasattr(self, 'update_status_label'):
-                version = self.latest_release_info.get("version", "unknown") if hasattr(self, 'latest_release_info') else "unknown"
-                self.update_status_label.setText(
-                    f"<b style='color: #10b981;'>Đã tải xong {version}!</b><br/>"
-                    f"Nhấn 'Restart & Update' để cài đặt."
-                )
-            print(f"[UPDATE] Auto download completed: {download_path}")
-    
-    def _on_auto_download_error(self, error_msg: str):
-        """Handle auto download error."""
-        if hasattr(self, 'update_status_label'):
-            self.update_status_label.setText(
-                f"<b style='color: #ef4444;'>Lỗi tự động tải: {error_msg}</b>"
-            )
-        print(f"[UPDATE] Error during auto download: {error_msg}")
-    
-    def _show_update_notification(self, release_info: dict):
-        """Show update notification (called from background thread)."""
-        version = release_info.get("version", "new version")
-        is_beta = release_info.get("is_beta", False)
-        version_type = "Beta" if is_beta else "Stable"
-        name = release_info.get("name", "")
-        html_url = release_info.get("html_url", "")
-        
-        # Update latest version label
-        if hasattr(self, 'latest_version_label'):
-            self.latest_version_label.setText(
-                f"📥 Bản sắp update: <b style='color: #10b981;'>{version}</b> <span style='color: #8b949e;'>({version_type})</span>"
-            )
-        
-        # Update UI
-        if hasattr(self, 'update_status_label'):
-            self.update_status_label.setText(
-                f"<b style='color: #10b981;'>Update available: {version} ({version_type})</b><br/>"
-                f"{name}<br/>"
-                f"<a href='{html_url}'>View on GitHub</a>"
-            )
-        
-        if hasattr(self, 'download_update_btn'):
-            self.download_update_btn.setEnabled(True)
-        
-        self.latest_release_info = release_info
-        
-        # Show red dot badge on Settings tab
-        self._show_update_badge(True)
-        
-        # Mark as shown (to avoid showing multiple times)
-        self._update_notification_shown = True
-    
+            print(f"[UPDATE] Error during auto-check: {e}")
+
     def _show_update_badge(self, show: bool):
         """Show or hide red dot badge on Settings tab."""
         if not hasattr(self, 'settings_tab_index') or self.settings_tab_index is None:
             return
-        
         tab_index = self.settings_tab_index
         if show and not self._has_update_badge:
-            # Add red dot to tab text
             current_text = self.tabs.tabText(tab_index)
             if "●" not in current_text:
                 self.tabs.setTabText(tab_index, f"Settings ●")
-                # Style the tab to show red dot
                 self.tabs.tabBar().setTabTextColor(tab_index, QtGui.QColor("#ef4444"))
                 self._has_update_badge = True
         elif not show and self._has_update_badge:
-            # Remove red dot
             current_text = self.tabs.tabText(tab_index)
             self.tabs.setTabText(tab_index, current_text.replace(" ●", ""))
-            self.tabs.tabBar().setTabTextColor(tab_index, QtGui.QColor())  # Reset to default
+            self.tabs.tabBar().setTabTextColor(tab_index, QtGui.QColor())
             self._has_update_badge = False
 
 
