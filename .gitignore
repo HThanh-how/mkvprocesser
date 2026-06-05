@@ -39,3 +39,17 @@ auto_push_config*.json
 .cursor/
 
 .env
+
+# --- mkvtools runtime & secrets (Phase 1) ---
+config.yaml
+secrets/*
+!secrets/.gitkeep
+client_secret*.json
+token.json
+*.pem
+*.key
+inbox/*
+!inbox/.gitkeep
+work/
+done/
+*.egg-info/

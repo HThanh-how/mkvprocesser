@@ -1,0 +1,30 @@
+services:
+  # Pipeline tu dong: tha file vao inbox/ -> tach + upload
+  mkvtools:
+    build: .
+    container_name: mkvtools
+    restart: unless-stopped
+    volumes:
+      - ./inbox:/app/inbox
+      - ./work:/app/work
+      - ./done:/app/done
+      - ./secrets:/app/secrets
+      - ./config.yaml:/app/config.yaml:ro
+    command: ["mkvtools", "watch"]
+
+  # GUI web fallback (mo http://<host>:8800). Bat khi can lam tay.
+  gui:
+    build: .
+    container_name: mkvtools-gui
+    restart: unless-stopped
+    environment:
+      MKV_GUI_HOST: "0.0.0.0"
+    ports:
+      - "8800:8800"
+    volumes:
+      - ./inbox:/app/inbox
+      - ./work:/app/work
+      - ./done:/app/done
+      - ./secrets:/app/secrets
+      - ./config.yaml:/app/config.yaml:ro
+    command: ["mkvtools-gui"]

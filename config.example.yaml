@@ -1,0 +1,24 @@
+# Copy thanh config.yaml roi sua.
+client_secret: secrets/client_secret.json
+token_file: secrets/token.json
+
+inbox_dir: inbox
+work_dir: work
+done_dir: done
+cleanup_outputs: true
+upload: true                 # false = chi tach, khong upload
+
+privacy: private             # private | unlisted | public
+category_id: 22
+subtitle_mode: caption       # caption | burn | both
+container: mp4               # mp4 (cast/upload) | mkv (giu attachment/font)
+make_playlist: true
+default_caption_lang: vi
+description: ""
+tags: []
+
+title_template: "{base} [{lang}]"
+playlist_template: "{base}"
+
+watch_ext: [".mkv", ".mp4", ".ts", ".mov", ".webm"]
+poll_seconds: 10
