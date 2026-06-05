@@ -14,7 +14,30 @@ _DEFAULTS = {
     "description": "", "tags": [],
     "title_template": "{base} [{lang}]", "playlist_template": "{base}",
     "watch_ext": [".mkv", ".mp4", ".ts", ".mov", ".webm"], "poll_seconds": 10,
+    # Idempotency: bo qua file da xu ly (theo chu ky noi dung), trang thai ben dia.
+    "skip_processed": True, "state_file": "work/processed.json",
+    # An toan dia: can free >= kich_thuoc_file * min_free_gb_factor truoc khi tach.
+    "min_free_gb_factor": 1.5,
 }
+
+
+def _coerce(default, raw: str):
+    """Ep gia tri env (luon la str) ve dung kieu cua default."""
+    if isinstance(default, bool):
+        return raw.strip().lower() in ("1", "true", "yes", "on")
+    if isinstance(default, int):
+        try:
+            return int(raw)
+        except ValueError:
+            return default
+    if isinstance(default, float):
+        try:
+            return float(raw)
+        except ValueError:
+            return default
+    if isinstance(default, list):
+        return [s for s in (x.strip() for x in raw.split(",")) if s]
+    return raw
 
 
 def load(path=None):
@@ -29,9 +52,9 @@ def load(path=None):
     if path and os.path.exists(path):
         with open(path, encoding="utf-8") as f:
             cfg.update(yaml.safe_load(f) or {})
-    # env override (MKV_PRIVACY, MKV_UPLOAD, ...)
+    # env override (MKV_PRIVACY, MKV_UPLOAD, ...), ep kieu theo default tuong ung
     for k in cfg:
         env = os.environ.get("MKV_" + k.upper())
         if env is not None:
-            cfg[k] = env
+            cfg[k] = _coerce(_DEFAULTS.get(k, ""), env)
     return cfg

@@ -55,7 +55,7 @@ jobs:
         run: python -c "import mkvtools, mkvtools.cli, mkvtools.webui, mkvtools.uploader, mkvtools.pipeline; print('mkvtools import OK', mkvtools.__version__)"
 
       - name: Unit tests (pure, no ffmpeg needed)
-        run: pytest tests/test_splitter.py
+        run: pytest tests/test_splitter.py tests/test_idempotency.py tests/test_resources.py tests/test_pipeline_idempotency.py
 
       - name: CLI entry point resolves
         run: mkvtools --help

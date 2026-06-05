@@ -4,7 +4,7 @@ import os
 import time
 import traceback
 
-from . import config, ffmpeg_helper, pipeline
+from . import config, ffmpeg_helper, idempotency, pipeline
 from . import uploader as up
 
 
@@ -22,8 +22,9 @@ def cmd_probe(cfg, args):
 
 def cmd_once(cfg, args):
     yt = _service(cfg) if (cfg.get("upload", True) and not args.no_upload) else None
+    # `once` la lenh tay cho 1 file -> luon chay (force) nhung van ghi lai de watch khong lam lai
     pipeline.process_file(os.path.abspath(args.file), cfg, yt=yt,
-                          do_upload=not args.no_upload)
+                          do_upload=not args.no_upload, force=True)
 
 
 def cmd_watch(cfg, args):
@@ -31,7 +32,9 @@ def cmd_watch(cfg, args):
     os.makedirs(inbox, exist_ok=True)
     yt = _service(cfg) if cfg.get("upload", True) else None
     exts = tuple(cfg["watch_ext"])
-    print(f"Theo doi {inbox} ... (Ctrl+C de dung)")
+    store = idempotency.ProcessedStore(cfg["state_file"]) if cfg.get("skip_processed", True) else None
+    extra = f" (da nho {len(store)} file)" if store is not None else ""
+    print(f"Theo doi {inbox} ...{extra} (Ctrl+C de dung)")
     seen, cache = set(), {}
     while True:
         for name in sorted(os.listdir(inbox)):
@@ -40,11 +43,11 @@ def cmd_watch(cfg, args):
                 continue
             sz = os.path.getsize(p)
             time.sleep(3)
-            if os.path.getsize(p) != sz:
+            if not os.path.exists(p) or os.path.getsize(p) != sz:
                 continue
             seen.add(p)
             try:
-                pipeline.process_file(p, cfg, yt=yt, pl_cache=cache)
+                pipeline.process_file(p, cfg, yt=yt, pl_cache=cache, store=store)
             except Exception:
                 print("LOI:", p)
                 traceback.print_exc()

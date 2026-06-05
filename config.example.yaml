@@ -22,3 +22,9 @@ playlist_template: "{base}"
 
 watch_ext: [".mkv", ".mp4", ".ts", ".mov", ".webm"]
 poll_seconds: 10
+
+# Chong xu ly trung (theo chu ky noi dung file). watch nho qua restart nho file nay.
+skip_processed: true
+state_file: work/processed.json
+# An toan dia: canh bao neu free < kich_thuoc_file * he_so truoc khi tach.
+min_free_gb_factor: 1.5

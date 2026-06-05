@@ -90,7 +90,8 @@ def analyze(file: str = Form(...)):
 def _worker(src, do_upload):
     try:
         yt = up.get_service(cfg["client_secret"], cfg["token_file"]) if do_upload else None
-        pipeline.process_file(src, cfg, yt=yt, do_upload=do_upload, log=_log)
+        # bam "Chay" tren GUI = thao tac tay -> luon chay (force) du da xu ly truoc do
+        pipeline.process_file(src, cfg, yt=yt, do_upload=do_upload, log=_log, force=True)
     except Exception as e:
         _log(f"LOI: {e}")
     finally:

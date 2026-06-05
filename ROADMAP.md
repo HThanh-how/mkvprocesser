@@ -33,8 +33,8 @@ src/mkvtools/
   webui.py           # GUI web FastAPI (fallback làm tay)                [có]
   config.py          # YAML + override env                              [có]
   # --- sẽ port từ app cũ (Phase 3) ---
-  idempotency.py     # dedup bằng chữ ký SHA‑256 + log đã xử lý          [ ]
-  resources.py       # kiểm tra RAM/SSD/đĩa, chiến lược cache            [ ]
+  idempotency.py     # dedup bằng chữ ký SHA‑256 + store bền đĩa         [x]
+  resources.py       # kiểm tra đĩa/RAM, chọn work-dir (đa nền tảng)     [x]
   sync_github.py     # đồng bộ phụ đề/log lên GitHub (opt-in)            [ ]
 ```
 
@@ -49,8 +49,10 @@ Front-ends: CLI (chính), web GUI (FastAPI), desktop GUI (PySide6 — opt-in `[d
 - [ ] **Phase 2 — Bỏ rác, sạch đa nền tảng.** Gỡ `ffmpeg_bin/` (~190MB .exe Windows) khỏi
   git, chuyển sang tải theo nhu cầu (`tools/download_ffmpeg.py`). (Tùy chọn, cần xác nhận:
   dùng `git filter-repo` xoá khỏi lịch sử — thao tác phá hủy.)
-- [ ] **Phase 3 — Port phần "thông minh".** Đưa idempotency (chữ ký SHA‑256), resource-aware
-  (RAM/SSD/đĩa), GitHub‑sync (opt-in) lên nền mới dưới dạng module sạch, có test.
+- [~] **Phase 3 — Port phần "thông minh".** ✅ idempotency (chữ ký SHA‑256 + store bền đĩa,
+  **fix bug watch reset khi restart**) và resource-aware (đĩa/RAM, đa nền tảng) đã port,
+  nối vào pipeline/cli/webui, có test. Tiện thể fix env override không ép kiểu (MKV_UPLOAD=false
+  giờ thành False thật). ⏳ Còn: GitHub‑sync (opt-in).
 - [ ] **Phase 4 — Gia cố enterprise.** Lazy-import để tách extras thật; logging có cấu trúc;
   validate config; web GUI thêm auth + hàng đợi job; watch loop lưu state bền (không mất khi
   restart); retry/è lỗi rõ ràng; test tích hợp (sinh sample ffmpeg nhỏ); Docker đa kiến trúc;
