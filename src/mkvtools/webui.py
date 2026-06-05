@@ -10,13 +10,35 @@ from fastapi import FastAPI, Form
 from fastapi.responses import HTMLResponse
 
 from . import config, ffmpeg_helper, pipeline
-from . import uploader as up
 
 cfg = config.load()
 app = FastAPI(title="mkvtools GUI")
 
+# Auth tuy chon: dat MKV_GUI_TOKEN de bao ve khi mo ra 0.0.0.0 (vd qua Docker).
+# Khong dat -> khong chan (mac dinh chay localhost, giu nguyen hanh vi cu).
+_TOKEN = os.environ.get("MKV_GUI_TOKEN", "")
+
 _job = {"running": False, "log": [], "file": None}
 _lock = threading.Lock()
+
+
+def token_ok(expected: str, supplied) -> bool:
+    """True neu khong bat auth (expected rong), hoac token khop."""
+    return (not expected) or (supplied == expected)
+
+
+@app.middleware("http")
+async def _auth(request, call_next):
+    if _TOKEN:
+        supplied = request.query_params.get("token") or request.cookies.get("mkv_token")
+        if not token_ok(_TOKEN, supplied):
+            from starlette.responses import PlainTextResponse
+            return PlainTextResponse("Unauthorized: them ?token=... vao URL", status_code=401)
+        resp = await call_next(request)
+        if request.query_params.get("token") == _TOKEN:  # nho token qua cookie
+            resp.set_cookie("mkv_token", _TOKEN, httponly=True, samesite="lax")
+        return resp
+    return await call_next(request)
 
 
 def _log(msg):
@@ -89,7 +111,12 @@ def analyze(file: str = Form(...)):
 
 def _worker(src, do_upload):
     try:
-        yt = up.get_service(cfg["client_secret"], cfg["token_file"]) if do_upload else None
+        yt = None
+        if do_upload:
+            from . import (
+                uploader as up,  # nap khi can -> GUI khong upload van chay khong can google
+            )
+            yt = up.get_service(cfg["client_secret"], cfg["token_file"])
         # bam "Chay" tren GUI = thao tac tay -> luon chay (force) du da xu ly truoc do
         pipeline.process_file(src, cfg, yt=yt, do_upload=do_upload, log=_log, force=True)
     except Exception as e:

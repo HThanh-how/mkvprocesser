@@ -5,10 +5,10 @@ import time
 import traceback
 
 from . import config, ffmpeg_helper, idempotency, pipeline
-from . import uploader as up
 
 
 def _service(cfg):
+    from . import uploader as up  # nap khi can -> probe/split khong can google libs
     return up.get_service(cfg["client_secret"], cfg["token_file"])
 
 

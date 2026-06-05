@@ -12,7 +12,7 @@ Có **pipeline tự động** (chạy 24/7) và một **GUI web** để làm tay
 
 **1) Tự động (khuyên dùng).** Tha file vào `inbox/` → tự tách + upload:
 ```bash
-pip install .            # hoặc: pip install -r requirements.txt && export PYTHONPATH=src
+pip install ".[all]"     # đủ tính năng (tách + upload + GUI web). Chỉ tách: pip install .
 mkvtools watch           # theo dõi inbox/
 mkvtools once phim.mkv   # xử lý 1 file
 mkvtools once phim.mkv --no-upload   # chỉ tách, không upload
@@ -26,6 +26,8 @@ mkvtools-gui             # mở http://127.0.0.1:8800
 ```
 Chọn file trong inbox → **Phân tích** (xem track) → tick *upload* nếu muốn → **Chạy**,
 xem log trực tiếp. Docker: `docker compose up -d gui` rồi mở cổng 8800.
+Khi mở ra ngoài (host `0.0.0.0`), đặt `MKV_GUI_TOKEN=<token>` để bật auth rồi vào
+`http://<host>:8800/?token=<token>` (token được nhớ qua cookie).
 
 ## Cách tách
 

@@ -40,6 +40,29 @@ def _coerce(default, raw: str):
     return raw
 
 
+_ENUMS = {
+    "privacy": {"private", "unlisted", "public"},
+    "subtitle_mode": {"caption", "burn", "both"},
+    "container": {"mp4", "mkv"},
+}
+
+
+def validate(cfg: dict) -> dict:
+    """Kiem tra enum + so duong. Nem ValueError ro rang neu cau hinh sai."""
+    for key, allowed in _ENUMS.items():
+        val = cfg.get(key)
+        if val is not None and val not in allowed:
+            raise ValueError(f"config: {key}={val!r} khong hop le, phai thuoc {sorted(allowed)}")
+    ps = cfg.get("poll_seconds", 10)
+    try:
+        ps_int = int(ps)
+    except (TypeError, ValueError):
+        raise ValueError(f"config: poll_seconds={ps!r} khong phai so") from None
+    if ps_int <= 0:
+        raise ValueError("config: poll_seconds phai > 0")
+    return cfg
+
+
 def load(path=None):
     base = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     if path is None:
@@ -57,4 +80,4 @@ def load(path=None):
         env = os.environ.get("MKV_" + k.upper())
         if env is not None:
             cfg[k] = _coerce(_DEFAULTS.get(k, ""), env)
-    return cfg
+    return validate(cfg)

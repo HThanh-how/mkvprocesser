@@ -3,7 +3,6 @@ import os
 import shutil
 
 from . import idempotency, resources, splitter
-from . import uploader as up
 
 
 def title_for(cfg, base, out):
@@ -25,6 +24,9 @@ def process_file(src, cfg, yt=None, pl_cache=None, do_upload=None, log=print,
     """
     pl_cache = pl_cache if pl_cache is not None else {}
     do_upload = cfg.get("upload", True) if do_upload is None else do_upload
+    up = None
+    if do_upload and yt:
+        from . import uploader as up  # nap khi can -> cai headless khong keo google libs
     skip_on = cfg.get("skip_processed", True)
     if store is None and skip_on:
         store = idempotency.ProcessedStore(cfg.get("state_file", "work/processed.json"))

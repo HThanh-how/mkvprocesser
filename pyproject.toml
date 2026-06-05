@@ -18,33 +18,28 @@ classifiers = [
   "Topic :: Multimedia :: Video",
 ]
 
-# Core runtime deps. Keep minimal; heavier integrations live in extras below.
-# NOTE (Phase 4): cli.py/webui.py currently import uploader/fastapi eagerly, so
-# these are required at runtime for now. Once imports are made lazy, google* and
-# fastapi/uvicorn move into the [upload] / [web] extras and the base install
-# becomes "split-only".
+# Core runtime deps: split-only. Heavier integrations are opt-in extras below and
+# are lazy-imported, so a headless "split + extract subs" install stays tiny.
 dependencies = [
   "PyYAML>=6.0",
-  "google-api-python-client>=2.120.0",
-  "google-auth>=2.29.0",
-  "google-auth-oauthlib>=1.2.0",
-  "fastapi>=0.110",
-  "uvicorn[standard]>=0.29",
-  "python-multipart>=0.0.9",
 ]
 
 [project.optional-dependencies]
-# YouTube upload integration (already in base for now; kept here for Phase-4 split)
+# YouTube upload integration (lazy-imported; only needed when uploading).
 upload = [
   "google-api-python-client>=2.120.0",
   "google-auth>=2.29.0",
   "google-auth-oauthlib>=1.2.0",
 ]
-# Web GUI (FastAPI). Already in base for now; kept here for Phase-4 split.
+# Web GUI (FastAPI) — required by the `mkvtools-gui` entry point.
 web = [
   "fastapi>=0.110",
   "uvicorn[standard]>=0.29",
   "python-multipart>=0.0.9",
+]
+# Everything needed for the full headless tool (upload + web GUI).
+all = [
+  "mkvtools[upload,web]",
 ]
 # Legacy PySide6 desktop GUI + resource probing (opt-in; not needed headless).
 desktop = [

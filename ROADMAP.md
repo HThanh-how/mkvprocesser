@@ -53,10 +53,11 @@ Front-ends: CLI (chính), web GUI (FastAPI), desktop GUI (PySide6 — opt-in `[d
   **fix bug watch reset khi restart**) và resource-aware (đĩa/RAM, đa nền tảng) đã port,
   nối vào pipeline/cli/webui, có test. Tiện thể fix env override không ép kiểu (MKV_UPLOAD=false
   giờ thành False thật). ⏳ Còn: GitHub‑sync (opt-in).
-- [ ] **Phase 4 — Gia cố enterprise.** Lazy-import để tách extras thật; logging có cấu trúc;
-  validate config; web GUI thêm auth + hàng đợi job; watch loop lưu state bền (không mất khi
-  restart); retry/è lỗi rõ ràng; test tích hợp (sinh sample ffmpeg nhỏ); Docker đa kiến trúc;
-  quét bảo mật/SBOM trong CI.
+- [~] **Phase 4 — Gia cố enterprise.** ✅ Lazy-import tách extras thật (cài lõi chỉ cần PyYAML;
+  google/fastapi vào [upload]/[web]; CI chứng minh import lõi không cần chúng); ✅ validate config
+  (enum + poll_seconds); ✅ web GUI auth token tùy chọn (MKV_GUI_TOKEN); watch state bền đã làm ở P3.
+  ⏳ Còn: logging có cấu trúc, hàng đợi job cho web GUI, test tích hợp (sinh sample ffmpeg nhỏ),
+  Docker đa kiến trúc, quét bảo mật/SBOM trong CI.
 - [ ] **Phase 5 — Hợp nhất front-end + gỡ Windows-only.** Desktop GUI thành lớp mỏng gọi lõi
   `mkvtools` (hoặc bỏ nếu web GUI đủ); bỏ máy móc PyInstaller Windows-only hoặc thay bằng
   đóng gói đa nền tảng.

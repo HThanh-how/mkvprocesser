@@ -13,7 +13,8 @@ COPY docs/mkvtools.md ./docs/mkvtools.md
 COPY config.example.yaml ./
 COPY src/mkvtools ./src/mkvtools
 
-RUN pip install --no-cache-dir .
+# Headless image needs upload + web GUI integrations (not the PySide6 desktop extra).
+RUN pip install --no-cache-dir ".[all]"
 
 # Runtime dirs (also bind-mounted by docker-compose).
 RUN mkdir -p inbox work done secrets

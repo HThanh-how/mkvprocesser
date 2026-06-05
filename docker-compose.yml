@@ -19,6 +19,9 @@ services:
     restart: unless-stopped
     environment:
       MKV_GUI_HOST: "0.0.0.0"
+      # Mo ra 0.0.0.0 = ai vao mang cung truy cap duoc. Dat token de bao ve;
+      # roi mo http://<host>:8800/?token=<token> (token duoc nho qua cookie).
+      # MKV_GUI_TOKEN: "doi-thanh-token-bi-mat"
     ports:
       - "8800:8800"
     volumes:

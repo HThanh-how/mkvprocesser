@@ -44,18 +44,25 @@ jobs:
         run: choco install ffmpeg -y
         shell: pwsh
 
-      - name: Install mkvtools (+ dev tools)
-        run: python -m pip install --upgrade pip && pip install -e ".[dev]"
+      - name: Install core only (split-only deps)
+        run: python -m pip install --upgrade pip && pip install -e .
+        shell: bash
+
+      - name: Core stays minimal — cli/pipeline import WITHOUT google/fastapi
+        run: |
+          python -c "import mkvtools, mkvtools.cli, mkvtools.pipeline, mkvtools.splitter, mkvtools.config; print('core import OK', mkvtools.__version__)"
+          mkvtools --help
+        shell: bash
+
+      - name: Install full (all extras + dev)
+        run: pip install -e ".[all,dev]"
         shell: bash
 
       - name: Lint (ruff)
         run: ruff check src/mkvtools
 
-      - name: Smoke import (all runtime deps resolve cross-platform)
-        run: python -c "import mkvtools, mkvtools.cli, mkvtools.webui, mkvtools.uploader, mkvtools.pipeline; print('mkvtools import OK', mkvtools.__version__)"
+      - name: Full import (upload + web deps resolve cross-platform)
+        run: python -c "import mkvtools.uploader, mkvtools.webui; print('full import OK')"
 
-      - name: Unit tests (pure, no ffmpeg needed)
-        run: pytest tests/test_splitter.py tests/test_idempotency.py tests/test_resources.py tests/test_pipeline_idempotency.py
-
-      - name: CLI entry point resolves
-        run: mkvtools --help
+      - name: Unit tests (no ffmpeg needed)
+        run: pytest tests/test_splitter.py tests/test_idempotency.py tests/test_resources.py tests/test_pipeline_idempotency.py tests/test_config.py tests/test_webui_auth.py
