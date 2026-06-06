@@ -262,6 +262,18 @@ def me(request: Request):
     return getattr(request.state, "user", None) or {}
 
 
+@app.post("/me/password")
+def me_password(request: Request, password: str = Form(...)):
+    """Nguoi dung tu doi mat khau CUA CHINH MINH (phien hien tai = danh tinh)."""
+    u = getattr(request.state, "user", None)
+    if not u:
+        return PlainTextResponse("chua dang nhap", status_code=401)
+    if len(password) < 4:
+        return {"ok": False, "error": "mat khau toi thieu 4 ky tu"}
+    USERS.change_password(u["username"], password)
+    return {"ok": True}
+
+
 @app.post("/login")
 def login(username: str = Form(...), password: str = Form(...)):
     if USERS.verify(username, password):

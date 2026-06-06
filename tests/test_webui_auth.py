@@ -79,6 +79,15 @@ def test_logout_clears_session(client):
     assert client.get("/", follow_redirects=False).status_code == 302       # da dang xuat
 
 
+def test_me_and_self_password_change(client):
+    client.post("/login", data={"username": "bob", "password": "bobpass"})   # user thuong
+    assert client.get("/me").json()["username"] == "bob"
+    r = client.post("/me/password", data={"password": "newbobpass"}, follow_redirects=False)
+    assert r.json()["ok"] is True
+    assert webui.USERS.verify("bob", "newbobpass")                           # da doi
+    assert client.post("/me/password", data={"password": "x"}).json()["ok"] is False  # qua ngan
+
+
 def test_catch_page_and_captured_json(client):
     client.post("/login", data={"username": "admin", "password": "adminpass"})
     r = client.get("/catch")
