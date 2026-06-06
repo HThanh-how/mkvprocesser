@@ -32,6 +32,8 @@ _DEFAULTS = {
     "downloads_dir": "inbox",   # noi tai link ve (mac dinh chung inbox)
     "delete_source": False,     # rotation: XOA file nguon sau khi upload (o nho) thay vi move done/
     "min_free_gb": 5.0,         # doi du chung nay GB trong moi tai link tiep (rotation). 0 = tat
+    # Dang nhap GUI (login + phan quyen). Tai khoan luu o file nay (JSON).
+    "users_file": "secrets/users.json",
 }
 
 

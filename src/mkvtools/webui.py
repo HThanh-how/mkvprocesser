@@ -5,18 +5,21 @@ Chay tac vu o thread nen, log poll qua /status.
 """
 import os
 import threading
+import urllib.parse
 
-from fastapi import FastAPI, Form
-from fastapi.responses import HTMLResponse
+from fastapi import FastAPI, Form, Request
+from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse
 
-from . import config, fetch, ffmpeg_helper, idempotency, jobs, pipeline
+from . import auth, config, fetch, ffmpeg_helper, idempotency, jobs, pipeline
 
 cfg = config.load()
 app = FastAPI(title="mkvtools GUI")
 
-# Auth tuy chon: dat MKV_GUI_TOKEN de bao ve khi mo ra 0.0.0.0 (vd qua Docker).
-# Khong dat -> khong chan (mac dinh chay localhost, giu nguyen hanh vi cu).
-_TOKEN = os.environ.get("MKV_GUI_TOKEN", "")
+# Dang nhap + phan quyen: tai khoan luu o cfg['users_file'], phien giu trong RAM.
+# Lan dau chua co user -> tao admin (env MKV_ADMIN_USER/PASS hoac sinh ngau nhien).
+USERS = auth.UserStore(cfg.get("users_file", "secrets/users.json"))
+SESS = auth.Sessions()
+_PUBLIC = {"/login"}        # duong dan khong can dang nhap (bootstrap admin o main())
 
 _job = {"running": False, "log": [], "file": None}
 _lock = threading.Lock()
@@ -53,23 +56,35 @@ def _start_drain():
     threading.Thread(target=runner, daemon=True).start()
 
 
-def token_ok(expected: str, supplied) -> bool:
-    """True neu khong bat auth (expected rong), hoac token khop."""
-    return (not expected) or (supplied == expected)
+def _current_user(request):
+    """{username, role} tu cookie phien, hoac None neu chua/het dang nhap."""
+    uname = SESS.get(request.cookies.get("mkv_sess"))
+    return USERS.get(uname) if uname else None
 
 
 @app.middleware("http")
-async def _auth(request, call_next):
-    if _TOKEN:
-        supplied = request.query_params.get("token") or request.cookies.get("mkv_token")
-        if not token_ok(_TOKEN, supplied):
-            from starlette.responses import PlainTextResponse
-            return PlainTextResponse("Unauthorized: them ?token=... vao URL", status_code=401)
-        resp = await call_next(request)
-        if request.query_params.get("token") == _TOKEN:  # nho token qua cookie
-            resp.set_cookie("mkv_token", _TOKEN, httponly=True, samesite="lax")
-        return resp
+async def _auth(request: Request, call_next):
+    user = _current_user(request)
+    request.state.user = user            # route doc qua request.state.user
+    if request.url.path not in _PUBLIC and user is None:
+        return RedirectResponse("/login", status_code=302)
     return await call_next(request)
+
+
+def _require_admin(request):
+    """None neu la admin; nguoc lai tra response 403 de route return luon."""
+    u = getattr(request.state, "user", None)
+    if not u or u.get("role") != "admin":
+        return PlainTextResponse("Chi admin moi vao duoc trang nay.", status_code=403)
+    return None
+
+
+def _userbar(request):
+    u = getattr(request.state, "user", None) or {}
+    admin_link = " &middot; <a href=/admin>Quan tri</a>" if u.get("role") == "admin" else ""
+    return (f"<p class=muted style='text-align:right;margin:-6px 0 6px'>"
+            f"{u.get('username', '?')} ({u.get('role', '?')}){admin_link} "
+            f"&middot; <a href=/logout>Dang xuat</a></p>")
 
 
 def _log(msg):
@@ -100,7 +115,7 @@ def page(body):
 
 
 @app.get("/", response_class=HTMLResponse)
-def home():
+def home(request: Request):
     files = _inbox_files()
     opts = "".join(f"<option>{f}</option>" for f in files) or "<option disabled>(inbox trong)</option>"
     up_checked = "checked" if cfg.get("upload", True) else ""
@@ -113,7 +128,7 @@ def home():
         f"{h.get('name') or h['url']}{(' &mdash; ' + h['error']) if h.get('error') else ''}</div>"
         for h in reversed(snap["history"])) or "<span class=muted>(chua co)</span>"
     poll = str(running or snap["running"] or bool(pend)).lower()
-    return page(f"""
+    return page(f"""{_userbar(request)}
 <div class=card>
 <b>Dan link &rarr; tu tai &rarr; tach &rarr; upload &rarr; xoay vong dia</b>
 <form method=post action=/enqueue style=margin-top:8px>
@@ -209,10 +224,141 @@ def queue():
     return Q.snapshot()
 
 
+# ---------------------------------------------------------------- dang nhap / quan tri
+_INP = ("width:100%;box-sizing:border-box;margin:6px 0;padding:9px;border-radius:8px;"
+        "border:1px solid #2a2f3a;background:#0b0d11;color:#e8eaed")
+
+
+@app.get("/login", response_class=HTMLResponse)
+def login_form(request: Request, err: str = ""):
+    if getattr(request.state, "user", None):
+        return RedirectResponse("/", status_code=302)
+    msg = f"<p style='color:#f87171'>{err}</p>" if err else ""
+    return page(f"""<div class=card style="max-width:360px;margin:48px auto">
+<h2 style=margin-top:0>Dang nhap</h2>{msg}
+<form method=post action=/login>
+  <input name=username placeholder="Ten dang nhap" autofocus style="{_INP}">
+  <input name=password type=password placeholder="Mat khau" style="{_INP}">
+  <button style=width:100%;margin-top:8px>Dang nhap</button>
+</form></div>""")
+
+
+@app.post("/login")
+def login(username: str = Form(...), password: str = Form(...)):
+    if USERS.verify(username, password):
+        r = RedirectResponse("/", status_code=302)
+        r.set_cookie("mkv_sess", SESS.create(username), httponly=True, samesite="lax")
+        return r
+    return RedirectResponse("/login?err=" + urllib.parse.quote("Sai tai khoan hoac mat khau"),
+                            status_code=302)
+
+
+@app.get("/logout")
+def logout(request: Request):
+    SESS.destroy(request.cookies.get("mkv_sess"))
+    r = RedirectResponse("/login", status_code=302)
+    r.delete_cookie("mkv_sess")
+    return r
+
+
+@app.get("/admin", response_class=HTMLResponse)
+def admin_page(request: Request, msg: str = ""):
+    block = _require_admin(request)
+    if block:
+        return block
+    me = request.state.user["username"]
+    rows = ""
+    for u in USERS.list():
+        is_me = u["username"] == me
+        toggle = "enable" if u["disabled"] else "disable"
+        toggle_lbl = "Mo khoa" if u["disabled"] else "Khoa"
+        to_role = "user" if u["role"] == "admin" else "admin"
+        dis = "disabled" if is_me else ""
+        st = "khoa" if u["disabled"] else "hoat dong"
+        rows += f"""<div class=t style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+<b style=min-width:130px>{u['username']}{' (toi)' if is_me else ''}</b>
+<span class=muted style=min-width:120px>{u['role']} &middot; {st}</span>
+<form method=post action=/admin/action style=display:inline>
+  <input type=hidden name=username value="{u['username']}"><input type=hidden name=action value=role>
+  <input type=hidden name=value value="{to_role}"><button {dis}>&rarr; {to_role}</button></form>
+<form method=post action=/admin/action style=display:inline>
+  <input type=hidden name=username value="{u['username']}"><input type=hidden name=action value={toggle}>
+  <button {dis}>{toggle_lbl}</button></form>
+<form method=post action=/admin/action style=display:inline onsubmit="return confirm('Xoa {u['username']}?')">
+  <input type=hidden name=username value="{u['username']}"><input type=hidden name=action value=delete>
+  <button {dis}>Xoa</button></form></div>"""
+    info = f"<p style='color:#7ee787'>{msg}</p>" if msg else ""
+    opts = "".join(f"<option>{u['username']}</option>" for u in USERS.list())
+    return page(f"""{_userbar(request)}
+<div class=card><h2 style=margin-top:0>Quan tri tai khoan</h2>{info}{rows}</div>
+<div class=card><b>Them tai khoan</b>
+<form method=post action=/admin/add>
+  <input name=username placeholder="Ten dang nhap" required style="{_INP}">
+  <input name=password type=password placeholder="Mat khau" required style="{_INP}">
+  <select name=role style="{_INP}"><option value=user>user</option><option value=admin>admin</option></select>
+  <button>Them</button></form></div>
+<div class=card><b>Doi mat khau</b>
+<form method=post action=/admin/action>
+  <input type=hidden name=action value=reset>
+  <select name=username style="{_INP}">{opts}</select>
+  <input name=value type=password placeholder="Mat khau moi" required style="{_INP}">
+  <button>Doi</button></form></div>
+<p><a href=/>&laquo; ve trang chinh</a></p>""")
+
+
+@app.post("/admin/add")
+def admin_add(request: Request, username: str = Form(...), password: str = Form(...),
+              role: str = Form("user")):
+    block = _require_admin(request)
+    if block:
+        return block
+    try:
+        USERS.add(username, password, role)
+        msg = f"Da them tai khoan {username}"
+    except ValueError as e:
+        msg = f"Loi: {e}"
+    return RedirectResponse("/admin?msg=" + urllib.parse.quote(msg), status_code=302)
+
+
+@app.post("/admin/action")
+def admin_action(request: Request, username: str = Form(...), action: str = Form(...),
+                 value: str = Form("")):
+    block = _require_admin(request)
+    if block:
+        return block
+    me = request.state.user["username"]
+    try:
+        if action in ("disable", "delete", "role") and username == me:
+            raise ValueError("khong tu thao tac len chinh minh (tranh tu khoa)")
+        if action == "disable":
+            USERS.set_disabled(username, True)
+            msg = f"Da khoa {username}"
+        elif action == "enable":
+            USERS.set_disabled(username, False)
+            msg = f"Da mo khoa {username}"
+        elif action == "role":
+            USERS.set_role(username, value)
+            msg = f"{username} -> {value}"
+        elif action == "delete":
+            USERS.remove(username)
+            msg = f"Da xoa {username}"
+        elif action == "reset":
+            if not value:
+                raise ValueError("mat khau moi rong")
+            USERS.change_password(username, value)
+            msg = f"Da doi mat khau cho {username}"
+        else:
+            raise ValueError(f"action khong ro: {action}")
+    except ValueError as e:
+        msg = f"Loi: {e}"
+    return RedirectResponse("/admin?msg=" + urllib.parse.quote(msg), status_code=302)
+
+
 def main():
     import uvicorn
     if not ffmpeg_helper.available():
         raise SystemExit("Khong tim thay ffmpeg/ffprobe.")
+    auth.bootstrap_admin(USERS)          # lan dau: tao admin (env hoac mat khau ngau nhien in ra)
     uvicorn.run(app, host=os.environ.get("MKV_GUI_HOST", "127.0.0.1"),
                 port=int(os.environ.get("MKV_GUI_PORT", "8800")))
 

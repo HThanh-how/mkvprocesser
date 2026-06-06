@@ -53,3 +53,9 @@ downloads_dir: inbox          # noi tai link ve (mac dinh chung inbox)
 delete_source: false          # true = XOA file nguon sau khi upload (o nho) thay vi chuyen done/
 min_free_gb: 5                 # doi du chung nay GB trong moi tai link tiep (rotation). 0 = tat
 # (GUI khi chay hang doi link luon bat delete_source de xoay vong, du day de false.)
+
+# --- Dang nhap GUI (login + phan quyen admin/user) ---
+# Tai khoan luu o file nay (JSON, mat khau bam pbkdf2). Lan dau chua co user nao,
+# server tu tao admin: dat truoc MKV_ADMIN_USER / MKV_ADMIN_PASS, hoac de trong
+# thi server sinh mat khau ngau nhien va IN RA CONSOLE (nho doi sau khi dang nhap).
+users_file: secrets/users.json
