@@ -43,6 +43,21 @@ def is_direct_media(url: str) -> bool:
     return urllib.parse.urlparse(url).path.lower().endswith(VIDEO_EXTS)
 
 
+def is_torrent(url: str) -> bool:
+    """Magnet hoac link .torrent?"""
+    u = (url or "").strip().lower()
+    return u.startswith("magnet:") or u.split("?")[0].endswith(".torrent")
+
+
+def _all_videos(d: str) -> list:
+    out = []
+    for root, _, files in os.walk(d):
+        for f in files:
+            if f.lower().endswith(VIDEO_EXTS):
+                out.append(os.path.join(root, f))
+    return out
+
+
 def is_media_url(url: str, content_type: str = "") -> bool:
     """URL nay la media (file video / manifest HLS-DASH) theo duoi hoac content-type?"""
     if urllib.parse.urlparse(url).path.lower().endswith(MEDIA_EXTS):
@@ -116,6 +131,41 @@ def http_download(url: str, dest_dir: str, log=print, chunk: int = 1 << 20,
                 log(f"  tai {got / 1e9:.2f}/{total / 1e9:.2f} GB ({got * 100 // total}%)")
     log(f"  tai xong {got / 1e9:.2f} GB -> {os.path.basename(dest)}")
     return dest
+
+
+# ----------------------------------------------------------------- T0: torrent/magnet
+def torrent_download(url: str, dest_dir: str, log=print, upload_limit="1K", seed_time=0) -> str:
+    """Keo torrent/magnet bang aria2c, LEECH-ONLY (tai xong KHONG seed/share).
+
+    Tra ve file video LON NHAT trong noi dung tai ve (bo qua sample/nfo).
+    """
+    import shutil
+    import subprocess
+    if not shutil.which("aria2c"):
+        raise RuntimeError("Chua cai aria2 (apt install aria2) de keo torrent")
+    os.makedirs(dest_dir, exist_ok=True)
+    before = set(_all_videos(dest_dir))
+    cmd = [
+        "aria2c", f"--dir={dest_dir}",
+        f"--seed-time={seed_time}",                  # 0 = tai xong KHONG seed (khong share)
+        f"--max-overall-upload-limit={upload_limit}",
+        "--bt-stop-timeout=600", "--bt-max-peers=80",
+        "--summary-interval=20", "--console-log-level=warn", url,
+    ]
+    log("  aria2c: keo torrent (leech-only, khong share)...")
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                            text=True, bufsize=1)
+    for line in proc.stdout:                          # day tien do aria2 ra log GUI
+        line = line.rstrip()
+        if line:
+            log("  " + line)
+    proc.wait()
+    new = [f for f in _all_videos(dest_dir) if f not in before] or _all_videos(dest_dir)
+    if not new:
+        raise RuntimeError("Torrent xong nhung khong tim thay file video.")
+    best = max(new, key=lambda f: os.path.getsize(f))
+    log(f"  torrent xong -> {os.path.basename(best)} ({os.path.getsize(best) / 1e9:.2f} GB)")
+    return best
 
 
 # ----------------------------------------------------------------- T2: yt-dlp
@@ -230,6 +280,8 @@ def _download_resolved(media: dict, dest_dir: str, log, cookies: str):
 def fetch(url: str, dest_dir: str, log=print, cookies: str = None, referer: str = None) -> str:
     """Tu chon cach tai theo 4 tang (xem docstring module). Tra ve duong dan file."""
     url = (url or "").strip()
+    if is_torrent(url):                                      # T0: torrent/magnet (leech-only)
+        return torrent_download(url, dest_dir, log=log)
     if is_direct_media(url):                                  # T1
         return http_download(url, dest_dir, log=log, referer=referer)
     try:                                                     # T2: yt-dlp
@@ -253,6 +305,8 @@ def fetch(url: str, dest_dir: str, log=print, cookies: str = None, referer: str 
 def resolve(url: str, log=print, cookies: str = None) -> dict:
     """Che do CHI DO: bao bat duoc gi tu link (khong tai). Dung cho lenh `resolve`."""
     url = (url or "").strip()
+    if is_torrent(url):                                      # T0
+        return {"ok": True, "tier": "torrent", "media": url, "kind": "torrent"}
     if is_direct_media(url):                                  # T1
         return {"ok": True, "tier": "direct", "media": url, "kind": "file"}
     try:                                                     # T2

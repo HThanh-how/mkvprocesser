@@ -21,6 +21,14 @@ def test_is_direct_media():
     assert not F.is_direct_media("https://youtube.com/watch?v=abc")
 
 
+def test_is_torrent():
+    assert F.is_torrent("magnet:?xt=urn:btih:ABC123")
+    assert F.is_torrent("https://site/x/movie.torrent")
+    assert F.is_torrent("https://site/x/movie.torrent?token=1")
+    assert not F.is_torrent("https://site/x/movie.mkv")
+    assert not F.is_torrent("https://youtube.com/watch?v=a")
+
+
 def test_is_media_url():
     assert F.is_media_url("https://c/x/master.m3u8")                            # theo duoi
     assert F.is_media_url("https://c/x/seg?_=1", "application/vnd.apple.mpegurl")  # theo content-type
@@ -53,6 +61,20 @@ def test_load_cookies_txt(tmp_path):
 # ---------------------------------------------------------------- fetch() 4 tang
 def _sniff(cands):
     return lambda u, log=print, cookies=None: cands
+
+
+def test_fetch_t0_torrent_dispatch(monkeypatch):
+    seen = {}
+    monkeypatch.setattr(F, "torrent_download", lambda u, d, log=print: seen.setdefault("tor", u) or "m.mkv")
+    monkeypatch.setattr(F, "http_download", lambda *a, **k: seen.setdefault("http", 1))
+    monkeypatch.setattr(F, "ytdlp_download", lambda *a, **k: seen.setdefault("yt", 1))
+    F.fetch("magnet:?xt=urn:btih:ABC", "/tmp")
+    assert "tor" in seen and "http" not in seen and "yt" not in seen
+
+
+def test_resolve_torrent():
+    r = F.resolve("magnet:?xt=urn:btih:ABC")
+    assert r["ok"] and r["tier"] == "torrent"
 
 
 def test_fetch_t1_direct_to_http(monkeypatch):
