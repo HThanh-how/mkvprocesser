@@ -116,7 +116,7 @@ def _worker(src, do_upload):
             from . import (
                 uploader as up,  # nap khi can -> GUI khong upload van chay khong can google
             )
-            yt = up.get_service(cfg["client_secret"], cfg["token_file"])
+            yt = up.get_service(cfg["client_secret"], cfg["token_file"], proxy=cfg.get("proxy", ""))
         # bam "Chay" tren GUI = thao tac tay -> luon chay (force) du da xu ly truoc do
         pipeline.process_file(src, cfg, yt=yt, do_upload=do_upload, log=_log, force=True)
     except Exception as e:

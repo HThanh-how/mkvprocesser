@@ -9,7 +9,7 @@ from . import config, ffmpeg_helper, idempotency, pipeline, titlematch
 
 def _service(cfg):
     from . import uploader as up  # nap khi can -> probe/split khong can google libs
-    return up.get_service(cfg["client_secret"], cfg["token_file"])
+    return up.get_service(cfg["client_secret"], cfg["token_file"], proxy=cfg.get("proxy", ""))
 
 
 def cmd_probe(cfg, args):
