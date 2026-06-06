@@ -5,6 +5,7 @@
     { href: '/catch', icon: 'ads_click', label: 'Bắt tay', key: 'catch' },
     { href: '/videos', icon: 'video_library', label: 'Video', key: 'videos' },
     { href: '/admin', icon: 'admin_panel_settings', label: 'Quản trị', key: 'admin', admin: true },
+    { href: '/settings', icon: 'settings', label: 'Cài đặt', key: 'settings', admin: true },
   ];
   window.MKVShell = function (active, title) {
     const side = document.getElementById('shell-side');

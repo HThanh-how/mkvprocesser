@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html class="dark" lang="vi"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>MKVTOOLS — Cài đặt</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms"></script>
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL@20..48,100..700,0..1&display=swap" rel="stylesheet"/>
+<script>
+  tailwind.config={darkMode:"class",theme:{extend:{
+    colors:{"surface-container-low":"#1c1b1d","surface-container":"#201f21","surface-container-high":"#2a2a2c","surface-container-lowest":"#0e0e10","surface-variant":"#353437","primary-container":"#00f2ff","on-surface":"#e5e1e4","on-background":"#e5e1e4","background":"#131315","surface":"#131315","outline":"#849495","outline-variant":"#3a494b","on-surface-variant":"#b9cacb","primary-fixed-dim":"#00dbe7","primary-fixed":"#74f5ff","on-primary-fixed":"#002022","error":"#ffb4ab","ok":"#00e75b","warn":"#f5b32b"},
+    borderRadius:{"DEFAULT":"0.25rem","lg":"0.5rem","xl":"0.75rem","full":"9999px"},
+    spacing:{"unit":"4px","stack-sm":"8px","gutter":"16px","stack-md":"16px","panel-padding":"24px","stack-lg":"32px","container-margin":"32px"},
+    fontFamily:{"headline-md":["Sora"],"body-md":["Inter"],"label-sm":["JetBrains Mono"],"label-xs":["JetBrains Mono"]},
+    fontSize:{"label-xs":["10px",{lineHeight:"12px",letterSpacing:"0.1em",fontWeight:"700"}],"label-sm":["12px",{lineHeight:"16px",letterSpacing:"0.05em",fontWeight:"500"}],"body-md":["15px",{lineHeight:"22px"}],"headline-md":["22px",{lineHeight:"30px",fontWeight:"600"}]}
+  }}}
+</script>
+<style>
+  .glass-panel{background:linear-gradient(135deg,rgba(20,20,23,.8),rgba(10,10,12,.9));backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border:1px solid rgba(58,73,75,.3);border-top-color:rgba(255,255,255,.05)}
+  .scrollbar-hide::-webkit-scrollbar{display:none}.scrollbar-hide{-ms-overflow-style:none;scrollbar-width:none}
+  .ms{font-family:'Material Symbols Outlined';line-height:1;display:inline-block}
+  .fld{width:100%;background:#0e0e10;border:1px solid #3a494b;border-radius:.5rem;padding:8px 12px;color:#e5e1e4;font-size:14px}
+  .fld:focus{outline:none;border-color:#00f2ff}
+</style>
+</head>
+<body class="bg-background text-on-background font-body-md overflow-hidden">
+<nav id="shell-side" class="w-[280px] h-screen fixed left-0 top-0 bg-surface-container-low border-r border-outline-variant/30 shadow-2xl z-50 flex flex-col py-panel-padding"></nav>
+<header id="shell-top" class="fixed top-0 right-0 left-[280px] h-16 bg-surface/70 backdrop-blur-md border-b border-outline-variant/20 z-40 flex items-center justify-between px-container-margin"></header>
+
+<main class="ml-[280px] mt-16 p-container-margin h-[calc(100vh-64px)] overflow-y-auto scrollbar-hide max-w-[1000px]">
+  <div class="flex items-center justify-between mb-stack-md sticky top-0 bg-background/80 backdrop-blur py-stack-sm z-10">
+    <span class="font-label-sm text-label-sm text-on-surface-variant uppercase tracking-widest">Cài đặt (admin chỉnh, lưu là áp dụng ngay)</span>
+    <div class="flex items-center gap-stack-sm">
+      <span id="msg" class="text-sm"></span>
+      <button id="save" class="h-9 px-stack-lg rounded-lg bg-primary-fixed-dim text-on-primary-fixed font-label-sm text-label-sm uppercase tracking-wide hover:bg-primary-fixed transition-colors flex items-center gap-unit"><span class="ms text-[16px]">save</span>Lưu</button>
+    </div>
+  </div>
+  <div id="form" class="grid grid-cols-1 lg:grid-cols-2 gap-stack-md pb-stack-lg"></div>
+</main>
+
+<script src="/web/shell.js"></script>
+<script>
+MKVShell('settings','Cài đặt');
+const $=id=>document.getElementById(id);
+const SCHEMA=[
+ {title:'Upload & YouTube', icon:'cloud_upload', fields:[
+   {k:'upload', label:'Bật upload', type:'bool', hint:'Tắt = chỉ tách, không đăng'},
+   {k:'privacy', label:'Quyền riêng tư', type:'select', options:['private','unlisted','public'], hint:'Nên để private — unlisted/public dễ bị gậy bản quyền'},
+   {k:'make_playlist', label:'Tạo playlist mỗi phim', type:'bool'},
+   {k:'master_playlist', label:'Playlist tổng (mọi video vào đây)', type:'text', hint:'Rỗng = tắt'},
+   {k:'organize_budget', label:'Quota/ngày cho dọn kênh (organize)', type:'number', hint:'2000 ≈ 40 video/ngày, còn lại để dành upload'},
+   {k:'default_caption_lang', label:'Ngôn ngữ caption mặc định', type:'text'},
+   {k:'category_id', label:'Category ID', type:'number'},
+ ]},
+ {title:'Tách · Audio · Phụ đề', icon:'movie_edit', fields:[
+   {k:'subtitle_mode', label:'Chế độ phụ đề', type:'select', options:['caption','burn','both']},
+   {k:'captions', label:'Up phụ đề', type:'select', options:['all','paired'], hint:'all = mọi ngôn ngữ; paired = cùng lang audio'},
+   {k:'audio_per_lang', label:'Audio mỗi ngôn ngữ', type:'select', options:['best','all']},
+   {k:'container', label:'Định dạng', type:'select', options:['mp4','mkv']},
+ ]},
+ {title:'Tiêu đề', icon:'title', fields:[
+   {k:'title_template', label:'Mẫu tiêu đề', type:'text', hint:'{res} {lang} {year} {title}'},
+   {k:'playlist_template', label:'Mẫu tên playlist phim', type:'text'},
+ ]},
+ {title:'Ổ đĩa & Xoay vòng', icon:'hard_drive', fields:[
+   {k:'delete_source', label:'Xóa nguồn sau upload (rotation)', type:'bool'},
+   {k:'min_free_gb', label:'GB trống tối thiểu trước khi tải', type:'number'},
+   {k:'downloads_dir', label:'Thư mục tải', type:'text'},
+   {k:'work_dir', label:'Thư mục làm việc', type:'text'},
+   {k:'inbox_dir', label:'Thư mục inbox', type:'text'},
+   {k:'done_dir', label:'Thư mục done', type:'text'},
+ ]},
+ {title:'Chống trùng', icon:'content_copy', fields:[
+   {k:'skip_processed', label:'Bỏ qua file đã xử lý', type:'bool'},
+   {k:'dedup_by_title', label:'Chống trùng theo tựa', type:'bool'},
+   {k:'on_title_match', label:'Khi trùng tựa', type:'select', options:['skip','warn']},
+   {k:'upgrade_on_higher_res', label:'Cho up nếu độ phân giải cao hơn', type:'bool'},
+ ]},
+ {title:'Bắt link', icon:'link', fields:[
+   {k:'cookies_file', label:'File cookies.txt', type:'text', hint:'Cho trang cần đăng nhập'},
+   {k:'proxy', label:'Proxy', type:'text', hint:'http://… hoặc socks5://…'},
+ ]},
+];
+const BOOLS=new Set();
+function ctrl(f){
+  if(f.type==='bool'){BOOLS.add(f.k);return `<label class="flex items-center gap-stack-sm cursor-pointer"><input type="checkbox" id="f_${f.k}" class="w-5 h-5 rounded bg-surface-container-lowest border-outline-variant text-primary-fixed-dim focus:ring-0"><span class="text-on-surface-variant text-sm">${f.label}</span></label>`;}
+  if(f.type==='select'){return `<label class="block"><span class="text-on-surface-variant text-sm">${f.label}</span><select id="f_${f.k}" class="fld mt-1">${f.options.map(o=>`<option value="${o}">${o}</option>`).join('')}</select></label>`;}
+  const t=f.type==='number'?'number':'text';
+  return `<label class="block"><span class="text-on-surface-variant text-sm">${f.label}</span><input type="${t}" id="f_${f.k}" class="fld mt-1"></label>`;
+}
+$('form').innerHTML=SCHEMA.map(s=>`<section class="glass-panel rounded-xl p-panel-padding">
+  <h3 class="font-headline-md text-base font-semibold mb-stack-md flex items-center gap-unit"><span class="ms text-primary-fixed-dim text-[18px]">${s.icon}</span>${s.title}</h3>
+  <div class="flex flex-col gap-stack-md">${s.fields.map(f=>`<div>${ctrl(f)}${f.hint?`<p class="text-on-surface-variant/60 text-xs mt-1">${f.hint}</p>`:''}</div>`).join('')}</div>
+</section>`).join('');
+
+const KEYS=SCHEMA.flatMap(s=>s.fields.map(f=>f.k));
+fetch('/settings/get',{cache:'no-store'}).then(r=>r.json()).then(d=>{
+  KEYS.forEach(k=>{const el=$('f_'+k); if(!el)return; if(BOOLS.has(k))el.checked=!!d[k]; else el.value=(d[k]==null?'':d[k]);});
+}).catch(()=>{});
+
+$('save').onclick=async()=>{
+  const obj={}; KEYS.forEach(k=>{const el=$('f_'+k); if(!el)return; obj[k]=BOOLS.has(k)?el.checked:el.value;});
+  const m=$('msg'); m.textContent='Đang lưu…'; m.className='text-sm text-on-surface-variant';
+  let d={}; try{ d=await (await fetch('/settings/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(obj)})).json(); }catch(e){}
+  if(d.ok){ m.textContent='Đã lưu ✓ (áp dụng ngay)'; m.className='text-sm text-ok'; }
+  else { m.textContent=d.error||'Lỗi lưu'; m.className='text-sm text-error'; }
+};
+</script>
+</body></html>

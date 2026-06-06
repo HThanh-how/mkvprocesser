@@ -292,6 +292,61 @@ def me_password(request: Request, password: str = Form(...)):
     return {"ok": True}
 
 
+# ---------------------------------------------------------------- cai dat (admin)
+# Cac muc admin duoc sua tren web (ghi de config.yaml qua ui_settings.json).
+_SETTINGS_KEYS = [
+    "upload", "privacy", "make_playlist", "master_playlist", "organize_budget",
+    "default_caption_lang", "category_id", "subtitle_mode", "captions", "audio_per_lang",
+    "container", "title_template", "playlist_template", "delete_source", "min_free_gb",
+    "inbox_dir", "work_dir", "done_dir", "downloads_dir", "skip_processed", "dedup_by_title",
+    "on_title_match", "upgrade_on_higher_res", "cookies_file", "proxy",
+]
+
+
+@app.get("/settings", response_class=HTMLResponse)
+def settings_page(request: Request):
+    block = _require_admin(request)
+    return block or HTMLResponse(_web("settings.html"))
+
+
+@app.get("/settings/get")
+def settings_get(request: Request):
+    block = _require_admin(request)
+    return block or {k: cfg.get(k) for k in _SETTINGS_KEYS}
+
+
+@app.post("/settings/save")
+async def settings_save(request: Request):
+    block = _require_admin(request)
+    if block:
+        return block
+    data = await request.json()
+    changes = {}
+    for k, v in (data or {}).items():
+        if k not in _SETTINGS_KEYS:
+            continue
+        d = config._DEFAULTS.get(k, "")
+        try:
+            if isinstance(d, bool):
+                changes[k] = bool(v)
+            elif isinstance(d, int) and not isinstance(d, bool):
+                changes[k] = int(v)
+            elif isinstance(d, float):
+                changes[k] = float(v)
+            else:
+                changes[k] = "" if v is None else str(v)
+        except (TypeError, ValueError):
+            return {"ok": False, "error": f"Gia tri khong hop le: {k}={v!r}"}
+    try:
+        config.validate({**cfg, **changes})           # kiem enum/so truoc khi luu
+    except ValueError as e:
+        return {"ok": False, "error": str(e)}
+    config.save_ui_settings(changes)
+    cfg.clear()
+    cfg.update(config.load())                          # ap dung ngay cho tac vu sau
+    return {"ok": True, "saved": list(changes)}
+
+
 @app.post("/login")
 def login(username: str = Form(...), password: str = Form(...)):
     if USERS.verify(username, password):

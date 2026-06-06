@@ -1,4 +1,6 @@
-"""Doc cau hinh tu config.yaml (fallback config.example.yaml) + override bang env."""
+"""Doc cau hinh tu config.yaml (fallback config.example.yaml) + ghi de bang ui_settings.json
+(admin sua tren web) + override bang env."""
+import json
 import os
 
 import yaml
@@ -15,6 +17,7 @@ _DEFAULTS = {
     "make_playlist": True, "default_caption_lang": "vi",
     # Playlist tong: moi video upload deu them vao day (de tim/lay lai). Rong = tat.
     "master_playlist": "",
+    "organize_budget": 2000,    # quota toi da moi lan chay 'organize' (timer dung)
     "description": "", "tags": [],
     # Placeholder: {res} {lang} {year} {title}(da chuan hoa) {label} {base}(ten file tho)
     "title_template": "{res}_{lang}_{year}_{title}",
@@ -110,13 +113,46 @@ def _find_config(path=None):
     return None
 
 
+def ui_settings_path():
+    """Duong dan file ghi de cau hinh do admin sua tren web (canh config.yaml)."""
+    cp = _find_config()
+    base = os.path.dirname(cp) if cp else os.getcwd()
+    return os.path.join(base, "ui_settings.json")
+
+
+def save_ui_settings(changes: dict) -> dict:
+    """Ghi/cap nhat cac muc admin sua tren web (JSON, ghi nguyen tu). Tra ve toan bo overrides."""
+    uip = ui_settings_path()
+    cur = {}
+    if os.path.exists(uip):
+        try:
+            with open(uip, encoding="utf-8") as f:
+                cur = json.load(f) or {}
+        except (OSError, ValueError):
+            cur = {}
+    cur.update(changes)
+    os.makedirs(os.path.dirname(uip) or ".", exist_ok=True)
+    tmp = uip + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(cur, f, ensure_ascii=False, indent=2)
+    os.replace(tmp, uip)
+    return cur
+
+
 def load(path=None):
     path = _find_config(path)
     cfg = dict(_DEFAULTS)
     if path and os.path.exists(path):
         with open(path, encoding="utf-8") as f:
             cfg.update(yaml.safe_load(f) or {})
-    # env override (MKV_PRIVACY, MKV_UPLOAD, ...), ep kieu theo default tuong ung
+    uip = ui_settings_path()                 # admin sua tren web -> ghi de config.yaml
+    if os.path.exists(uip):
+        try:
+            with open(uip, encoding="utf-8") as f:
+                cfg.update(json.load(f) or {})
+        except (OSError, ValueError):
+            pass
+    # env override (MKV_PRIVACY, MKV_UPLOAD, ...) cao nhat (cho ha tang), ep kieu theo default
     for k in cfg:
         env = os.environ.get("MKV_" + k.upper())
         if env is not None:

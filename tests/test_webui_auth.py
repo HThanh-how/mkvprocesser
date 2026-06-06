@@ -105,6 +105,28 @@ def test_videos_page_and_list(client):
     assert "ok" in j           # khong co token YouTube trong test -> ok False, KHONG crash
 
 
+def test_settings_admin_only_and_save(client, tmp_path, monkeypatch):
+    from mkvtools import config
+    monkeypatch.setattr(config, "ui_settings_path", lambda: str(tmp_path / "ui.json"))
+    client.post("/login", data={"username": "bob", "password": "bobpass"})        # user thuong
+    assert client.get("/settings/get").status_code == 403
+    client.post("/login", data={"username": "admin", "password": "adminpass"})    # admin
+    g = client.get("/settings/get").json()
+    assert "privacy" in g and "master_playlist" in g
+    r = client.post("/settings/save", json={"min_free_gb": 9, "privacy": "private",
+                                            "master_playlist": "X", "upload": True})
+    assert r.json()["ok"] is True
+    assert webui.cfg["master_playlist"] == "X" and webui.cfg["min_free_gb"] == 9.0
+
+
+def test_settings_save_rejects_bad_enum(client, tmp_path, monkeypatch):
+    from mkvtools import config
+    monkeypatch.setattr(config, "ui_settings_path", lambda: str(tmp_path / "ui.json"))
+    client.post("/login", data={"username": "admin", "password": "adminpass"})
+    r = client.post("/settings/save", json={"privacy": "bogus"})
+    assert r.json()["ok"] is False                                  # enum sai -> tu choi
+
+
 def test_admin_cannot_delete_self(client):
     client.post("/login", data={"username": "admin", "password": "adminpass"})
     client.post("/admin/action", data={"username": "admin", "action": "delete"},

@@ -117,7 +117,8 @@ def cmd_organize(cfg, args):
     movie_have = {}
     struct = re.compile(r"^(?:4K|2K|FHD|HD|SD)_[A-Z]{2,4}_((?:19|20)\d{2})_(.+)$")
     npriv = nmaster = nmovie = 0
-    budget = max(0, args.budget)        # gioi han quota/lan (0 = khong gioi han)
+    budget = args.budget if args.budget is not None else cfg.get("organize_budget", 2000)
+    budget = max(0, budget)             # gioi han quota/lan (0 = khong gioi han)
     spent = 80                          # uoc luong quota cho cac lenh doc ban dau
     reason = ""
     for v in vids:
@@ -185,8 +186,8 @@ def main(argv=None):
     so.add_argument("--master", help="ten playlist tong (mac dinh: cfg hoac 'MKVTOOLS - Tat ca')")
     so.add_argument("--keep-privacy", action="store_true", help="khong ep private")
     so.add_argument("--no-per-movie", action="store_true", help="chi playlist tong, khong tao playlist phim")
-    so.add_argument("--budget", type=int, default=2000,
-                    help="gioi han quota moi lan (mac dinh 2000, 0 = khong gioi han)")
+    so.add_argument("--budget", type=int, default=None,
+                    help="gioi han quota moi lan (mac dinh: cfg organize_budget; 0 = khong gioi han)")
     args = ap.parse_args(argv)
     if args.cmd not in ("sync-titles", "resolve", "organize") and not ffmpeg_helper.available():
         raise SystemExit("Khong tim thay ffmpeg/ffprobe. Cai ffmpeg hoac de vao ffmpeg_bin/.")
