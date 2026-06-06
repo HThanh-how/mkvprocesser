@@ -39,3 +39,17 @@ def test_validate_rejects_bad_poll(monkeypatch):
     monkeypatch.setenv("MKV_POLL_SECONDS", "0")
     with pytest.raises(ValueError):
         config.load()
+
+
+def test_find_config_via_env(tmp_path, monkeypatch):
+    p = tmp_path / "custom.yaml"
+    p.write_text("privacy: unlisted\nupload: false\n", encoding="utf-8")
+    monkeypatch.setenv("MKV_CONFIG", str(p))
+    c = config.load()
+    assert c["privacy"] == "unlisted" and c["upload"] is False
+
+
+def test_find_config_prefers_explicit_arg(tmp_path):
+    p = tmp_path / "explicit.yaml"
+    p.write_text("container: mkv\n", encoding="utf-8")
+    assert config.load(str(p))["container"] == "mkv"

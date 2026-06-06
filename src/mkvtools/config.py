@@ -70,14 +70,28 @@ def validate(cfg: dict) -> dict:
     return cfg
 
 
-def load(path=None):
+def _find_config(path=None):
+    """Tim file config: arg -> $MKV_CONFIG -> ./ (thu muc chay) -> repo-root (dev).
+
+    Quan trong cho ban cai bang pip / Docker: truoc day chi tim theo duong dan
+    module nen config.yaml mount o /app (CWD) khong duoc nhan.
+    """
+    if path:
+        return path
+    env = os.environ.get("MKV_CONFIG")
+    if env:
+        return env
     base = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    if path is None:
-        for c in ("config.yaml", "config.example.yaml"):
-            p = os.path.join(base, c)
+    for name in ("config.yaml", "config.example.yaml"):
+        for d in (os.getcwd(), base):
+            p = os.path.join(d, name)
             if os.path.exists(p):
-                path = p
-                break
+                return p
+    return None
+
+
+def load(path=None):
+    path = _find_config(path)
     cfg = dict(_DEFAULTS)
     if path and os.path.exists(path):
         with open(path, encoding="utf-8") as f:
