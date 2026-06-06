@@ -8,7 +8,7 @@ import pathlib
 import threading
 import urllib.parse
 
-from fastapi import FastAPI, Form, Request
+from fastapi import FastAPI, Form, Request, Response
 from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse
 
 from . import auth, catch, config, fetch, ffmpeg_helper, idempotency, jobs, pipeline, resources
@@ -250,22 +250,16 @@ def queue():
 
 
 # ---------------------------------------------------------------- dang nhap / quan tri
-_INP = ("width:100%;box-sizing:border-box;margin:6px 0;padding:9px;border-radius:8px;"
-        "border:1px solid #2a2f3a;background:#0b0d11;color:#e8eaed")
-
-
 @app.get("/login", response_class=HTMLResponse)
-def login_form(request: Request, err: str = ""):
+def login_form(request: Request):
     if getattr(request.state, "user", None):
         return RedirectResponse("/", status_code=302)
-    msg = f"<p style='color:#f87171'>{err}</p>" if err else ""
-    return page(f"""<div class=card style="max-width:360px;margin:48px auto">
-<h2 style=margin-top:0>Dang nhap</h2>{msg}
-<form method=post action=/login>
-  <input name=username placeholder="Ten dang nhap" autofocus style="{_INP}">
-  <input name=password type=password placeholder="Mat khau" style="{_INP}">
-  <button style=width:100%;margin-top:8px>Dang nhap</button>
-</form></div>""")
+    return HTMLResponse(_web("login.html"))
+
+
+@app.get("/me")
+def me(request: Request):
+    return getattr(request.state, "user", None) or {}
 
 
 @app.post("/login")
@@ -287,48 +281,19 @@ def logout(request: Request):
 
 
 @app.get("/admin", response_class=HTMLResponse)
-def admin_page(request: Request, msg: str = ""):
+def admin_page(request: Request):
     block = _require_admin(request)
     if block:
         return block
-    me = request.state.user["username"]
-    rows = ""
-    for u in USERS.list():
-        is_me = u["username"] == me
-        toggle = "enable" if u["disabled"] else "disable"
-        toggle_lbl = "Mo khoa" if u["disabled"] else "Khoa"
-        to_role = "user" if u["role"] == "admin" else "admin"
-        dis = "disabled" if is_me else ""
-        st = "khoa" if u["disabled"] else "hoat dong"
-        rows += f"""<div class=t style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-<b style=min-width:130px>{u['username']}{' (toi)' if is_me else ''}</b>
-<span class=muted style=min-width:120px>{u['role']} &middot; {st}</span>
-<form method=post action=/admin/action style=display:inline>
-  <input type=hidden name=username value="{u['username']}"><input type=hidden name=action value=role>
-  <input type=hidden name=value value="{to_role}"><button {dis}>&rarr; {to_role}</button></form>
-<form method=post action=/admin/action style=display:inline>
-  <input type=hidden name=username value="{u['username']}"><input type=hidden name=action value={toggle}>
-  <button {dis}>{toggle_lbl}</button></form>
-<form method=post action=/admin/action style=display:inline onsubmit="return confirm('Xoa {u['username']}?')">
-  <input type=hidden name=username value="{u['username']}"><input type=hidden name=action value=delete>
-  <button {dis}>Xoa</button></form></div>"""
-    info = f"<p style='color:#7ee787'>{msg}</p>" if msg else ""
-    opts = "".join(f"<option>{u['username']}</option>" for u in USERS.list())
-    return page(f"""{_userbar(request)}
-<div class=card><h2 style=margin-top:0>Quan tri tai khoan</h2>{info}{rows}</div>
-<div class=card><b>Them tai khoan</b>
-<form method=post action=/admin/add>
-  <input name=username placeholder="Ten dang nhap" required style="{_INP}">
-  <input name=password type=password placeholder="Mat khau" required style="{_INP}">
-  <select name=role style="{_INP}"><option value=user>user</option><option value=admin>admin</option></select>
-  <button>Them</button></form></div>
-<div class=card><b>Doi mat khau</b>
-<form method=post action=/admin/action>
-  <input type=hidden name=action value=reset>
-  <select name=username style="{_INP}">{opts}</select>
-  <input name=value type=password placeholder="Mat khau moi" required style="{_INP}">
-  <button>Doi</button></form></div>
-<p><a href=/>&laquo; ve trang chinh</a></p>""")
+    return HTMLResponse(_web("admin.html"))
+
+
+@app.get("/admin/users")
+def admin_users(request: Request):
+    block = _require_admin(request)
+    if block:
+        return block
+    return {"me": request.state.user["username"], "users": USERS.list()}
 
 
 @app.post("/admin/add")
@@ -380,52 +345,26 @@ def admin_action(request: Request, username: str = Form(...), action: str = Form
 
 
 # ------------------------------------------------------------------- "Bat tay"
-_CATCH_JS = """<script>
-const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
-const caplist=document.getElementById('caplist');
-async function refresh(){
-  try{
-    const d=await (await fetch('/catch/captured')).json();
-    document.getElementById('cstat').textContent=d.running?'dang nghe network...':(d.error?('loi: '+d.error):'da dung');
-    window._m=d.media||[];
-    caplist.innerHTML=window._m.length
-      ? window._m.map((m,i)=>'<div class=t style="display:flex;gap:8px;align-items:center"><code style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(m.url)+'</code><button data-i="'+i+'">Them vao hang doi</button></div>').join('')
-      : '<span class=muted>(chua bat duoc media — mo trang va phat video tren browser o tren)</span>';
-  }catch(e){}
-}
-async function post(u){await fetch(u,{method:'POST'});setTimeout(refresh,300);}
-caplist.addEventListener('click',async e=>{
-  const i=e.target.dataset.i; if(i===undefined)return;
-  const m=window._m[i]; e.target.disabled=true; e.target.textContent='...';
-  const f=new FormData(); f.append('url',m.url); f.append('referer',m.referer||'');
-  await fetch('/catch/enqueue',{method:'POST',body:f});
-  e.target.textContent='da them vao hang doi';
-});
-setInterval(refresh,2000); refresh();
-</script>"""
-
-
 @app.get("/catch", response_class=HTMLResponse)
 def catch_page(request: Request):
-    host = request.url.hostname or "127.0.0.1"
-    pw = cfg.get("vnc_password", "")
-    vnc = (f"http://{host}:{cfg.get('catch_novnc_port', 6080)}/vnc.html?autoconnect=true&resize=remote"
-           + (f"&password={urllib.parse.quote(pw)}" if pw else ""))
-    body = f"""{_userbar(request)}
-<div class=card>
-<b>Bat tay</b> &mdash; dieu khien browser ben duoi (phat video / dang nhap / qua CAPTCHA bang tay);
-URL media tu hien ra de bam <b>Them vao hang doi</b>. Tai bang dung session + IP nay.
-<div style="margin:10px 0">
-  <button onclick="post('/catch/start')">Bat dau nghe</button>
-  <button onclick="post('/catch/stop')">Dung</button>
-  <button onclick="post('/catch/clear')">Xoa danh sach</button>
-  <span class=muted id=cstat>...</span>
-</div>
-<iframe src="{vnc}" style="width:100%;height:540px;border:1px solid #2a2f3a;border-radius:8px;background:#000"></iframe>
-</div>
-<div class=card><b>Media bat duoc</b><div id=caplist style=margin-top:8px><span class=muted>(dang tai...)</span></div></div>
-{_CATCH_JS}"""
-    return page(body)
+    return HTMLResponse(_web("catch.html"))
+
+
+@app.get("/catch/config")
+def catch_config():
+    return {"novnc_port": cfg.get("catch_novnc_port", 6080),
+            "vnc_password": cfg.get("vnc_password", "")}
+
+
+@app.get("/web/{name}")
+def web_static(name: str):
+    if "/" in name or ".." in name or not name.endswith((".js", ".css")):
+        return PlainTextResponse("not found", status_code=404)
+    p = _WEBDIR / name
+    if not p.exists():
+        return PlainTextResponse("not found", status_code=404)
+    return Response(p.read_text(encoding="utf-8"),
+                    media_type="application/javascript" if name.endswith(".js") else "text/css")
 
 
 @app.post("/catch/start")

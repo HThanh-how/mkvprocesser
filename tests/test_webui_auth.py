@@ -28,7 +28,7 @@ def test_root_requires_login(client):
 
 def test_login_page_is_public(client):
     r = client.get("/login")
-    assert r.status_code == 200 and "Dang nhap" in r.text
+    assert r.status_code == 200 and "MKVTOOLS" in r.text and 'action="/login"' in r.text
 
 
 def test_bad_login_does_not_authenticate(client):
@@ -53,7 +53,9 @@ def test_admin_page_is_admin_only(client):
     assert client.get("/admin").status_code == 403
     client.post("/login", data={"username": "admin", "password": "adminpass"})  # admin
     r = client.get("/admin")
-    assert r.status_code == 200 and "Quan tri" in r.text
+    assert r.status_code == 200 and 'action="/admin/add"' in r.text
+    u = client.get("/admin/users").json()
+    assert u["me"] == "admin" and any(x["username"] == "bob" for x in u["users"])
 
 
 def test_admin_can_add_user(client):
@@ -80,7 +82,9 @@ def test_logout_clears_session(client):
 def test_catch_page_and_captured_json(client):
     client.post("/login", data={"username": "admin", "password": "adminpass"})
     r = client.get("/catch")
-    assert r.status_code == 200 and "Bat tay" in r.text
+    assert r.status_code == 200 and "MKVTOOLS" in r.text and "/catch/captured" in r.text
+    cfgj = client.get("/catch/config").json()
+    assert "novnc_port" in cfgj
     j = client.get("/catch/captured").json()
     assert j["running"] is False and j["media"] == []     # chua start -> rong, khong loi
 

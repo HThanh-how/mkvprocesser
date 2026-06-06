@@ -41,36 +41,8 @@
 </head>
 <body class="bg-background text-on-background font-body-md overflow-hidden selection:bg-primary-container selection:text-on-primary-fixed">
 
-<!-- Sidebar -->
-<nav class="w-[280px] h-screen fixed left-0 top-0 bg-surface-container-low border-r border-outline-variant/30 shadow-2xl z-50 flex flex-col py-panel-padding">
-  <div class="px-panel-padding mb-stack-lg">
-    <h1 class="font-headline-md text-headline-md font-bold text-primary-fixed-dim tracking-tight">MKVTOOLS</h1>
-    <p class="font-label-sm text-label-sm text-on-surface-variant mt-unit uppercase tracking-widest">Command Center</p>
-  </div>
-  <div class="flex-1 flex flex-col gap-unit px-unit">
-    <a href="/" class="flex items-center gap-stack-md px-gutter py-stack-sm rounded-lg text-primary-fixed-dim bg-primary-container/10 border-r-2 border-primary-fixed-dim transition-all">
-      <span class="ms" style="font-variation-settings:'FILL' 1">dashboard</span><span class="font-label-sm text-label-sm">Hàng đợi</span></a>
-    <a href="/catch" class="flex items-center gap-stack-md px-gutter py-stack-sm rounded-lg text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high transition-colors">
-      <span class="ms">ads_click</span><span class="font-label-sm text-label-sm">Bắt tay</span></a>
-    <a href="/classic" class="flex items-center gap-stack-md px-gutter py-stack-sm rounded-lg text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high transition-colors">
-      <span class="ms">folder_open</span><span class="font-label-sm text-label-sm">Inbox (cổ điển)</span></a>
-    <a href="/admin" class="flex items-center gap-stack-md px-gutter py-stack-sm rounded-lg text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high transition-colors">
-      <span class="ms">admin_panel_settings</span><span class="font-label-sm text-label-sm">Quản trị</span></a>
-  </div>
-  <div class="mt-auto px-unit pt-stack-md border-t border-outline-variant/20 mx-gutter">
-    <a href="/logout" class="flex items-center gap-stack-md px-gutter py-stack-sm rounded-lg text-on-surface-variant hover:text-error hover:bg-error-container/10 transition-colors">
-      <span class="ms">logout</span><span class="font-label-sm text-label-sm">Đăng xuất</span></a>
-  </div>
-</nav>
-
-<!-- Topbar -->
-<header class="fixed top-0 right-0 left-[280px] h-16 bg-surface/70 backdrop-blur-md border-b border-outline-variant/20 z-40 flex items-center justify-between px-container-margin">
-  <div class="font-headline-md text-headline-md text-primary-fixed-dim tracking-tight">Hàng đợi</div>
-  <div class="flex items-center gap-stack-md">
-    <span id="diskChip" class="font-label-sm text-label-sm text-on-surface-variant flex items-center gap-unit"><span class="ms text-[18px]">storage</span> <span id="diskTop">— GB</span></span>
-    <span class="ms text-on-surface-variant text-[22px]">account_circle</span>
-  </div>
-</header>
+<nav id="shell-side" class="w-[280px] h-screen fixed left-0 top-0 bg-surface-container-low border-r border-outline-variant/30 shadow-2xl z-50 flex flex-col py-panel-padding"></nav>
+<header id="shell-top" class="fixed top-0 right-0 left-[280px] h-16 bg-surface/70 backdrop-blur-md border-b border-outline-variant/20 z-40 flex items-center justify-between px-container-margin"></header>
 
 <!-- Main -->
 <main class="ml-[280px] mt-16 p-container-margin h-[calc(100vh-64px)] overflow-y-auto scrollbar-hide bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-surface-container-low via-background to-background">
@@ -137,7 +109,9 @@
   </div>
 </main>
 
+<script src="/web/shell.js"></script>
 <script>
+MKVShell('queue','Hàng đợi');
 const $=id=>document.getElementById(id);
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 function baseName(u){ try{ u=decodeURIComponent(u.split('?')[0]); }catch(e){} const p=u.split('/').filter(Boolean); return p.length?p[p.length-1]:u; }
@@ -184,7 +158,7 @@ function logLineHTML(s){
 async function refresh(){
   let d; try{ d=await (await fetch('/queue',{cache:'no-store'})).json(); }catch(e){ return; }
   const free = d.disk_free_gb!=null ? d.disk_free_gb : '—';
-  $('diskFree').textContent=free; $('diskTop').textContent=free+' GB';
+  $('diskFree').textContent=free; const _dk=$('shell-diskv'); if(_dk)_dk.textContent=free+' GB';
   const running = d.current?1:0;
   $('statRun').textContent=running; $('statWait').textContent=(d.pending||[]).length;
   $('statDone').textContent=(d.history||[]).filter(h=>h.status==='done').length;

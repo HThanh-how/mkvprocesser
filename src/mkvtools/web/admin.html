@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html class="dark" lang="vi"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>MKVTOOLS — Quản trị</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms"></script>
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL@20..48,100..700,0..1&display=swap" rel="stylesheet"/>
+<script>
+  tailwind.config={darkMode:"class",theme:{extend:{
+    colors:{"surface-container-low":"#1c1b1d","surface-container-highest":"#353437","surface-container":"#201f21","surface-container-high":"#2a2a2c","surface-container-lowest":"#0e0e10","surface-variant":"#353437","primary-container":"#00f2ff","on-surface":"#e5e1e4","on-background":"#e5e1e4","background":"#131315","surface":"#131315","outline":"#849495","outline-variant":"#3a494b","on-surface-variant":"#b9cacb","primary-fixed-dim":"#00dbe7","primary-fixed":"#74f5ff","on-primary-fixed":"#002022","error":"#ffb4ab","error-container":"#93000a","ok":"#00e75b","warn":"#f5b32b","secondary":"#bbc3ff"},
+    borderRadius:{"DEFAULT":"0.25rem","lg":"0.5rem","xl":"0.75rem","full":"9999px"},
+    spacing:{"unit":"4px","stack-sm":"8px","gutter":"16px","stack-md":"16px","panel-padding":"24px","stack-lg":"32px","container-margin":"32px"},
+    fontFamily:{"headline-md":["Sora"],"body-md":["Inter"],"label-sm":["JetBrains Mono"],"label-xs":["JetBrains Mono"]},
+    fontSize:{"label-xs":["10px",{lineHeight:"12px",letterSpacing:"0.1em",fontWeight:"700"}],"label-sm":["12px",{lineHeight:"16px",letterSpacing:"0.05em",fontWeight:"500"}],"body-md":["15px",{lineHeight:"22px"}],"headline-md":["22px",{lineHeight:"30px",fontWeight:"600"}]}
+  }}}
+</script>
+<style>
+  .glass-panel{background:linear-gradient(135deg,rgba(20,20,23,.8),rgba(10,10,12,.9));backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border:1px solid rgba(58,73,75,.3);border-top-color:rgba(255,255,255,.05)}
+  .scrollbar-hide::-webkit-scrollbar{display:none}.scrollbar-hide{-ms-overflow-style:none;scrollbar-width:none}
+  .ms{font-family:'Material Symbols Outlined';line-height:1;display:inline-block}
+  .fld{background:#0e0e10;border:1px solid #3a494b;border-radius:.5rem;padding:9px 12px;color:#e5e1e4}
+  .fld:focus{outline:none;border-color:#00f2ff;box-shadow:0 2px 12px -2px rgba(0,242,255,.4)}
+</style>
+</head>
+<body class="bg-background text-on-background font-body-md overflow-hidden">
+<nav id="shell-side" class="w-[280px] h-screen fixed left-0 top-0 bg-surface-container-low border-r border-outline-variant/30 shadow-2xl z-50 flex flex-col py-panel-padding"></nav>
+<header id="shell-top" class="fixed top-0 right-0 left-[280px] h-16 bg-surface/70 backdrop-blur-md border-b border-outline-variant/20 z-40 flex items-center justify-between px-container-margin"></header>
+
+<main class="ml-[280px] mt-16 p-container-margin h-[calc(100vh-64px)] overflow-y-auto scrollbar-hide max-w-[900px]">
+  <div id="toast" class="hidden mb-stack-md text-sm rounded-lg px-gutter py-stack-sm border"></div>
+
+  <!-- Danh sach tai khoan -->
+  <section class="glass-panel rounded-xl overflow-hidden mb-stack-lg">
+    <div class="px-panel-padding py-gutter border-b border-outline-variant/20 bg-surface-container/50 flex items-center gap-unit">
+      <span class="ms text-primary-fixed-dim text-[18px]">group</span>
+      <h2 class="font-label-sm text-label-sm text-on-surface uppercase tracking-widest">Tài khoản</h2>
+    </div>
+    <div id="userRows" class="divide-y divide-outline-variant/15"></div>
+  </section>
+
+  <div class="grid grid-cols-1 md:grid-cols-2 gap-stack-lg">
+    <!-- Them tai khoan -->
+    <section class="glass-panel rounded-xl p-panel-padding">
+      <h3 class="font-headline-md text-base font-semibold mb-stack-md flex items-center gap-unit"><span class="ms text-primary-fixed-dim text-[18px]">person_add</span> Thêm tài khoản</h3>
+      <form method="post" action="/admin/add" class="flex flex-col gap-stack-sm">
+        <input name="username" placeholder="Tên đăng nhập" required class="fld w-full"/>
+        <input name="password" type="password" placeholder="Mật khẩu" required class="fld w-full"/>
+        <select name="role" class="fld w-full"><option value="user">user</option><option value="admin">admin</option></select>
+        <button class="mt-unit h-10 bg-primary-fixed-dim text-on-primary-fixed font-label-sm text-label-sm uppercase tracking-wide rounded-lg hover:bg-primary-fixed transition-colors">Thêm</button>
+      </form>
+    </section>
+
+    <!-- Doi mat khau -->
+    <section class="glass-panel rounded-xl p-panel-padding">
+      <h3 class="font-headline-md text-base font-semibold mb-stack-md flex items-center gap-unit"><span class="ms text-primary-fixed-dim text-[18px]">key</span> Đổi mật khẩu</h3>
+      <form method="post" action="/admin/action" class="flex flex-col gap-stack-sm">
+        <input type="hidden" name="action" value="reset"/>
+        <select id="resetUser" name="username" class="fld w-full"></select>
+        <input name="value" type="password" placeholder="Mật khẩu mới" required class="fld w-full"/>
+        <button class="mt-unit h-10 bg-surface-container-high text-on-surface font-label-sm text-label-sm uppercase tracking-wide rounded-lg hover:bg-surface-variant transition-colors">Đổi</button>
+      </form>
+    </section>
+  </div>
+</main>
+
+<script src="/web/shell.js"></script>
+<script>
+MKVShell('admin','Quản trị');
+const $=id=>document.getElementById(id);
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+// toast tu ?msg=
+const msg=new URLSearchParams(location.search).get('msg');
+if(msg){ const t=$('toast'); const bad=/lỗi|loi/i.test(msg);
+  t.textContent=msg; t.className='mb-stack-md text-sm rounded-lg px-gutter py-stack-sm border '+(bad?'text-error border-error/30 bg-error/10':'text-ok border-ok/30 bg-ok/10');
+  history.replaceState(null,'','/admin');
+}
+
+function actForm(u,action,value,label,cls,confirmMsg){
+  const conf = confirmMsg ? ` onsubmit="return confirm('${confirmMsg}')"` : '';
+  return `<form method="post" action="/admin/action" class="inline"${conf}>
+    <input type="hidden" name="username" value="${esc(u)}"><input type="hidden" name="action" value="${action}">
+    ${value?`<input type="hidden" name="value" value="${value}">`:''}
+    <button class="${cls}">${label}</button></form>`;
+}
+function userRow(u,me){
+  const isMe=u.username===me;
+  const roleBadge = u.role==='admin'
+    ? '<span class="font-label-xs text-label-xs px-2 py-0.5 rounded-full bg-secondary/15 text-secondary">admin</span>'
+    : '<span class="font-label-xs text-label-xs px-2 py-0.5 rounded-full bg-surface-variant text-on-surface-variant">user</span>';
+  const stBadge = u.disabled
+    ? '<span class="font-label-xs text-label-xs px-2 py-0.5 rounded-full bg-warn/15 text-warn flex items-center gap-1"><span class="ms text-[12px]">lock</span>khoá</span>'
+    : '<span class="font-label-xs text-label-xs px-2 py-0.5 rounded-full bg-ok/15 text-ok">hoạt động</span>';
+  const btn='h-8 px-gutter rounded-lg font-label-sm text-label-sm transition-colors ';
+  let actions;
+  if(isMe){
+    actions='<span class="text-on-surface-variant text-xs italic">không tự sửa mình</span>';
+  }else{
+    const toRole=u.role==='admin'?'user':'admin';
+    actions=
+      actForm(u.username,'role',toRole,'→ '+toRole, btn+'bg-surface-container-high text-on-surface hover:bg-surface-variant')+' '+
+      actForm(u.username, u.disabled?'enable':'disable', '', u.disabled?'Mở khoá':'Khoá', btn+'bg-surface-container-high text-on-surface hover:bg-surface-variant')+' '+
+      actForm(u.username,'delete','','Xoá', btn+'bg-error/10 text-error hover:bg-error/20','Xoá '+u.username+'? Không hoàn tác.');
+  }
+  return `<div class="px-panel-padding py-gutter flex items-center justify-between gap-stack-md flex-wrap hover:bg-surface-container/40 transition-colors">
+    <div class="flex items-center gap-stack-md min-w-0">
+      <span class="ms text-on-surface-variant text-[22px]">account_circle</span>
+      <div class="min-w-0"><div class="text-on-surface truncate">${esc(u.username)}${isMe?' <span class="text-on-surface-variant text-xs">(bạn)</span>':''}</div>
+      <div class="flex gap-unit mt-1">${roleBadge} ${stBadge}</div></div>
+    </div>
+    <div class="flex items-center gap-stack-sm flex-wrap">${actions}</div>
+  </div>`;
+}
+fetch('/admin/users',{cache:'no-store'}).then(r=>r.json()).then(d=>{
+  $('userRows').innerHTML=(d.users||[]).map(u=>userRow(u,d.me)).join('');
+  $('resetUser').innerHTML=(d.users||[]).map(u=>`<option>${esc(u.username)}</option>`).join('');
+}).catch(()=>{});
+</script>
+</body></html>

@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html class="dark" lang="vi"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>MKVTOOLS — Bắt tay</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL@20..48,100..700,0..1&display=swap" rel="stylesheet"/>
+<script>
+  tailwind.config={darkMode:"class",theme:{extend:{
+    colors:{"surface-container-low":"#1c1b1d","surface-container-highest":"#353437","surface-container":"#201f21","surface-container-high":"#2a2a2c","surface-container-lowest":"#0e0e10","surface-variant":"#353437","primary-container":"#00f2ff","on-surface":"#e5e1e4","on-background":"#e5e1e4","background":"#131315","surface":"#131315","outline":"#849495","outline-variant":"#3a494b","on-surface-variant":"#b9cacb","primary-fixed-dim":"#00dbe7","primary-fixed":"#74f5ff","on-primary-fixed":"#002022","error":"#ffb4ab","error-container":"#93000a","ok":"#00e75b","warn":"#f5b32b"},
+    borderRadius:{"DEFAULT":"0.25rem","lg":"0.5rem","xl":"0.75rem","full":"9999px"},
+    spacing:{"unit":"4px","stack-sm":"8px","gutter":"16px","stack-md":"16px","panel-padding":"24px","stack-lg":"32px","container-margin":"32px"},
+    fontFamily:{"headline-md":["Sora"],"body-md":["Inter"],"label-sm":["JetBrains Mono"],"label-xs":["JetBrains Mono"]},
+    fontSize:{"label-xs":["10px",{lineHeight:"12px",letterSpacing:"0.1em",fontWeight:"700"}],"label-sm":["12px",{lineHeight:"16px",letterSpacing:"0.05em",fontWeight:"500"}],"body-md":["15px",{lineHeight:"22px"}],"headline-md":["22px",{lineHeight:"30px",fontWeight:"600"}]}
+  }}}
+</script>
+<style>
+  .glass-panel{background:linear-gradient(135deg,rgba(20,20,23,.8),rgba(10,10,12,.9));backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border:1px solid rgba(58,73,75,.3);border-top-color:rgba(255,255,255,.05)}
+  .scrollbar-hide::-webkit-scrollbar{display:none}.scrollbar-hide{-ms-overflow-style:none;scrollbar-width:none}
+  .ms{font-family:'Material Symbols Outlined';line-height:1;display:inline-block}
+  @keyframes pulse2{50%{opacity:.4}}.live{animation:pulse2 1.2s infinite}
+</style>
+</head>
+<body class="bg-background text-on-background font-body-md overflow-hidden">
+<nav id="shell-side" class="w-[280px] h-screen fixed left-0 top-0 bg-surface-container-low border-r border-outline-variant/30 shadow-2xl z-50 flex flex-col py-panel-padding"></nav>
+<header id="shell-top" class="fixed top-0 right-0 left-[280px] h-16 bg-surface/70 backdrop-blur-md border-b border-outline-variant/20 z-40 flex items-center justify-between px-container-margin"></header>
+
+<main class="ml-[280px] mt-16 p-container-margin h-[calc(100vh-64px)] overflow-y-auto scrollbar-hide">
+  <div class="glass-panel rounded-xl p-gutter mb-stack-md flex items-center justify-between flex-wrap gap-stack-sm">
+    <p class="font-body-md text-on-surface-variant text-sm">Điều khiển trình duyệt bên dưới (phát video · đăng nhập · qua CAPTCHA <b class="text-on-surface">bằng tay</b>). Link media tự hiện bên phải để thêm vào hàng đợi — tải bằng <b class="text-on-surface">đúng phiên + IP</b> này.</p>
+    <div class="flex items-center gap-stack-sm shrink-0">
+      <span id="cstat" class="font-label-sm text-label-sm text-on-surface-variant"></span>
+      <button id="btnStart" class="h-9 px-gutter rounded-lg bg-primary-fixed-dim text-on-primary-fixed font-label-sm text-label-sm uppercase tracking-wide hover:bg-primary-fixed transition-colors flex items-center gap-unit"><span class="ms text-[16px]">hearing</span>Bắt đầu nghe</button>
+      <button id="btnStop" class="h-9 px-gutter rounded-lg bg-surface-container-high text-on-surface-variant font-label-sm text-label-sm uppercase tracking-wide hover:text-on-surface transition-colors flex items-center gap-unit"><span class="ms text-[16px]">stop</span>Dừng</button>
+      <button id="btnClear" class="h-9 w-9 rounded-lg bg-surface-container-high text-on-surface-variant hover:text-error transition-colors flex items-center justify-center" title="Xoá danh sách"><span class="ms text-[18px]">delete_sweep</span></button>
+    </div>
+  </div>
+
+  <div class="grid grid-cols-1 lg:grid-cols-3 gap-stack-md">
+    <!-- Khung trinh duyet -->
+    <section class="lg:col-span-2 glass-panel rounded-xl overflow-hidden flex flex-col">
+      <div class="px-gutter py-stack-sm border-b border-outline-variant/20 bg-surface-container/50 flex items-center gap-unit">
+        <span class="ms text-primary-fixed-dim text-[16px]">public</span>
+        <span class="font-label-sm text-label-sm text-on-surface uppercase tracking-widest">Trình duyệt — bạn đang điều khiển</span>
+      </div>
+      <iframe id="vnc" class="w-full bg-black" style="height:600px;border:0"></iframe>
+    </section>
+
+    <!-- Media bat duoc -->
+    <section class="glass-panel rounded-xl overflow-hidden flex flex-col min-h-[400px]">
+      <div class="px-gutter py-stack-sm border-b border-outline-variant/20 bg-surface-container/50 flex items-center justify-between">
+        <span class="font-label-sm text-label-sm text-on-surface uppercase tracking-widest flex items-center gap-unit"><span class="ms text-primary-fixed-dim text-[16px]">my_location</span> Media bắt được</span>
+        <span id="mcount" class="font-label-xs text-label-xs bg-surface-variant text-on-surface-variant px-2 py-1 rounded-full">0</span>
+      </div>
+      <div id="caplist" class="p-gutter flex-1 overflow-y-auto scrollbar-hide flex flex-col gap-stack-sm"></div>
+    </section>
+  </div>
+
+  <div class="mt-stack-md glass-panel rounded-xl p-gutter font-body-md text-sm text-on-surface-variant flex items-center gap-stack-md flex-wrap">
+    <span class="font-label-sm text-label-sm text-primary-fixed-dim uppercase">3 bước</span>
+    <span><b class="text-on-surface">1</b> Mở trang phim trong khung</span><span class="text-outline-variant">→</span>
+    <span><b class="text-on-surface">2</b> Phát video / đăng nhập</span><span class="text-outline-variant">→</span>
+    <span><b class="text-on-surface">3</b> Bấm <b class="text-primary-fixed-dim">+ Hàng đợi</b> ở link hiện ra</span>
+  </div>
+</main>
+
+<script src="/web/shell.js"></script>
+<script>
+MKVShell('catch','Bắt tay');
+const $=id=>document.getElementById(id);
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+function baseName(u){try{u=decodeURIComponent(u.split('?')[0]);}catch(e){}const p=u.split('/').filter(Boolean);return p.length?p[p.length-1]:u;}
+function kind(u){u=u.toLowerCase();if(u.includes('.m3u8'))return'HLS';if(u.includes('.mpd'))return'DASH';if(u.includes('.mp4'))return'MP4';if(u.includes('.mkv'))return'MKV';if(u.includes('.ts'))return'TS';return'media';}
+
+// 1) Nap iframe noVNC tu cau hinh server
+fetch('/catch/config').then(r=>r.json()).then(c=>{
+  const host=location.hostname; let src=`http://${host}:${c.novnc_port}/vnc.html?autoconnect=true&resize=remote`;
+  if(c.vnc_password) src+='&password='+encodeURIComponent(c.vnc_password);
+  $('vnc').src=src;
+}).catch(()=>{});
+
+// 2) Dieu khien
+$('btnStart').onclick=()=>fetch('/catch/start',{method:'POST'}).then(()=>setTimeout(refresh,300));
+$('btnStop').onclick=()=>fetch('/catch/stop',{method:'POST'}).then(()=>setTimeout(refresh,300));
+$('btnClear').onclick=()=>fetch('/catch/clear',{method:'POST'}).then(()=>setTimeout(refresh,200));
+
+// 3) Danh sach media
+const caplist=$('caplist');
+caplist.addEventListener('click',async e=>{
+  const b=e.target.closest('button[data-i]'); if(!b)return;
+  const m=window._m[b.dataset.i]; b.disabled=true; b.innerHTML='<span class="ms text-[16px]">check</span> đã thêm';
+  b.className='shrink-0 h-8 px-gutter rounded-lg bg-ok/15 text-ok font-label-sm text-label-sm flex items-center gap-unit';
+  const f=new FormData(); f.append('url',m.url); f.append('referer',m.referer||'');
+  await fetch('/catch/enqueue',{method:'POST',body:f});
+});
+function row(m,i){
+  return `<div class="bg-surface-container-high rounded-lg p-stack-sm border border-outline-variant/30 flex items-center gap-stack-sm">
+    <div class="min-w-0 flex-1"><div class="flex items-center gap-unit"><span class="font-label-xs text-label-xs bg-primary-container/10 text-primary-fixed-dim px-1.5 py-0.5 rounded">${kind(m.url)}</span>
+    <span class="text-on-surface text-sm truncate">${esc(baseName(m.url))}</span></div></div>
+    <button data-i="${i}" class="shrink-0 h-8 px-gutter rounded-lg bg-primary-fixed-dim text-on-primary-fixed font-label-sm text-label-sm uppercase hover:bg-primary-fixed transition-colors flex items-center gap-unit"><span class="ms text-[16px]">add</span>Hàng đợi</button>
+  </div>`;
+}
+async function refresh(){
+  let d; try{ d=await (await fetch('/catch/captured',{cache:'no-store'})).json(); }catch(e){ return; }
+  $('cstat').innerHTML = d.running ? '<span class="text-primary-fixed-dim live">● đang nghe</span>' : (d.error?('<span class="text-error">lỗi</span>'):'<span>đã dừng</span>');
+  window._m=d.media||[]; $('mcount').textContent=window._m.length;
+  caplist.innerHTML = window._m.length ? window._m.map(row).join('')
+    : '<div class="text-on-surface-variant text-sm text-center py-stack-lg">Chưa bắt được — bấm <b class="text-primary-fixed-dim">Bắt đầu nghe</b> rồi phát video trong khung.</div>';
+}
+setInterval(refresh,2000); refresh();
+</script>
+</body></html>
