@@ -10,12 +10,12 @@ def title_for(cfg, base, out):
                                         label=out["label"])
 
 
-def _record(store, sig, tkey, name, outs, note=""):
+def _record(store, sig, tkey, name, outs, res_rank=0, note=""):
     """Ghi vao store de chong trung lan sau (khoa = sig neu co, khong thi theo tua/ten)."""
     if store is None:
         return
     key = sig or (f"title:{tkey}" if tkey else f"name:{name}")
-    info = {"name": name, "title_key": tkey, "outputs": outs}
+    info = {"name": name, "title_key": tkey, "res_rank": res_rank, "outputs": outs}
     if note:
         info["note"] = note
     store.add(key, info)
@@ -47,11 +47,16 @@ def process_file(src, cfg, yt=None, pl_cache=None, do_upload=None, log=print,
     # (1) Chong trung theo TUA DE (nhe nhat: chi doc ten file, khong dung video).
     #     Phan biet Phan 1/2/3 (tua khac) nhung bat ban re-encode (cung tua).
     tkey = titlematch.title_key(name) if (store is not None and title_on) else ""
+    rrank = titlematch.resolution_rank(name) if tkey else 0
     if tkey and not force and store.has_title(tkey):
-        mode = cfg.get("on_title_match", "skip")
-        log(f"[{name}] da co theo tua ({tkey}) -> {'bo qua' if mode == 'skip' else 'van xu ly'}")
-        if mode == "skip":
-            return {"base": os.path.splitext(name)[0], "outputs": [], "skipped": "title"}
+        old = store.title_res(tkey)
+        if cfg.get("upgrade_on_higher_res", True) and rrank > old:
+            log(f"[{name}] da co ({tkey}) o {old or '?'}p, ban moi {rrank}p cao hon -> up nang cap")
+        else:
+            mode = cfg.get("on_title_match", "skip")
+            log(f"[{name}] da co theo tua ({tkey}) -> {'bo qua' if mode == 'skip' else 'van xu ly'}")
+            if mode == "skip":
+                return {"base": os.path.splitext(name)[0], "outputs": [], "skipped": "title"}
 
     # (2) Chong trung theo NOI DUNG (sha256 dau/cuoi) -> bat file y het tung byte.
     sig = idempotency.file_signature(src) if (store is not None and skip_on) else None
@@ -70,7 +75,7 @@ def process_file(src, cfg, yt=None, pl_cache=None, do_upload=None, log=print,
     log(f"[{name}] -> {len(outs)} ban audio")
     if not outs:
         log("  (!) khong co audio track")
-        _record(store, sig, tkey, name, [], note="no-audio")
+        _record(store, sig, tkey, name, [], res_rank=rrank, note="no-audio")
         return p
 
     pid = None
@@ -102,6 +107,6 @@ def process_file(src, cfg, yt=None, pl_cache=None, do_upload=None, log=print,
     if do_upload and yt and cfg.get("done_dir"):
         os.makedirs(cfg["done_dir"], exist_ok=True)
         shutil.move(src, os.path.join(cfg["done_dir"], os.path.basename(src)))
-    _record(store, sig, tkey, name, [o["out"] for o in outs])
+    _record(store, sig, tkey, name, [o["out"] for o in outs], res_rank=rrank)
     log(f"[{name}] XONG")
     return p

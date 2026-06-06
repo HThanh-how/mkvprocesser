@@ -99,7 +99,7 @@ def test_low_disk_warns_but_proceeds(tmp_path, monkeypatch):
 def test_title_dedup_skips_same_movie_but_not_part2(tmp_path, monkeypatch):
     f1 = tmp_path / "Movie.2020.1080p.x264.mkv"
     f1.write_bytes(b"aaaa")
-    f2 = tmp_path / "Movie.2020.2160p.HEVC.mkv"     # cung phim, ban rip khac (bytes khac)
+    f2 = tmp_path / "Movie.2020.1080p.HEVC.mkv"     # cung phim, cung res, rip khac (bytes khac)
     f2.write_bytes(b"different bytes here")
     f3 = tmp_path / "Movie.Part.2.2020.1080p.mkv"   # PHAN 2 -> phai chay
     f3.write_bytes(b"part two content")
@@ -131,3 +131,24 @@ def test_title_dedup_warn_mode_still_processes(tmp_path, monkeypatch):
     r2 = pipeline.process_file(str(f2), cfg, do_upload=False, store=store, log=logs.append)
     assert "skipped" not in r2                       # warn -> van xu ly
     assert any("da co theo tua" in m for m in logs)
+
+
+def test_title_dedup_allows_higher_resolution_upgrade(tmp_path, monkeypatch):
+    f_lo = tmp_path / "Film.2019.1080p.x264.mkv"
+    f_lo.write_bytes(b"lo")
+    f_hi = tmp_path / "Film.2019.2160p.x265.mkv"     # cung phim, res CAO HON -> van up
+    f_hi.write_bytes(b"hi")
+    f_same = tmp_path / "Film.2019.1080p.WEB.mkv"    # cung phim, res bang -> bo qua
+    f_same.write_bytes(b"same-res")
+    cfg = _cfg(tmp_path, on_title_match="skip")
+    out = _fake_output(tmp_path)
+    monkeypatch.setattr(pipeline.splitter, "plan", lambda *a, **k: {"base": "x", "outputs": [out]})
+    monkeypatch.setattr(pipeline.splitter, "execute", lambda s, o, log=print: o)
+    store = idempotency.ProcessedStore(cfg["state_file"])
+
+    pipeline.process_file(str(f_lo), cfg, do_upload=False, store=store)        # ghi 1080p
+    r_hi = pipeline.process_file(str(f_hi), cfg, do_upload=False, store=store)   # 2160p -> nang cap
+    r_same = pipeline.process_file(str(f_same), cfg, do_upload=False, store=store)  # 1080p -> skip
+    assert "skipped" not in r_hi                     # res cao hon -> van chay
+    assert r_same.get("skipped") == "title"          # bang res -> bo qua
+

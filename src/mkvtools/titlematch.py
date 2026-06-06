@@ -69,3 +69,27 @@ def title_key(name: str, year: str | None = None) -> str:
         return ""
     y = (year if year is not None else parse_year(os.path.basename(name))).strip()
     return f"{base}|{y}"
+
+
+_RES_PATTERNS = [
+    (re.compile(r"\b(?:4320p|8k)\b"), 4320),
+    (re.compile(r"\b(?:2160p|4k|uhd)\b"), 2160),
+    (re.compile(r"\b1440p\b"), 1440),
+    (re.compile(r"\b1080[pi]\b"), 1080),
+    (re.compile(r"\b720p\b"), 720),
+    (re.compile(r"\b576[pi]\b"), 576),
+    (re.compile(r"\b480[pi]\b"), 480),
+]
+
+
+def resolution_rank(name: str) -> int:
+    """Hang do phan giai suy tu ten file (~chieu cao px). 0 neu khong ro.
+
+    Dung de cho phep up BAN CAO HON cua phim da co (vd da co 1080p, ban moi 2160p
+    -> van up). So sanh bang ten file (nhe), khong doc video.
+    """
+    s = name.lower()
+    for pat, rank in _RES_PATTERNS:
+        if pat.search(s):
+            return rank
+    return 0

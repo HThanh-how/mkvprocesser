@@ -37,7 +37,7 @@ class ProcessedStore:
     def __init__(self, path: str):
         self.path = path
         self._data: dict[str, dict] = {}
-        self._titles: set[str] = set()   # tap title_key da xu ly (tra cuu nhanh)
+        self._titles: dict[str, int] = {}  # title_key -> hang do phan giai CAO NHAT da co
         self.load()
 
     def load(self) -> ProcessedStore:
@@ -47,9 +47,15 @@ class ProcessedStore:
             self._data = data if isinstance(data, dict) else {}
         except (FileNotFoundError, json.JSONDecodeError, OSError):
             self._data = {}  # thieu hoac hong -> coi nhu rong, khong nem loi
-        self._titles = {info["title_key"] for info in self._data.values()
-                        if isinstance(info, dict) and info.get("title_key")}
+        self._titles = {}
+        for info in self._data.values():
+            if isinstance(info, dict) and info.get("title_key"):
+                self._bump_title(info["title_key"], info.get("res_rank", 0))
         return self
+
+    def _bump_title(self, title_key: str, res_rank) -> None:
+        rank = int(res_rank or 0)
+        self._titles[title_key] = max(self._titles.get(title_key, 0), rank)
 
     def has(self, signature: str) -> bool:
         return signature in self._data
@@ -58,12 +64,16 @@ class ProcessedStore:
         """True neu da xu ly file co cung tua (chuan hoa + nam)."""
         return bool(title_key) and title_key in self._titles
 
+    def title_res(self, title_key: str) -> int:
+        """Hang do phan giai cao nhat da luu cho tua nay (0 neu chua/khong ro)."""
+        return self._titles.get(title_key, 0)
+
     def add(self, signature: str, info: dict | None = None) -> None:
         info = info or {}
         self._data[signature] = info
         tk = info.get("title_key")
         if tk:
-            self._titles.add(tk)
+            self._bump_title(tk, info.get("res_rank", 0))
         self.save()
 
     def save(self) -> None:

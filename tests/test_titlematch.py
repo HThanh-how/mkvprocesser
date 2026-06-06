@@ -34,3 +34,12 @@ def test_empty_key_when_only_junk():
 
 def test_vietnamese_unicode_title():
     assert T.title_key("Bố.Già.2021.1080p.mkv") == "bố già|2021"
+
+
+def test_resolution_rank():
+    assert T.resolution_rank("Movie.2020.2160p.mkv") == 2160
+    assert T.resolution_rank("Movie.2020.4K.BluRay.mkv") == 2160
+    assert T.resolution_rank("Movie.2020.1080p.mkv") == 1080
+    assert T.resolution_rank("Movie.2020.720p.mkv") == 720
+    assert T.resolution_rank("Movie.2020.mkv") == 0           # khong ro
+    assert T.resolution_rank("M.2160p.mkv") > T.resolution_rank("M.1080p.mkv")

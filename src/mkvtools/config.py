@@ -20,6 +20,8 @@ _DEFAULTS = {
     "min_free_gb_factor": 1.5,
     # Chong trung theo TUA DE (nhe, phan biet Phan 1/2/3). on_title_match: skip|warn.
     "dedup_by_title": True, "on_title_match": "skip",
+    # Da co phim nhung ban moi do phan giai CAO HON -> van up (nang cap).
+    "upgrade_on_higher_res": True,
     # Proxy cho upload/API YouTube (rong = khong dung). VD http://host:8080, socks5://host:1080
     "proxy": "",
 }
