@@ -85,3 +85,28 @@ def add_to_playlist(yt, playlist_id, video_id, log=print):
         "playlistId": playlist_id,
         "resourceId": {"kind": "youtube#video", "videoId": video_id}}}))
     log("  added to playlist")
+
+
+def list_uploaded_titles(yt):
+    """Liet ke tua cac video DA UPLOAD cua kenh (re: uploads playlist, ~1 unit/50).
+
+    Tra ve set[str] tua tho. Dung de doi chieu 'da co tren YouTube' ma khong ton
+    quota nhu search.list (100 unit/lan).
+    """
+    ch = _retry(yt.channels().list(part="contentDetails", mine=True))
+    items = ch.get("items", []) if ch else []
+    if not items:
+        return set()
+    uploads = items[0]["contentDetails"]["relatedPlaylists"]["uploads"]
+    titles, token = set(), None
+    while True:
+        resp = _retry(yt.playlistItems().list(
+            part="snippet", playlistId=uploads, maxResults=50, pageToken=token))
+        for it in resp.get("items", []):
+            t = (it.get("snippet", {}) or {}).get("title", "")
+            if t:
+                titles.add(t)
+        token = resp.get("nextPageToken")
+        if not token:
+            break
+    return titles

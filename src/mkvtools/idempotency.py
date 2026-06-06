@@ -37,6 +37,7 @@ class ProcessedStore:
     def __init__(self, path: str):
         self.path = path
         self._data: dict[str, dict] = {}
+        self._titles: set[str] = set()   # tap title_key da xu ly (tra cuu nhanh)
         self.load()
 
     def load(self) -> ProcessedStore:
@@ -46,13 +47,23 @@ class ProcessedStore:
             self._data = data if isinstance(data, dict) else {}
         except (FileNotFoundError, json.JSONDecodeError, OSError):
             self._data = {}  # thieu hoac hong -> coi nhu rong, khong nem loi
+        self._titles = {info["title_key"] for info in self._data.values()
+                        if isinstance(info, dict) and info.get("title_key")}
         return self
 
     def has(self, signature: str) -> bool:
         return signature in self._data
 
+    def has_title(self, title_key: str) -> bool:
+        """True neu da xu ly file co cung tua (chuan hoa + nam)."""
+        return bool(title_key) and title_key in self._titles
+
     def add(self, signature: str, info: dict | None = None) -> None:
-        self._data[signature] = info or {}
+        info = info or {}
+        self._data[signature] = info
+        tk = info.get("title_key")
+        if tk:
+            self._titles.add(tk)
         self.save()
 
     def save(self) -> None:
