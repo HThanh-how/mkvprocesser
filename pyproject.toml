@@ -1,0 +1,76 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mkvtools"
+version = "3.0.0"
+description = "Split multi-audio video into per-audio files + extract subtitles + optional YouTube upload (cross-platform, headless, with web GUI)"
+readme = "docs/mkvtools.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [{ name = "mkvprocesser contributors" }]
+keywords = ["ffmpeg", "mkv", "video", "subtitle", "youtube", "pipeline"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Operating System :: OS Independent",
+  "License :: OSI Approved :: MIT License",
+  "Topic :: Multimedia :: Video",
+]
+
+# Core runtime deps: split-only. Heavier integrations are opt-in extras below and
+# are lazy-imported, so a headless "split + extract subs" install stays tiny.
+dependencies = [
+  "PyYAML>=6.0",
+]
+
+[project.optional-dependencies]
+# YouTube upload integration (lazy-imported; only needed when uploading).
+upload = [
+  "google-api-python-client>=2.120.0",
+  "google-auth>=2.29.0",
+  "google-auth-oauthlib>=1.2.0",
+]
+# Web GUI (FastAPI) — required by the `mkvtools-gui` entry point.
+web = [
+  "fastapi>=0.110",
+  "uvicorn[standard]>=0.29",
+  "python-multipart>=0.0.9",
+]
+# Everything needed for the full headless tool (upload + web GUI).
+all = [
+  "mkvtools[upload,web]",
+]
+# Legacy PySide6 desktop GUI + resource probing (opt-in; not needed headless).
+desktop = [
+  "PySide6>=6.7.0",
+  "psutil>=5.9.0",
+  "ffmpeg-python>=0.2.0",
+  "requests>=2.31.0",
+]
+dev = [
+  "pytest>=7.4",
+  "ruff>=0.4",
+]
+
+[project.scripts]
+mkvtools = "mkvtools.cli:main"
+mkvtools-gui = "mkvtools.webui:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["mkvtools*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"
+src = ["src"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+# webui builds HTML via f-strings; long lines there are acceptable.
+ignore = ["E501"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

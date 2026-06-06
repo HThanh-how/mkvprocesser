@@ -1,0 +1,38 @@
+# Keep the build context small & cross-platform.
+.git
+.github
+
+# 190MB of committed Windows ffmpeg binaries — never needed in the Linux image.
+ffmpeg_bin/
+
+# Legacy Windows desktop app is not part of the headless mkvtools image.
+src/gui/
+src/mkvprocessor/
+src/__init__.py
+gui_pyside.py
+legacy_cli_entry.py
+scripts/
+hooks/
+
+# Caches / build artifacts / envs
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.venv/
+venv/
+build/
+dist/
+*.egg-info/
+
+# Runtime data & secrets (provided via bind mounts at run time)
+inbox/*
+work/
+done/
+secrets/*
+config.yaml
+
+# Tests & docs not needed at runtime (docs/mkvtools.md is COPYed explicitly)
+tests/
