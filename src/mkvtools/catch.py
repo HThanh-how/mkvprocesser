@@ -97,7 +97,9 @@ class CatchSession:
                 browser.on("disconnected", lambda *_: self._stop.set())
                 for ctx in browser.contexts:
                     ctx.on("response", self._record)
-                    ctx.on("page", lambda pg: pg.on("response", self._record))
+                    for pg in ctx.pages:               # tab dang mo san
+                        pg.on("response", self._record)
+                    ctx.on("page", lambda pg: pg.on("response", self._record))  # tab mo them
                 while not self._stop.is_set():
                     time.sleep(0.5)
                 browser.close()
