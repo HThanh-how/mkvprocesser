@@ -98,6 +98,13 @@ def test_catch_page_and_captured_json(client):
     assert j["running"] is False and j["media"] == []     # chua start -> rong, khong loi
 
 
+def test_videos_page_and_list(client):
+    client.post("/login", data={"username": "admin", "password": "adminpass"})
+    assert client.get("/videos").status_code == 200 and "MKVTOOLS" in client.get("/videos").text
+    j = client.get("/videos/list").json()
+    assert "ok" in j           # khong co token YouTube trong test -> ok False, KHONG crash
+
+
 def test_admin_cannot_delete_self(client):
     client.post("/login", data={"username": "admin", "password": "adminpass"})
     client.post("/admin/action", data={"username": "admin", "action": "delete"},

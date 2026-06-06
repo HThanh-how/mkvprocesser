@@ -249,6 +249,24 @@ def queue():
     return snap
 
 
+@app.get("/videos", response_class=HTMLResponse)
+def videos_page(request: Request):
+    return HTMLResponse(_web("videos.html"))
+
+
+@app.get("/videos/list")
+def videos_list():
+    """Liet ke video da upload tren YouTube (thu vien). Lazy nap google libs."""
+    if not os.path.exists(cfg.get("token_file", "") or ""):
+        return {"ok": False, "error": "Chua dang nhap YouTube (thieu token)."}
+    try:
+        from . import uploader as up
+        yt = up.get_service(cfg["client_secret"], cfg["token_file"], proxy=cfg.get("proxy", ""))
+        return {"ok": True, "videos": up.list_uploaded_videos(yt, limit=60)}
+    except Exception as e:        # noqa: BLE001
+        return {"ok": False, "error": str(e)}
+
+
 # ---------------------------------------------------------------- dang nhap / quan tri
 @app.get("/login", response_class=HTMLResponse)
 def login_form(request: Request):

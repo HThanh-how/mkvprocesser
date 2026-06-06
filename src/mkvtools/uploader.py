@@ -133,3 +133,38 @@ def list_uploaded_titles(yt):
         if not token:
             break
     return titles
+
+
+def list_uploaded_videos(yt, limit=60):
+    """Liet ke video da upload (moi nhat truoc) kem chi tiet de quan ly.
+
+    Tra ve list[dict]: id, title, privacy, published, thumb, url. Re (~vai unit).
+    """
+    ch = _retry(yt.channels().list(part="contentDetails", mine=True))
+    items = ch.get("items", []) if ch else []
+    if not items:
+        return []
+    uploads = items[0]["contentDetails"]["relatedPlaylists"]["uploads"]
+    ids, token = [], None
+    while len(ids) < limit:
+        resp = _retry(yt.playlistItems().list(
+            part="contentDetails", playlistId=uploads,
+            maxResults=min(50, limit - len(ids)), pageToken=token))
+        ids += [it["contentDetails"]["videoId"] for it in resp.get("items", [])]
+        token = resp.get("nextPageToken")
+        if not token:
+            break
+    out = []
+    for i in range(0, len(ids), 50):
+        vr = _retry(yt.videos().list(part="snippet,status", id=",".join(ids[i:i + 50])))
+        for v in vr.get("items", []):
+            sn = v.get("snippet", {}) or {}
+            th = sn.get("thumbnails", {}) or {}
+            thumb = (th.get("medium") or th.get("default") or {}).get("url", "")
+            out.append({
+                "id": v["id"], "title": sn.get("title", ""),
+                "privacy": (v.get("status", {}) or {}).get("privacyStatus", ""),
+                "published": sn.get("publishedAt", ""), "thumb": thumb,
+                "url": f"https://youtu.be/{v['id']}",
+            })
+    return out
