@@ -72,6 +72,9 @@ mkvtools-gui = "mkvtools.webui:main"
 where = ["src"]
 include = ["mkvtools*"]
 
+[tool.setuptools.package-data]
+mkvtools = ["web/*.html"]
+
 [tool.ruff]
 line-length = 100
 target-version = "py39"

@@ -4,13 +4,21 @@ Mo http://127.0.0.1:8800 . Liet ke file trong inbox/, phan tich, tach + (tuy cho
 Chay tac vu o thread nen, log poll qua /status.
 """
 import os
+import pathlib
 import threading
 import urllib.parse
 
 from fastapi import FastAPI, Form, Request
 from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse
 
-from . import auth, catch, config, fetch, ffmpeg_helper, idempotency, jobs, pipeline
+from . import auth, catch, config, fetch, ffmpeg_helper, idempotency, jobs, pipeline, resources
+
+_WEBDIR = pathlib.Path(__file__).parent / "web"
+
+
+def _web(name: str) -> str:
+    """Doc file giao dien tinh (Tailwind) trong package/web/. Doc moi lan -> sua file la thay."""
+    return (_WEBDIR / name).read_text(encoding="utf-8")
 
 cfg = config.load()
 app = FastAPI(title="mkvtools GUI")
@@ -125,6 +133,11 @@ def page(body):
 
 @app.get("/", response_class=HTMLResponse)
 def home(request: Request):
+    return HTMLResponse(_web("dashboard.html"))      # giao dien moi (Tailwind), nap du lieu qua /queue
+
+
+@app.get("/classic", response_class=HTMLResponse)
+def home_classic(request: Request):
     files = _inbox_files()
     opts = "".join(f"<option>{f}</option>" for f in files) or "<option disabled>(inbox trong)</option>"
     up_checked = "checked" if cfg.get("upload", True) else ""
@@ -230,7 +243,10 @@ def enqueue(links: str = Form(...)):
 
 @app.get("/queue")
 def queue():
-    return Q.snapshot()
+    snap = Q.snapshot()
+    dl = cfg.get("downloads_dir") or cfg.get("inbox_dir", "inbox")
+    snap["disk_free_gb"] = round(resources.free_gb(dl), 1)
+    return snap
 
 
 # ---------------------------------------------------------------- dang nhap / quan tri

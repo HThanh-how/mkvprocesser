@@ -43,7 +43,9 @@ def test_good_login_grants_access(client):
                     follow_redirects=False)
     assert r.status_code == 302 and r.headers["location"] == "/"
     home = client.get("/")
-    assert home.status_code == 200 and "Dan link" in home.text
+    assert home.status_code == 200 and "MKVTOOLS" in home.text   # dashboard moi (Tailwind)
+    q = client.get("/queue").json()
+    assert "disk_free_gb" in q and "pending" in q                # dashboard nap du lieu tu day
 
 
 def test_admin_page_is_admin_only(client):
