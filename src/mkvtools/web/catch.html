@@ -75,7 +75,7 @@ function kind(u){u=u.toLowerCase();if(u.includes('.m3u8'))return'HLS';if(u.inclu
 
 // 1) Nap iframe noVNC tu cau hinh server
 fetch('/catch/config').then(r=>r.json()).then(c=>{
-  const host=location.hostname; let src=`http://${host}:${c.novnc_port}/vnc.html?autoconnect=true&resize=remote`;
+  const host=location.hostname; let src=`http://${host}:${c.novnc_port}/vnc.html?autoconnect=true&resize=scale&quality=6&compression=2`;
   if(c.vnc_password) src+='&password='+encodeURIComponent(c.vnc_password);
   $('vnc').src=src;
 }).catch(()=>{});
