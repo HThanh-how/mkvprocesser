@@ -60,3 +60,34 @@ def test_no_lang_fallback_by_order():
     ]}
     j = S.pair_tracks(S.analyze(info))
     assert j[0]["sidx"] == 0 and j[1]["sidx"] == 1
+
+
+def test_pair_vie_sub_goes_to_vie_audio_not_chi():
+    # Tinh huong that: audio chi dung truoc, chi co 1 sub vie (chu). Sub vie phai
+    # ve audio vie, KHONG bi audio chi "cuop" qua fallback thu tu.
+    info = {"streams": [
+        {"codec_type": "video"},
+        {"codec_type": "audio", "codec_name": "ac3", "tags": {"language": "chi"}},   # rel0
+        {"codec_type": "subtitle", "codec_name": "ass", "tags": {"language": "vie"}},  # text rel0
+        {"codec_type": "subtitle", "codec_name": "hdmv_pgs_subtitle", "tags": {"language": "vie"}},
+        {"codec_type": "audio", "codec_name": "ac3", "tags": {"language": "vie"}},    # rel1
+    ]}
+    jobs = S.pair_tracks(S.analyze(info))
+    chi = next(j for j in jobs if j["lang"] == "chi")
+    vie = next(j for j in jobs if j["lang"] == "vie")
+    assert vie["sidx"] == 0 and chi["sidx"] is None
+
+
+def test_plan_filename_year_wins_and_same_lang_names_unique(monkeypatch):
+    info = {"format": {"tags": {"creation_time": "2018-05-01T00:00:00Z"}}, "streams": [
+        {"codec_type": "video", "codec_name": "h264", "width": 1920, "height": 1080},
+        {"codec_type": "audio", "codec_name": "ac3", "channels": 6, "tags": {"language": "vie"}},
+        {"codec_type": "audio", "codec_name": "dts", "channels": 6, "tags": {"language": "vie"}},
+    ]}
+    monkeypatch.setattr(S.ffmpeg_helper, "probe", lambda p: info)
+    p = S.plan("/x/Movie.2011.1080p.BluRay.x264-GRP.mkv", "/out", "caption", "mp4")
+    assert p["year"] == "2011"                                 # ten file thang metadata 2018
+    names = [o["out"] for o in p["outputs"]]
+    assert len(set(names)) == 2                                # 2 audio vie KHONG trung ten
+    assert any("ac3" in n for n in names) and any("dts" in n for n in names)
+    assert all("2011" in n and "VIE" in n for n in names)

@@ -5,7 +5,7 @@ Cac ham build_* la PURE (chi tao argv) -> test duoc khong can ffmpeg.
 import os
 import re
 
-from . import ffmpeg_helper, metadata
+from . import ffmpeg_helper, metadata, titlematch
 
 TEXT_SUB_CODECS = {"subrip", "srt", "ass", "ssa", "mov_text", "webvtt", "text"}
 
@@ -37,20 +37,27 @@ def analyze(info: dict) -> dict:
 
 def pair_tracks(analysis: dict) -> list[dict]:
     text_subs = [s for s in analysis["subs"] if s["text"]]
-    jobs, used = [], set()
-    for a in analysis["audio"]:
-        match = None
-        if a["lang"]:
-            match = next((s for s in text_subs
-                          if s["rel"] not in used and s["lang"] == a["lang"]), None)
-        if match is None:
-            match = next((s for s in text_subs
-                          if s["rel"] not in used and s["rel"] == a["rel"]), None)
-        if match:
-            used.add(match["rel"])
-        jobs.append({"aidx": a["rel"], "lang": a["lang"], "title": a["title"],
-                     "acodec": a["codec"], "ch": a["ch"],
-                     "sidx": match["rel"] if match else None})
+    jobs = [{"aidx": a["rel"], "lang": a["lang"], "title": a["title"],
+             "acodec": a["codec"], "ch": a["ch"], "sidx": None}
+            for a in analysis["audio"]]
+    used = set()
+    # Pass 1: uu tien khop CUNG NGON NGU (toan cuc) -> sub vie ve dung audio vie,
+    # tranh audio ngon ngu khac "cuop" sub theo fallback thu tu.
+    for job in jobs:
+        if job["lang"]:
+            m = next((s for s in text_subs
+                      if s["rel"] not in used and s["lang"] == job["lang"]), None)
+            if m:
+                job["sidx"] = m["rel"]
+                used.add(m["rel"])
+    # Pass 2: con lai -> khop theo thu tu (audio khong lang / khong co sub cung lang)
+    for job in jobs:
+        if job["sidx"] is None:
+            m = next((s for s in text_subs
+                      if s["rel"] not in used and s["rel"] == job["aidx"]), None)
+            if m:
+                job["sidx"] = m["rel"]
+                used.add(m["rel"])
     return jobs
 
 
@@ -93,17 +100,25 @@ def plan(src, outdir, sub_mode="caption", container="mp4") -> tuple:
     info = ffmpeg_helper.probe(src)
     a = analyze(info)
     res = metadata.resolution_label(a["streams"])
-    year = metadata.movie_year(info)
+    year = titlematch.parse_year(base) or metadata.movie_year(info)  # nam o ten file uu tien
     jobs = pair_tracks(a)
-    outs = []
+    lang_counts = {}
+    for j in jobs:
+        lang_counts[j["lang"]] = lang_counts.get(j["lang"], 0) + 1
+    ext = "mkv" if container == "mkv" else "mp4"
+    outs, seen = [], set()
     for i, job in enumerate(jobs):
         label = label_for(job, i)
         parts = [res, metadata.lang_abbr(job["lang"]) if job["lang"] else safe(label)]
         if year:
             parts.append(year)
         parts.append(safe(base))
+        if job["lang"] and lang_counts.get(job["lang"], 0) > 1:
+            parts.append(job["acodec"])  # cung ngon ngu nhieu track -> them codec cho khoi trung
         stem = "_".join(p for p in parts if p)
-        ext = "mkv" if container == "mkv" else "mp4"
+        while stem in seen:              # bao dam ten duy nhat
+            stem = f"{stem}_a{job['aidx']}"
+        seen.add(stem)
         mp4 = os.path.join(outdir, f"{stem}.{ext}")
         srt = os.path.join(outdir, f"{stem}.srt") if job["sidx"] is not None else None
         outs.append({"label": label, "lang": job["lang"], "ch": job["ch"],
