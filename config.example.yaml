@@ -65,3 +65,13 @@ users_file: secrets/users.json
 # De trong = khong dung. Tang "sniff" can extra [browser]: pip install 'mkvtools[browser]'
 # && playwright install chromium. Lenh thu link khong tai:  mkvtools resolve <url>
 cookies_file: ""
+
+# --- Che do "Bat tay" (dieu khien browser server qua noVNC + sniff CDP) ---
+# Khi link qua kho (player JS chan / CAPTCHA / can dang nhap), mo /catch tren GUI:
+# dieu khien 1 Chromium chay san tren server (qua noVNC), phat video, URL media
+# tu hien ra de bam "Them vao hang doi". Tai bang dung session + IP -> qua duoc
+# stream khoa-IP. Can dung kem Chromium headful (Xvfb) + x11vnc + noVNC tren server.
+catch_cdp: "http://127.0.0.1:9222"   # CDP cua Chromium dieu khien-tay
+catch_novnc_port: 6080               # cong noVNC nhung vao GUI (iframe)
+# Mat khau VNC nen dat qua bien moi truong:  MKV_VNC_PASSWORD=...
+vnc_password: ""

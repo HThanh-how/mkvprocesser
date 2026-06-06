@@ -36,6 +36,10 @@ _DEFAULTS = {
     "users_file": "secrets/users.json",
     # Cookie (cookies.txt dinh dang Netscape) cho trang can dang nhap khi tai link.
     "cookies_file": "",
+    # --- Che do "Bat tay" (dieu khien browser server qua noVNC + sniff CDP) ---
+    "catch_cdp": "http://127.0.0.1:9222",   # CDP cua Chromium dieu khien-tay
+    "catch_novnc_port": 6080,               # cong noVNC (iframe nhung vao GUI)
+    "vnc_password": "",                     # mat khau VNC (dat qua env MKV_VNC_PASSWORD)
 }
 
 

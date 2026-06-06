@@ -22,18 +22,25 @@ class JobQueue:
     def __init__(self):
         self._items = []
         self._lock = threading.Lock()
+        self._extra = {}       # url -> {cookies, referer} (cho link "bat tay")
         self.current = None
         self.running = False
         self.log = []
         self.history = []      # [{url, status: done|error, name?, error?}]
 
-    def add(self, url) -> bool:
+    def add(self, url, cookies=None, referer=None) -> bool:
         url = (url or "").strip()
         if not url or url.startswith("#"):
             return False
         with self._lock:
             self._items.append(url)
+            if cookies or referer:
+                self._extra[url] = {"cookies": cookies, "referer": referer}
         return True
+
+    def extra_for(self, url) -> dict:
+        with self._lock:
+            return dict(self._extra.get(url) or {})
 
     def add_many(self, text) -> int:
         return sum(1 for line in (text or "").splitlines() if self.add(line))
@@ -112,7 +119,8 @@ def drain(q: JobQueue, cfg: dict, *, fetch_fn, process_fn,
         try:
             wait_disk(dl_dir, min_free, free_gb_fn, sleep_fn, q.say)
             q.say(f"[tai] {url}")
-            src = fetch_fn(url, dl_dir, log=q.say)
+            ex = q.extra_for(url)
+            src = fetch_fn(url, dl_dir, log=q.say, cookies=ex.get("cookies"), referer=ex.get("referer"))
             q.say(f"[da tai] {os.path.basename(src)} -> tach + upload")
             process_fn(src, cfg, log=q.say)
             # rotation: xoa nguon de tra lai dia cho link sau (neu pipeline chua xoa)

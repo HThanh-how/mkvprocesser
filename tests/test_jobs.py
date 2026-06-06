@@ -39,7 +39,7 @@ def test_drain_fetch_process_then_delete_source(tmp_path):
     q.add("https://host/movie.mkv")
     processed = []
 
-    def fake_fetch(url, d, log):
+    def fake_fetch(url, d, log, cookies=None, referer=None):
         p = os.path.join(d, "movie.mkv")
         with open(p, "wb") as f:
             f.write(b"x")
@@ -60,7 +60,7 @@ def test_drain_continues_after_one_link_fails(tmp_path):
     q.add("good")
     done = []
 
-    def fake_fetch(url, d, log):
+    def fake_fetch(url, d, log, cookies=None, referer=None):
         if url == "bad":
             raise RuntimeError("tai loi")
         p = os.path.join(d, "ok.mkv")
@@ -88,7 +88,7 @@ def test_drain_waits_for_disk_before_download(tmp_path):
 
     slept = []
 
-    def fake_fetch(url, d, log):
+    def fake_fetch(url, d, log, cookies=None, referer=None):
         p = os.path.join(d, "m.mkv")
         with open(p, "wb") as f:
             f.write(b"z")

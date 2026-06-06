@@ -227,13 +227,13 @@ def _download_resolved(media: dict, dest_dir: str, log, cookies: str):
     return ytdlp_download(u, dest_dir, log=log, cookies=cookies, referer=ref)
 
 
-def fetch(url: str, dest_dir: str, log=print, cookies: str = None) -> str:
+def fetch(url: str, dest_dir: str, log=print, cookies: str = None, referer: str = None) -> str:
     """Tu chon cach tai theo 4 tang (xem docstring module). Tra ve duong dan file."""
     url = (url or "").strip()
     if is_direct_media(url):                                  # T1
-        return http_download(url, dest_dir, log=log)
+        return http_download(url, dest_dir, log=log, referer=referer)
     try:                                                     # T2: yt-dlp
-        return ytdlp_download(url, dest_dir, log=log, cookies=cookies)
+        return ytdlp_download(url, dest_dir, log=log, cookies=cookies, referer=referer)
     except ImportError:
         log("  (!) chua cai yt-dlp (pip install 'mkvtools[fetch]')")
     except Exception as e:               # noqa: BLE001

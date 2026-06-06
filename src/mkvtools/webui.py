@@ -10,7 +10,7 @@ import urllib.parse
 from fastapi import FastAPI, Form, Request
 from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse
 
-from . import auth, config, fetch, ffmpeg_helper, idempotency, jobs, pipeline
+from . import auth, catch, config, fetch, ffmpeg_helper, idempotency, jobs, pipeline
 
 cfg = config.load()
 app = FastAPI(title="mkvtools GUI")
@@ -26,6 +26,8 @@ _lock = threading.Lock()
 
 # Hang doi link: dan URL -> tu tai -> tach -> upload -> xoay vong dia (xoa nguon).
 Q = jobs.JobQueue()
+# Che do "Bat tay": gan vao Chromium dieu khien-tay (noVNC) + sniff media qua CDP.
+CATCH = catch.CatchSession(cfg.get("catch_cdp", "http://127.0.0.1:9222"))
 
 
 def _start_drain():
@@ -47,10 +49,11 @@ def _start_drain():
                 return pipeline.process_file(src, c, yt=yt, do_upload=cfg.get("upload", True),
                                              log=log, store=store)
 
-            cookies = cfg.get("cookies_file") or None
+            default_cookies = cfg.get("cookies_file") or None
 
-            def fetch_fn(u, d, log):       # bat link thong minh 4 tang + cookie
-                return fetch.fetch(u, d, log=log, cookies=cookies)
+            def fetch_fn(u, d, log, cookies=None, referer=None):   # 4 tang + cookie/referer
+                return fetch.fetch(u, d, log=log, cookies=cookies or default_cookies,
+                                   referer=referer)
 
             jobs.drain(Q, rcfg, fetch_fn=fetch_fn, process_fn=process_fn)
         except Exception as e:                          # noqa: BLE001
@@ -88,7 +91,8 @@ def _userbar(request):
     u = getattr(request.state, "user", None) or {}
     admin_link = " &middot; <a href=/admin>Quan tri</a>" if u.get("role") == "admin" else ""
     return (f"<p class=muted style='text-align:right;margin:-6px 0 6px'>"
-            f"{u.get('username', '?')} ({u.get('role', '?')}){admin_link} "
+            f"{u.get('username', '?')} ({u.get('role', '?')}) "
+            f"&middot; <a href=/>Trang chinh</a> &middot; <a href=/catch>Bat tay</a>{admin_link} "
             f"&middot; <a href=/logout>Dang xuat</a></p>")
 
 
@@ -357,6 +361,93 @@ def admin_action(request: Request, username: str = Form(...), action: str = Form
     except ValueError as e:
         msg = f"Loi: {e}"
     return RedirectResponse("/admin?msg=" + urllib.parse.quote(msg), status_code=302)
+
+
+# ------------------------------------------------------------------- "Bat tay"
+_CATCH_JS = """<script>
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const caplist=document.getElementById('caplist');
+async function refresh(){
+  try{
+    const d=await (await fetch('/catch/captured')).json();
+    document.getElementById('cstat').textContent=d.running?'dang nghe network...':(d.error?('loi: '+d.error):'da dung');
+    window._m=d.media||[];
+    caplist.innerHTML=window._m.length
+      ? window._m.map((m,i)=>'<div class=t style="display:flex;gap:8px;align-items:center"><code style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(m.url)+'</code><button data-i="'+i+'">Them vao hang doi</button></div>').join('')
+      : '<span class=muted>(chua bat duoc media — mo trang va phat video tren browser o tren)</span>';
+  }catch(e){}
+}
+async function post(u){await fetch(u,{method:'POST'});setTimeout(refresh,300);}
+caplist.addEventListener('click',async e=>{
+  const i=e.target.dataset.i; if(i===undefined)return;
+  const m=window._m[i]; e.target.disabled=true; e.target.textContent='...';
+  const f=new FormData(); f.append('url',m.url); f.append('referer',m.referer||'');
+  await fetch('/catch/enqueue',{method:'POST',body:f});
+  e.target.textContent='da them vao hang doi';
+});
+setInterval(refresh,2000); refresh();
+</script>"""
+
+
+@app.get("/catch", response_class=HTMLResponse)
+def catch_page(request: Request):
+    host = request.url.hostname or "127.0.0.1"
+    pw = cfg.get("vnc_password", "")
+    vnc = (f"http://{host}:{cfg.get('catch_novnc_port', 6080)}/vnc.html?autoconnect=true&resize=remote"
+           + (f"&password={urllib.parse.quote(pw)}" if pw else ""))
+    body = f"""{_userbar(request)}
+<div class=card>
+<b>Bat tay</b> &mdash; dieu khien browser ben duoi (phat video / dang nhap / qua CAPTCHA bang tay);
+URL media tu hien ra de bam <b>Them vao hang doi</b>. Tai bang dung session + IP nay.
+<div style="margin:10px 0">
+  <button onclick="post('/catch/start')">Bat dau nghe</button>
+  <button onclick="post('/catch/stop')">Dung</button>
+  <button onclick="post('/catch/clear')">Xoa danh sach</button>
+  <span class=muted id=cstat>...</span>
+</div>
+<iframe src="{vnc}" style="width:100%;height:540px;border:1px solid #2a2f3a;border-radius:8px;background:#000"></iframe>
+</div>
+<div class=card><b>Media bat duoc</b><div id=caplist style=margin-top:8px><span class=muted>(dang tai...)</span></div></div>
+{_CATCH_JS}"""
+    return page(body)
+
+
+@app.post("/catch/start")
+def catch_start():
+    started = CATCH.start()
+    return {"ok": True, "started": started, "running": CATCH.running()}
+
+
+@app.post("/catch/stop")
+def catch_stop():
+    CATCH.stop()
+    return {"ok": True}
+
+
+@app.post("/catch/clear")
+def catch_clear():
+    CATCH.clear()
+    return {"ok": True}
+
+
+@app.get("/catch/captured")
+def catch_captured():
+    return CATCH.snapshot()
+
+
+@app.post("/catch/enqueue")
+def catch_enqueue(url: str = Form(...), referer: str = Form("")):
+    work = cfg.get("work_dir", "work")
+    cookies_path = os.path.join(work, "catch-cookies.txt")
+    try:
+        os.makedirs(work, exist_ok=True)
+        CATCH.export_cookies(cookies_path)
+    except Exception as e:        # noqa: BLE001
+        Q.say(f"(catch) khong xuat duoc cookie: {e}")
+        cookies_path = cfg.get("cookies_file") or None
+    Q.add(url, cookies=cookies_path, referer=referer or None)
+    _start_drain()
+    return {"ok": True}
 
 
 def main():

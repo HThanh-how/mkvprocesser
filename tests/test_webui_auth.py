@@ -75,6 +75,14 @@ def test_logout_clears_session(client):
     assert client.get("/", follow_redirects=False).status_code == 302       # da dang xuat
 
 
+def test_catch_page_and_captured_json(client):
+    client.post("/login", data={"username": "admin", "password": "adminpass"})
+    r = client.get("/catch")
+    assert r.status_code == 200 and "Bat tay" in r.text
+    j = client.get("/catch/captured").json()
+    assert j["running"] is False and j["media"] == []     # chua start -> rong, khong loi
+
+
 def test_admin_cannot_delete_self(client):
     client.post("/login", data={"username": "admin", "password": "adminpass"})
     client.post("/admin/action", data={"username": "admin", "action": "delete"},
