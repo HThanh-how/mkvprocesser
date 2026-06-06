@@ -1,13 +1,40 @@
 """Ghep: plan -> split -> (upload + caption + playlist). Dung chung cho CLI lan GUI."""
 import os
+import re
 import shutil
 
-from . import idempotency, resources, splitter, titlematch
+from . import idempotency, metadata, resources, splitter, titlematch
 
 
-def title_for(cfg, base, out):
-    return cfg["title_template"].format(base=base, lang=out["lang"] or "audio",
-                                        label=out["label"])
+def _meta_kw(p, out=None):
+    """Placeholder cho template tieu de/playlist: {base} {title} {res} {year} {lang} {label}.
+
+    {title} = tua DA CHUAN HOA (bo rac ban phat hanh) -> sach, khong phai ten file tho.
+    """
+    base = p["base"]
+    if out and out["lang"]:
+        lang = metadata.lang_abbr(out["lang"])
+    else:
+        lang = (out["label"] if out else "") or ""
+    return {
+        "base": base,
+        "title": titlematch.normalize_title(base).title() or base,
+        "res": p.get("res") or "",
+        "year": p.get("year") or "",
+        "lang": lang,
+        "label": (out["label"] if out else "") or "",
+    }
+
+
+def _fmt(tmpl, kw):
+    """Dien template + don ngoac/dau rong (vd thieu nam) + cat 100 ky tu (gioi han YouTube)."""
+    t = tmpl.format(**kw)
+    t = re.sub(r"\(\s*\)|\[\s*\]|\{\s*\}", "", t)
+    return re.sub(r"\s{2,}", " ", t).strip(" -|_")[:100]
+
+
+def title_for(cfg, p, out):
+    return _fmt(cfg.get("title_template") or "[{res}][{lang}] {title} ({year})", _meta_kw(p, out))
 
 
 def _record(store, sig, tkey, name, outs, res_rank=0, note=""):
@@ -73,7 +100,7 @@ def process_file(src, cfg, yt=None, pl_cache=None, do_upload=None, log=print,
     os.makedirs(cfg["work_dir"], exist_ok=True)
     p = splitter.plan(src, cfg["work_dir"], cfg["subtitle_mode"], cfg["container"],
                       cfg.get("audio_per_lang", "best"))
-    base, outs = p["base"], p["outputs"]
+    outs = p["outputs"]
     log(f"[{name}] -> {len(outs)} ban audio")
     if not outs:
         log("  (!) khong co audio track")
@@ -82,13 +109,13 @@ def process_file(src, cfg, yt=None, pl_cache=None, do_upload=None, log=print,
 
     pid = None
     if do_upload and yt and cfg["make_playlist"]:
-        pid = up.get_or_create_playlist(yt, pl_cache,
-                                        cfg["playlist_template"].format(base=base),
-                                        privacy=cfg["privacy"], log=log)
+        pid = up.get_or_create_playlist(
+            yt, pl_cache, _fmt(cfg.get("playlist_template") or "{title} ({year})", _meta_kw(p)),
+            privacy=cfg["privacy"], log=log)
     for out in outs:
         splitter.execute(src, out, log=log)
         if do_upload and yt:
-            vid = up.upload_video(yt, out["out"], title_for(cfg, base, out),
+            vid = up.upload_video(yt, out["out"], title_for(cfg, p, out),
                                   description=cfg.get("description", ""),
                                   tags=cfg.get("tags", []), privacy=cfg["privacy"],
                                   category_id=cfg.get("category_id", 22),

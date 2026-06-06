@@ -152,3 +152,24 @@ def test_title_dedup_allows_higher_resolution_upgrade(tmp_path, monkeypatch):
     assert "skipped" not in r_hi                     # res cao hon -> van chay
     assert r_same.get("skipped") == "title"          # bang res -> bo qua
 
+
+def test_title_for_clean_prefixed_default():
+    p = {"base": "You.Are.the.Apple.of.My.Eye.2011.VIE.1080p.BluRay.x264-GRP",
+         "res": "FHD", "year": "2011"}
+    out = {"lang": "vie", "label": "vie"}
+    assert pipeline.title_for({}, p, out) == "[FHD][VIE] You Are The Apple Of My Eye (2011)"
+
+
+def test_title_for_missing_year_no_empty_parens():
+    p = {"base": "Show.S01E01.1080p", "res": "FHD", "year": ""}
+    out = {"lang": "eng", "label": "eng"}
+    t = pipeline.title_for({}, p, out)
+    assert t == "[FHD][ENG] Show S01E01" and "()" not in t
+
+
+def test_title_for_custom_underscore_template():
+    p = {"base": "Dune.2021", "res": "4K", "year": "2021"}
+    out = {"lang": "eng", "label": "eng"}
+    t = pipeline.title_for({"title_template": "{res}_{lang}_{year}_{title}"}, p, out)
+    assert t == "4K_ENG_2021_Dune"
+

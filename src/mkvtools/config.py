@@ -13,7 +13,9 @@ _DEFAULTS = {
     "audio_per_lang": "best",   # best = moi ngon ngu giu 1 audio tot nhat | all = giu het
     "make_playlist": True, "default_caption_lang": "vi",
     "description": "", "tags": [],
-    "title_template": "{base} [{lang}]", "playlist_template": "{base}",
+    # Placeholder: {res} {lang} {year} {title}(da chuan hoa) {label} {base}(ten file tho)
+    "title_template": "[{res}][{lang}] {title} ({year})",
+    "playlist_template": "{title} ({year})",
     "watch_ext": [".mkv", ".mp4", ".ts", ".mov", ".webm"], "poll_seconds": 10,
     # Idempotency: bo qua file da xu ly (theo chu ky noi dung), trang thai ben dia.
     "skip_processed": True, "state_file": "work/processed.json",

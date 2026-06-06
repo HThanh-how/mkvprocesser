@@ -18,8 +18,10 @@ default_caption_lang: vi
 description: ""
 tags: []
 
-title_template: "{base} [{lang}]"
-playlist_template: "{base}"
+# Tieu de YouTube. Placeholder: {res} {lang} {year} {title}(da chuan hoa, sach) {label} {base}(ten tho)
+# Vi du khac:  "{res} | {lang} | {year} | {title}"  hoac  "{res}_{lang}_{year}_{title}"
+title_template: "[{res}][{lang}] {title} ({year})"
+playlist_template: "{title} ({year})"
 
 watch_ext: [".mkv", ".mp4", ".ts", ".mov", ".webm"]
 poll_seconds: 10
