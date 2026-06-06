@@ -94,3 +94,40 @@ def test_low_disk_warns_but_proceeds(tmp_path, monkeypatch):
     res = pipeline.process_file(str(src), cfg, do_upload=False, log=logs.append)
     assert "skipped" not in res                       # canh bao nhung van chay
     assert any("dia" in m.lower() for m in logs)
+
+
+def test_title_dedup_skips_same_movie_but_not_part2(tmp_path, monkeypatch):
+    f1 = tmp_path / "Movie.2020.1080p.x264.mkv"
+    f1.write_bytes(b"aaaa")
+    f2 = tmp_path / "Movie.2020.2160p.HEVC.mkv"     # cung phim, ban rip khac (bytes khac)
+    f2.write_bytes(b"different bytes here")
+    f3 = tmp_path / "Movie.Part.2.2020.1080p.mkv"   # PHAN 2 -> phai chay
+    f3.write_bytes(b"part two content")
+    cfg = _cfg(tmp_path, on_title_match="skip")
+    out = _fake_output(tmp_path)
+    monkeypatch.setattr(pipeline.splitter, "plan", lambda *a, **k: {"base": "x", "outputs": [out]})
+    monkeypatch.setattr(pipeline.splitter, "execute", lambda s, o, log=print: o)
+    store = idempotency.ProcessedStore(cfg["state_file"])
+
+    pipeline.process_file(str(f1), cfg, do_upload=False, store=store)
+    r2 = pipeline.process_file(str(f2), cfg, do_upload=False, store=store)
+    r3 = pipeline.process_file(str(f3), cfg, do_upload=False, store=store)
+    assert r2.get("skipped") == "title"             # cung tua -> bo qua
+    assert "skipped" not in r3                       # Phan 2 -> van chay
+
+
+def test_title_dedup_warn_mode_still_processes(tmp_path, monkeypatch):
+    f1 = tmp_path / "A.2020.1080p.mkv"
+    f1.write_bytes(b"x")
+    f2 = tmp_path / "A.2020.720p.mkv"
+    f2.write_bytes(b"yy")
+    cfg = _cfg(tmp_path, on_title_match="warn")
+    out = _fake_output(tmp_path)
+    monkeypatch.setattr(pipeline.splitter, "plan", lambda *a, **k: {"base": "x", "outputs": [out]})
+    monkeypatch.setattr(pipeline.splitter, "execute", lambda s, o, log=print: o)
+    store = idempotency.ProcessedStore(cfg["state_file"])
+    logs = []
+    pipeline.process_file(str(f1), cfg, do_upload=False, store=store, log=logs.append)
+    r2 = pipeline.process_file(str(f2), cfg, do_upload=False, store=store, log=logs.append)
+    assert "skipped" not in r2                       # warn -> van xu ly
+    assert any("da co theo tua" in m for m in logs)

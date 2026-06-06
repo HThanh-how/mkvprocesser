@@ -11,13 +11,30 @@ from googleapiclient.errors import HttpError
 from googleapiclient.http import MediaFileUpload
 
 from .metadata import bcp47
+from .netutil import parse_proxy
 
 SCOPES = ["https://www.googleapis.com/auth/youtube.upload",
           "https://www.googleapis.com/auth/youtube.force-ssl"]
 _RETRY = {500, 502, 503, 504}
 
 
-def get_service(client_secret, token_path):
+def _proxy_info(url):
+    """URL proxy -> httplib2.ProxyInfo (ho tro http/https/socks5/socks4)."""
+    p = parse_proxy(url)
+    if not p:
+        return None
+    import httplib2
+    types = {
+        "socks5": httplib2.socks.PROXY_TYPE_SOCKS5,
+        "socks5h": httplib2.socks.PROXY_TYPE_SOCKS5,
+        "socks4": httplib2.socks.PROXY_TYPE_SOCKS4,
+    }
+    ptype = types.get(p["scheme"], httplib2.socks.PROXY_TYPE_HTTP)
+    return httplib2.ProxyInfo(ptype, p["host"], int(p["port"]),
+                              proxy_user=p["user"], proxy_pass=p["pass"])
+
+
+def get_service(client_secret, token_path, proxy=""):
     creds = None
     if os.path.exists(token_path):
         creds = Credentials.from_authorized_user_file(token_path, SCOPES)
@@ -29,6 +46,12 @@ def get_service(client_secret, token_path):
             creds = flow.run_local_server(port=0)
         with open(token_path, "w") as f:
             f.write(creds.to_json())
+    if proxy:  # day toan bo upload + caption + playlist qua proxy
+        import google_auth_httplib2
+        import httplib2
+        authed = google_auth_httplib2.AuthorizedHttp(
+            creds, http=httplib2.Http(proxy_info=_proxy_info(proxy)))
+        return build("youtube", "v3", http=authed)
     return build("youtube", "v3", credentials=creds)
 
 
@@ -85,3 +108,28 @@ def add_to_playlist(yt, playlist_id, video_id, log=print):
         "playlistId": playlist_id,
         "resourceId": {"kind": "youtube#video", "videoId": video_id}}}))
     log("  added to playlist")
+
+
+def list_uploaded_titles(yt):
+    """Liet ke tua cac video DA UPLOAD cua kenh (re: uploads playlist, ~1 unit/50).
+
+    Tra ve set[str] tua tho. Dung de doi chieu 'da co tren YouTube' ma khong ton
+    quota nhu search.list (100 unit/lan).
+    """
+    ch = _retry(yt.channels().list(part="contentDetails", mine=True))
+    items = ch.get("items", []) if ch else []
+    if not items:
+        return set()
+    uploads = items[0]["contentDetails"]["relatedPlaylists"]["uploads"]
+    titles, token = set(), None
+    while True:
+        resp = _retry(yt.playlistItems().list(
+            part="snippet", playlistId=uploads, maxResults=50, pageToken=token))
+        for it in resp.get("items", []):
+            t = (it.get("snippet", {}) or {}).get("title", "")
+            if t:
+                titles.add(t)
+        token = resp.get("nextPageToken")
+        if not token:
+            break
+    return titles

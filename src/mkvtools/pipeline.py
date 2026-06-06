@@ -2,12 +2,23 @@
 import os
 import shutil
 
-from . import idempotency, resources, splitter
+from . import idempotency, resources, splitter, titlematch
 
 
 def title_for(cfg, base, out):
     return cfg["title_template"].format(base=base, lang=out["lang"] or "audio",
                                         label=out["label"])
+
+
+def _record(store, sig, tkey, name, outs, note=""):
+    """Ghi vao store de chong trung lan sau (khoa = sig neu co, khong thi theo tua/ten)."""
+    if store is None:
+        return
+    key = sig or (f"title:{tkey}" if tkey else f"name:{name}")
+    info = {"name": name, "title_key": tkey, "outputs": outs}
+    if note:
+        info["note"] = note
+    store.add(key, info)
 
 
 def analyze_file(src, cfg, log=print):
@@ -28,10 +39,21 @@ def process_file(src, cfg, yt=None, pl_cache=None, do_upload=None, log=print,
     if do_upload and yt:
         from . import uploader as up  # nap khi can -> cai headless khong keo google libs
     skip_on = cfg.get("skip_processed", True)
-    if store is None and skip_on:
+    title_on = cfg.get("dedup_by_title", True)
+    if store is None and (skip_on or title_on):
         store = idempotency.ProcessedStore(cfg.get("state_file", "work/processed.json"))
 
     name = os.path.basename(src)
+    # (1) Chong trung theo TUA DE (nhe nhat: chi doc ten file, khong dung video).
+    #     Phan biet Phan 1/2/3 (tua khac) nhung bat ban re-encode (cung tua).
+    tkey = titlematch.title_key(name) if (store is not None and title_on) else ""
+    if tkey and not force and store.has_title(tkey):
+        mode = cfg.get("on_title_match", "skip")
+        log(f"[{name}] da co theo tua ({tkey}) -> {'bo qua' if mode == 'skip' else 'van xu ly'}")
+        if mode == "skip":
+            return {"base": os.path.splitext(name)[0], "outputs": [], "skipped": "title"}
+
+    # (2) Chong trung theo NOI DUNG (sha256 dau/cuoi) -> bat file y het tung byte.
     sig = idempotency.file_signature(src) if (store is not None and skip_on) else None
     if sig is not None and not force and store.has(sig):
         log(f"[{name}] da xu ly truoc do -> bo qua")
@@ -48,8 +70,7 @@ def process_file(src, cfg, yt=None, pl_cache=None, do_upload=None, log=print,
     log(f"[{name}] -> {len(outs)} ban audio")
     if not outs:
         log("  (!) khong co audio track")
-        if sig is not None:
-            store.add(sig, {"name": name, "outputs": [], "note": "no-audio"})
+        _record(store, sig, tkey, name, [], note="no-audio")
         return p
 
     pid = None
@@ -81,7 +102,6 @@ def process_file(src, cfg, yt=None, pl_cache=None, do_upload=None, log=print,
     if do_upload and yt and cfg.get("done_dir"):
         os.makedirs(cfg["done_dir"], exist_ok=True)
         shutil.move(src, os.path.join(cfg["done_dir"], os.path.basename(src)))
-    if sig is not None:
-        store.add(sig, {"name": name, "outputs": [o["out"] for o in outs]})
+    _record(store, sig, tkey, name, [o["out"] for o in outs])
     log(f"[{name}] XONG")
     return p

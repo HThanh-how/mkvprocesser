@@ -18,6 +18,10 @@ _DEFAULTS = {
     "skip_processed": True, "state_file": "work/processed.json",
     # An toan dia: can free >= kich_thuoc_file * min_free_gb_factor truoc khi tach.
     "min_free_gb_factor": 1.5,
+    # Chong trung theo TUA DE (nhe, phan biet Phan 1/2/3). on_title_match: skip|warn.
+    "dedup_by_title": True, "on_title_match": "skip",
+    # Proxy cho upload/API YouTube (rong = khong dung). VD http://host:8080, socks5://host:1080
+    "proxy": "",
 }
 
 
@@ -44,6 +48,7 @@ _ENUMS = {
     "privacy": {"private", "unlisted", "public"},
     "subtitle_mode": {"caption", "burn", "both"},
     "container": {"mp4", "mkv"},
+    "on_title_match": {"skip", "warn"},
 }
 
 

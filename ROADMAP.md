@@ -34,6 +34,7 @@ src/mkvtools/
   config.py          # YAML + override env                              [có]
   # --- sẽ port từ app cũ (Phase 3) ---
   idempotency.py     # dedup bằng chữ ký SHA‑256 + store bền đĩa         [x]
+  titlematch.py      # chống trùng theo TỰA (nhẹ; phân biệt Phần 1/2/3)  [x]
   resources.py       # kiểm tra đĩa/RAM, chọn work-dir (đa nền tảng)     [x]
   sync_github.py     # đồng bộ phụ đề/log lên GitHub (opt-in)            [ ]
 ```

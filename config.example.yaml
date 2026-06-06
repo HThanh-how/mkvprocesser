@@ -28,3 +28,14 @@ skip_processed: true
 state_file: work/processed.json
 # An toan dia: canh bao neu free < kich_thuoc_file * he_so truoc khi tach.
 min_free_gb_factor: 1.5
+
+# Chong trung theo TUA DE: nhe (chi doc ten file), phan biet Phan 1/2/3 (tua khac nhau)
+# nhung bat ban re-encode (cung tua). Dung 'mkvtools sync-titles' de keo tua da upload
+# tren YouTube vao index. on_title_match: skip (bo qua) | warn (chi bao, van xu ly).
+dedup_by_title: true
+on_title_match: skip
+
+# Proxy cho upload + API YouTube (de trong = khong dung). Ho tro http/https/socks5/socks4:
+#   proxy: http://127.0.0.1:8080
+#   proxy: socks5://user:pass@host:1080
+proxy: ""

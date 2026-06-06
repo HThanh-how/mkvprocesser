@@ -4,12 +4,12 @@ import os
 import time
 import traceback
 
-from . import config, ffmpeg_helper, idempotency, pipeline
+from . import config, ffmpeg_helper, idempotency, pipeline, titlematch
 
 
 def _service(cfg):
     from . import uploader as up  # nap khi can -> probe/split khong can google libs
-    return up.get_service(cfg["client_secret"], cfg["token_file"])
+    return up.get_service(cfg["client_secret"], cfg["token_file"], proxy=cfg.get("proxy", ""))
 
 
 def cmd_probe(cfg, args):
@@ -54,6 +54,21 @@ def cmd_watch(cfg, args):
         time.sleep(int(cfg["poll_seconds"]))
 
 
+def cmd_sync_titles(cfg, args):
+    """Keo tua cac video da upload tren YouTube vao index chong trung (re, ~1 unit/50)."""
+    from . import uploader as up
+    yt = _service(cfg)
+    titles = up.list_uploaded_titles(yt)
+    store = idempotency.ProcessedStore(cfg["state_file"])
+    added = 0
+    for t in titles:
+        tk = titlematch.title_key(t)
+        if tk and not store.has_title(tk):
+            store.add(f"yt:{tk}", {"title_key": tk, "name": t, "source": "youtube"})
+            added += 1
+    print(f"YouTube: {len(titles)} video. Them {added} tua moi vao index ({cfg['state_file']}).")
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="mkvtools", description="Tach MKV nhieu audio + upload YouTube")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -63,11 +78,13 @@ def main(argv=None):
     so.add_argument("file")
     so.add_argument("--no-upload", action="store_true")
     sub.add_parser("watch", help="theo doi inbox/")
+    sub.add_parser("sync-titles", help="keo tua da upload tren YouTube vao index chong trung")
     args = ap.parse_args(argv)
-    if not ffmpeg_helper.available():
+    if args.cmd != "sync-titles" and not ffmpeg_helper.available():
         raise SystemExit("Khong tim thay ffmpeg/ffprobe. Cai ffmpeg hoac de vao ffmpeg_bin/.")
     cfg = config.load()
-    {"probe": cmd_probe, "once": cmd_once, "watch": cmd_watch}[args.cmd](cfg, args)
+    {"probe": cmd_probe, "once": cmd_once, "watch": cmd_watch,
+     "sync-titles": cmd_sync_titles}[args.cmd](cfg, args)
 
 
 if __name__ == "__main__":
