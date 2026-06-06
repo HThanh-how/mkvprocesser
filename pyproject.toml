@@ -43,9 +43,14 @@ web = [
 fetch = [
   "yt-dlp>=2024.8.0",
 ]
-# Everything needed for the full headless tool (upload + web GUI + fetch).
+# Tang "sniff" bang trinh duyet an (Playwright) cho player JS/obfuscate ma yt-dlp
+# generic bo tay. Sau khi pip install, chay: playwright install chromium
+browser = [
+  "playwright>=1.40",
+]
+# Everything needed for the full headless tool (upload + web GUI + fetch + sniff).
 all = [
-  "mkvtools[upload,web,fetch]",
+  "mkvtools[upload,web,fetch,browser]",
 ]
 # Legacy PySide6 desktop GUI + resource probing (opt-in; not needed headless).
 desktop = [

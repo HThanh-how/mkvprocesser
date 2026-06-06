@@ -59,3 +59,9 @@ min_free_gb: 5                 # doi du chung nay GB trong moi tai link tiep (ro
 # server tu tao admin: dat truoc MKV_ADMIN_USER / MKV_ADMIN_PASS, hoac de trong
 # thi server sinh mat khau ngau nhien va IN RA CONSOLE (nho doi sau khi dang nhap).
 users_file: secrets/users.json
+
+# --- Bat link thong minh (4 tang): direct -> yt-dlp -> trinh duyet sniff -> cookie ---
+# Cookie cho trang CAN DANG NHAP (xuat tu trinh duyet ra cookies.txt dinh dang Netscape).
+# De trong = khong dung. Tang "sniff" can extra [browser]: pip install 'mkvtools[browser]'
+# && playwright install chromium. Lenh thu link khong tai:  mkvtools resolve <url>
+cookies_file: ""

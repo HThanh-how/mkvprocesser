@@ -34,6 +34,8 @@ _DEFAULTS = {
     "min_free_gb": 5.0,         # doi du chung nay GB trong moi tai link tiep (rotation). 0 = tat
     # Dang nhap GUI (login + phan quyen). Tai khoan luu o file nay (JSON).
     "users_file": "secrets/users.json",
+    # Cookie (cookies.txt dinh dang Netscape) cho trang can dang nhap khi tai link.
+    "cookies_file": "",
 }
 
 

@@ -63,10 +63,26 @@ def cmd_fetch(cfg, args):
     from . import fetch
     yt = _service(cfg) if (cfg.get("upload", True) and not args.no_upload) else None
     dl = cfg.get("downloads_dir") or cfg["inbox_dir"]
+    cookies = args.cookies or cfg.get("cookies_file") or None
     print(f"Tai: {args.url}")
-    src = fetch.fetch(args.url, dl)
+    src = fetch.fetch(args.url, dl, cookies=cookies)
     rcfg = {**cfg, "delete_source": not args.keep}
     pipeline.process_file(src, rcfg, yt=yt, do_upload=not args.no_upload, force=args.force)
+
+
+def cmd_resolve(cfg, args):
+    """Chi DO link bat duoc media gi (khong tai) -> in tang + URL media."""
+    from . import fetch
+    cookies = args.cookies or cfg.get("cookies_file") or None
+    r = fetch.resolve(args.url, cookies=cookies)
+    if not r.get("ok"):
+        raise SystemExit("KHONG bat duoc media (co the player JS chan, CAPTCHA, hoac DRM).")
+    print(f"OK  tang={r['tier']}  kind={r.get('kind')}")
+    if r.get("title"):
+        print(f"  tua: {r['title']}")
+    print(f"  media: {r.get('media')}")
+    for c in r.get("candidates", [])[1:]:
+        print(f"  + {c}")
 
 
 def cmd_sync_titles(cfg, args):
@@ -98,13 +114,17 @@ def main(argv=None):
     sf.add_argument("--no-upload", action="store_true")
     sf.add_argument("--keep", action="store_true", help="giu file nguon (khong xoa sau upload)")
     sf.add_argument("--force", action="store_true", help="bo qua chong-trung")
+    sf.add_argument("--cookies", help="file cookies.txt cho trang can dang nhap")
+    sr = sub.add_parser("resolve", help="chi DO link bat duoc media gi (khong tai)")
+    sr.add_argument("url")
+    sr.add_argument("--cookies", help="file cookies.txt cho trang can dang nhap")
     sub.add_parser("sync-titles", help="keo tua da upload tren YouTube vao index chong trung")
     args = ap.parse_args(argv)
-    if args.cmd != "sync-titles" and not ffmpeg_helper.available():
+    if args.cmd not in ("sync-titles", "resolve") and not ffmpeg_helper.available():
         raise SystemExit("Khong tim thay ffmpeg/ffprobe. Cai ffmpeg hoac de vao ffmpeg_bin/.")
     cfg = config.load()
     {"probe": cmd_probe, "once": cmd_once, "watch": cmd_watch, "fetch": cmd_fetch,
-     "sync-titles": cmd_sync_titles}[args.cmd](cfg, args)
+     "resolve": cmd_resolve, "sync-titles": cmd_sync_titles}[args.cmd](cfg, args)
 
 
 if __name__ == "__main__":

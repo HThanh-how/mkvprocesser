@@ -47,7 +47,12 @@ def _start_drain():
                 return pipeline.process_file(src, c, yt=yt, do_upload=cfg.get("upload", True),
                                              log=log, store=store)
 
-            jobs.drain(Q, rcfg, fetch_fn=fetch.fetch, process_fn=process_fn)
+            cookies = cfg.get("cookies_file") or None
+
+            def fetch_fn(u, d, log):       # bat link thong minh 4 tang + cookie
+                return fetch.fetch(u, d, log=log, cookies=cookies)
+
+            jobs.drain(Q, rcfg, fetch_fn=fetch_fn, process_fn=process_fn)
         except Exception as e:                          # noqa: BLE001
             Q.say(f"LOI worker: {e}")
         finally:
