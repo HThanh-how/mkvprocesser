@@ -117,35 +117,49 @@ def cmd_organize(cfg, args):
     movie_have = {}
     struct = re.compile(r"^(?:4K|2K|FHD|HD|SD)_[A-Z]{2,4}_((?:19|20)\d{2})_(.+)$")
     npriv = nmaster = nmovie = 0
-    stopped = False
+    budget = max(0, args.budget)        # gioi han quota/lan (0 = khong gioi han)
+    spent = 80                          # uoc luong quota cho cac lenh doc ban dau
+    reason = ""
     for v in vids:
+        if budget and spent >= budget:
+            reason = "budget"
+            break
         try:
             if not args.keep_privacy and v["privacy"] != "private" and up.set_privacy(yt, v["id"], "private"):
                 npriv += 1
+                spent += 51
                 print(f"  -> private: {v['title'][:55]}")
             if v["id"] not in master_have:
                 up.add_to_playlist(yt, master_id, v["id"])
                 master_have.add(v["id"])
                 nmaster += 1
+                spent += 50
             if not args.no_per_movie:
                 m = struct.match(v["title"])
                 if m:
                     pl = f"{m.group(2).strip()} ({m.group(1)})"
+                    if pl not in cache:
+                        spent += 50
                     pid = up.get_or_create_playlist(yt, cache, pl, privacy="private")
                     if pid not in movie_have:
                         movie_have[pid] = up.playlist_video_ids(yt, pid)
+                        spent += 1
                     if v["id"] not in movie_have[pid]:
                         up.add_to_playlist(yt, pid, v["id"])
                         movie_have[pid].add(v["id"])
                         nmovie += 1
+                        spent += 50
         except HttpError as e:
             if e.resp.status == 403 or "quota" in str(e).lower():
-                print("  (!) Het quota YouTube hom nay -> dung. Chay lai 'mkvtools organize' de tiep (resume).")
-                stopped = True
+                reason = "quota"
                 break
             raise
-    tag = "DUNG (het quota, chay lai de tiep)" if stopped else "XONG"
-    print(f"{tag}: ep private {npriv} | +playlist tong {nmaster} | +playlist phim {nmovie}")
+    if reason == "budget":
+        print(f"  (!) Dat han muc ~{budget} quota/lan -> dung (de danh quota cho upload). Chay lai de tiep.")
+    elif reason == "quota":
+        print("  (!) Het quota YouTube -> dung. Chay lai sau de tiep.")
+    tag = "DUNG (resume)" if reason else "XONG"
+    print(f"{tag}: ~{spent} quota | private {npriv} | +tong {nmaster} | +phim {nmovie}")
 
 
 def main(argv=None):
@@ -171,6 +185,8 @@ def main(argv=None):
     so.add_argument("--master", help="ten playlist tong (mac dinh: cfg hoac 'MKVTOOLS - Tat ca')")
     so.add_argument("--keep-privacy", action="store_true", help="khong ep private")
     so.add_argument("--no-per-movie", action="store_true", help="chi playlist tong, khong tao playlist phim")
+    so.add_argument("--budget", type=int, default=2000,
+                    help="gioi han quota moi lan (mac dinh 2000, 0 = khong gioi han)")
     args = ap.parse_args(argv)
     if args.cmd not in ("sync-titles", "resolve", "organize") and not ffmpeg_helper.available():
         raise SystemExit("Khong tim thay ffmpeg/ffprobe. Cai ffmpeg hoac de vao ffmpeg_bin/.")
