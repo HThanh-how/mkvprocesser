@@ -49,8 +49,10 @@ jobs:
       shell: pwsh
     
     - name: Test imports
+      env:
+        PYTHONUTF8: "1"          # Windows runner: stdout cp1252 khong encode duoc emoji
       run: |
-        python -c "import sys; sys.path.insert(0, 'src'); from mkvprocessor import processing_core; print('✅ Core imports OK')"
-        python -c "import sys; sys.path.insert(0, 'src'); from mkvprocessor.update_manager import UpdateManager; print('✅ Update manager imports OK')"
+        python -c "import sys; sys.path.insert(0, 'src'); from mkvprocessor import processing_core; print('Core imports OK')"
+        python -c "import sys; sys.path.insert(0, 'src'); from mkvprocessor.update_manager import UpdateManager; print('Update manager imports OK')"
       shell: bash
 
