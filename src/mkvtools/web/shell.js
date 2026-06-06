@@ -3,7 +3,6 @@
   const NAV = [
     { href: '/', icon: 'dashboard', label: 'Hàng đợi', key: 'queue' },
     { href: '/catch', icon: 'ads_click', label: 'Bắt tay', key: 'catch' },
-    { href: '/classic', icon: 'folder_open', label: 'Inbox (cổ điển)', key: 'classic' },
     { href: '/admin', icon: 'admin_panel_settings', label: 'Quản trị', key: 'admin', admin: true },
   ];
   window.MKVShell = function (active, title) {

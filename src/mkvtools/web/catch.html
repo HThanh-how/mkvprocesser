@@ -34,6 +34,7 @@
       <button id="btnStart" class="h-9 px-gutter rounded-lg bg-primary-fixed-dim text-on-primary-fixed font-label-sm text-label-sm uppercase tracking-wide hover:bg-primary-fixed transition-colors flex items-center gap-unit"><span class="ms text-[16px]">hearing</span>Bắt đầu nghe</button>
       <button id="btnStop" class="h-9 px-gutter rounded-lg bg-surface-container-high text-on-surface-variant font-label-sm text-label-sm uppercase tracking-wide hover:text-on-surface transition-colors flex items-center gap-unit"><span class="ms text-[16px]">stop</span>Dừng</button>
       <button id="btnClear" class="h-9 w-9 rounded-lg bg-surface-container-high text-on-surface-variant hover:text-error transition-colors flex items-center justify-center" title="Xoá danh sách"><span class="ms text-[18px]">delete_sweep</span></button>
+      <button id="btnFull" class="h-9 px-gutter rounded-lg bg-surface-container-high text-on-surface-variant font-label-sm text-label-sm uppercase tracking-wide hover:text-primary-fixed-dim transition-colors flex items-center gap-unit" title="Phóng to khung"><span class="ms text-[16px]">fullscreen</span>Phóng to</button>
     </div>
   </div>
 
@@ -84,6 +85,7 @@ fetch('/catch/config').then(r=>r.json()).then(c=>{
 $('btnStart').onclick=()=>fetch('/catch/start',{method:'POST'}).then(()=>setTimeout(refresh,300));
 $('btnStop').onclick=()=>fetch('/catch/stop',{method:'POST'}).then(()=>setTimeout(refresh,300));
 $('btnClear').onclick=()=>fetch('/catch/clear',{method:'POST'}).then(()=>setTimeout(refresh,200));
+$('btnFull').onclick=()=>{const f=$('vnc');const fn=f.requestFullscreen||f.webkitRequestFullscreen;if(fn)fn.call(f);};
 
 // 3) Danh sach media
 const caplist=$('caplist');
