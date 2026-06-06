@@ -19,6 +19,28 @@
 \______________________________________/
 ```
 
+## ⚡ mkvtools — Web Command Center
+
+Bản headless + **web GUI** (FastAPI, có login/phân quyền). Dán link là tự lo phần còn lại:
+
+- **Hàng đợi link → tải → tách (mỗi audio 1 video) → upload YouTube → xoá nguồn** (xoay vòng ổ: ổ nhỏ vẫn xử lý kho lớn).
+- **Bắt link 5 tầng:** torrent/magnet (aria2, *leech-only* không seed) · link trực tiếp · yt-dlp (1800+ site, Google Drive) · trình duyệt sniff (player JS) · cookie. Link cực khó → **"Bắt tay"**: điều khiển 1 trình duyệt trên server qua noVNC, máy nghe lén bắt media (tải đúng session + IP).
+- **Chống trùng** theo tựa + chữ ký nội dung; tự nâng cấp khi độ phân giải cao hơn.
+- **Thư viện Video:** xem mọi video đã upload (thumbnail/privacy/playlist), có **cache** (lấy YouTube ~1 lần/ngày → tiết kiệm quota; hết quota vẫn phục vụ cache cũ).
+- **Quản trị tài khoản** (admin/user, chống brute-force) + **trang Cài đặt** (chỉnh config ngay trên web, không sửa code).
+- **Dọn kênh tự động** (ép private + thêm vào playlist tổng/phim) với hạn mức quota/ngày.
+
+CLI: `mkvtools probe|once|watch|fetch|resolve|organize|sync-titles` · GUI: `mkvtools-gui`.
+
+### Cài nhanh (server)
+```bash
+git clone <repo> /opt/mkvprocesser && cd /opt/mkvprocesser
+sudo bash deploy/install.sh     # dung ca stack: GUI + Bat tay + timer don kenh
+```
+Xem chi tiết: [`deploy/README.md`](deploy/README.md). Gói lẻ: `pip install -e ".[all]"` (extras: `upload web fetch browser cache`).
+
+---
+
 ## 🌟 Core Features
 
 ### 🎯 Smart Detection System

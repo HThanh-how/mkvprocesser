@@ -75,3 +75,16 @@ catch_cdp: "http://127.0.0.1:9222"   # CDP cua Chromium dieu khien-tay
 catch_novnc_port: 6080               # cong noVNC nhung vao GUI (iframe)
 # Mat khau VNC nen dat qua bien moi truong:  MKV_VNC_PASSWORD=...
 vnc_password: ""
+
+# --- Playlist tong + don kenh (organize) ---
+# Moi video upload deu them vao playlist nay (de tim/lay lai de). Rong = tat.
+master_playlist: ""                  # vd: "MKVTOOLS - Tat ca"
+# Lenh `mkvtools organize` (timer don kenh): ep private + add video vao playlist.
+organize_budget: 2000                # quota toi da moi lan (de danh quota cho upload)
+
+# --- Cache (tiet kiem quota YouTube): lay 1 lan/ngay roi doc cache ---
+redis_url: ""                        # redis://127.0.0.1:6379/0 (rong = cache file tren dia)
+cache_ttl: 86400                     # TTL cache giay (86400 = lay YouTube 1 lan/ngay)
+
+# Hau het cac muc tren co the sua TRUC TIEP tren web (trang Cai dat, chi admin).
+

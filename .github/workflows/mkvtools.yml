@@ -5,7 +5,7 @@ on:
     branches: [ main, develop, "feat/**" ]
     paths:
       - "src/mkvtools/**"
-      - "tests/test_splitter.py"
+      - "tests/**"
       - "pyproject.toml"
       - ".github/workflows/mkvtools.yml"
   pull_request:
@@ -64,5 +64,5 @@ jobs:
       - name: Full import (upload + web deps resolve cross-platform)
         run: python -c "import mkvtools.uploader, mkvtools.webui; print('full import OK')"
 
-      - name: Unit tests (no ffmpeg needed)
-        run: pytest tests/test_splitter.py tests/test_idempotency.py tests/test_resources.py tests/test_pipeline_idempotency.py tests/test_config.py tests/test_webui_auth.py tests/test_titlematch.py tests/test_netutil.py
+      - name: Unit tests (tat ca test mkvtools; loai 3 test legacy mkvprocessor)
+        run: pytest tests --ignore=tests/test_log_manager.py --ignore=tests/test_video_processor.py --ignore=tests/test_processing.py

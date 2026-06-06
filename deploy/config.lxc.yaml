@@ -1,0 +1,38 @@
+# config.yaml mau cho deploy server (lam viec tren /data). install.sh copy -> config.yaml.
+# Admin co the sua phan lon cac muc nay ngay tren web (trang Cai dat) sau khi cai.
+client_secret: secrets/client_secret.json
+token_file: secrets/token.json
+users_file: secrets/users.json
+
+# I/O nang dat tren o lon (KHONG dung o root nho).
+inbox_dir: /data/inbox
+work_dir: /data/work
+done_dir: /data/done
+downloads_dir: /data/downloads
+state_file: /data/work/processed.json
+
+upload: true
+privacy: private              # giu private cho content ban quyen
+audio_per_lang: best
+captions: all
+container: mp4
+make_playlist: true
+master_playlist: "MKVTOOLS - Tat ca"   # moi video vao 1 playlist tong cho de tim
+
+# Xoay vong dia: xoa nguon sau upload + cho du 20GB truoc khi tai link tiep.
+delete_source: true
+min_free_gb: 20
+
+# Chong trung
+dedup_by_title: true
+on_title_match: skip
+upgrade_on_higher_res: true
+
+# Don kenh (organize) + cache (tiet kiem quota YouTube)
+organize_budget: 2000         # quota toi da moi lan timer organize (de danh upload)
+cache_ttl: 86400              # lay YouTube 1 lan/ngay, con lai doc cache
+redis_url: ""                # redis://127.0.0.1:6379/0 neu Redis chay; rong = cache file
+
+# Bat tay (dieu khien browser server qua noVNC + sniff CDP)
+catch_cdp: "http://127.0.0.1:9222"
+catch_novnc_port: 6080
