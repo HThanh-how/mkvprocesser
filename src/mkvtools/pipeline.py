@@ -23,7 +23,8 @@ def _record(store, sig, tkey, name, outs, res_rank=0, note=""):
 
 def analyze_file(src, cfg, log=print):
     """Chi phan tich + len ke hoach (cho GUI xem truoc, khong chay ffmpeg)."""
-    return splitter.plan(src, cfg["work_dir"], cfg["subtitle_mode"], cfg["container"])
+    return splitter.plan(src, cfg["work_dir"], cfg["subtitle_mode"], cfg["container"],
+                         cfg.get("audio_per_lang", "best"))
 
 
 def process_file(src, cfg, yt=None, pl_cache=None, do_upload=None, log=print,
@@ -70,7 +71,8 @@ def process_file(src, cfg, yt=None, pl_cache=None, do_upload=None, log=print,
         log(f"  (!) {msg}")
 
     os.makedirs(cfg["work_dir"], exist_ok=True)
-    p = splitter.plan(src, cfg["work_dir"], cfg["subtitle_mode"], cfg["container"])
+    p = splitter.plan(src, cfg["work_dir"], cfg["subtitle_mode"], cfg["container"],
+                      cfg.get("audio_per_lang", "best"))
     base, outs = p["base"], p["outputs"]
     log(f"[{name}] -> {len(outs)} ban audio")
     if not outs:

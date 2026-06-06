@@ -10,6 +10,7 @@ _DEFAULTS = {
     "cleanup_outputs": True, "upload": True,
     "privacy": "private", "category_id": 22,
     "subtitle_mode": "caption", "container": "mp4",
+    "audio_per_lang": "best",   # best = moi ngon ngu giu 1 audio tot nhat | all = giu het
     "make_playlist": True, "default_caption_lang": "vi",
     "description": "", "tags": [],
     "title_template": "{base} [{lang}]", "playlist_template": "{base}",
@@ -51,6 +52,7 @@ _ENUMS = {
     "subtitle_mode": {"caption", "burn", "both"},
     "container": {"mp4", "mkv"},
     "on_title_match": {"skip", "warn"},
+    "audio_per_lang": {"best", "all"},
 }
 
 

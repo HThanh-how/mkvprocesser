@@ -95,13 +95,41 @@ def build_burn_cmd(src, out, aidx, sidx, acodec):
     return cmd
 
 
-def plan(src, outdir, sub_mode="caption", container="mp4") -> tuple:
+_AUDIO_CODEC_RANK = {
+    "truehd": 6, "mlp": 6, "flac": 5, "dts": 4, "dca": 4, "eac3": 3, "ec3": 3,
+    "ac3": 2, "aac": 1, "opus": 1, "vorbis": 1, "mp3": 0,
+}
+
+
+def _audio_score(job: dict) -> tuple:
+    """Hang audio: nhieu kenh nhat -> codec chat nhat."""
+    return (int(job.get("ch") or 0),
+            _AUDIO_CODEC_RANK.get((job.get("acodec") or "").lower(), 0))
+
+
+def pick_best_per_lang(jobs: list) -> list:
+    """Moi ngon ngu chi giu 1 audio TOT NHAT (kenh nhieu nhat -> codec chat nhat).
+
+    Vd phim co vie-AC3-5.1 va vie-DTS-5.1 (cung ban long tieng, khac dinh dang)
+    -> chi giu DTS. Track khong ro ngon ngu ('') giu het (khong gop an toan).
+    """
+    best = {}
+    for j in jobs:
+        lang = j.get("lang") or ""
+        if lang and (lang not in best or _audio_score(j) > _audio_score(best[lang])):
+            best[lang] = j
+    return [j for j in jobs if not (j.get("lang") or "") or best.get(j["lang"]) is j]
+
+
+def plan(src, outdir, sub_mode="caption", container="mp4", audio_per_lang="all") -> tuple:
     base = os.path.splitext(os.path.basename(src))[0]
     info = ffmpeg_helper.probe(src)
     a = analyze(info)
     res = metadata.resolution_label(a["streams"])
     year = titlematch.parse_year(base) or metadata.movie_year(info)  # nam o ten file uu tien
     jobs = pair_tracks(a)
+    if audio_per_lang == "best":
+        jobs = pick_best_per_lang(jobs)
     lang_counts = {}
     for j in jobs:
         lang_counts[j["lang"]] = lang_counts.get(j["lang"], 0) + 1

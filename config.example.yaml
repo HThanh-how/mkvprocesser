@@ -12,6 +12,7 @@ privacy: private             # private | unlisted | public
 category_id: 22
 subtitle_mode: caption       # caption | burn | both
 container: mp4               # mp4 (cast/upload) | mkv (giu attachment/font)
+audio_per_lang: best         # best = moi ngon ngu 1 audio tot nhat (kenh/codec) | all = giu het
 make_playlist: true
 default_caption_lang: vi
 description: ""

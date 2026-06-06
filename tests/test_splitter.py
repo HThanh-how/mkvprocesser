@@ -91,3 +91,42 @@ def test_plan_filename_year_wins_and_same_lang_names_unique(monkeypatch):
     assert len(set(names)) == 2                                # 2 audio vie KHONG trung ten
     assert any("ac3" in n for n in names) and any("dts" in n for n in names)
     assert all("2011" in n and "VIE" in n for n in names)
+
+
+def test_pick_best_per_lang_keeps_best_codec_and_channels():
+    jobs = [
+        {"aidx": 0, "lang": "chi", "acodec": "ac3", "ch": 6, "sidx": None},
+        {"aidx": 1, "lang": "vie", "acodec": "ac3", "ch": 6, "sidx": None},
+        {"aidx": 2, "lang": "vie", "acodec": "dts", "ch": 6, "sidx": None},  # cung vie, DTS chat hon
+    ]
+    kept = S.pick_best_per_lang(jobs)
+    assert [j["lang"] for j in kept] == ["chi", "vie"]          # 1 chi + 1 vie
+    assert next(j for j in kept if j["lang"] == "vie")["acodec"] == "dts"
+
+
+def test_pick_best_per_lang_prefers_more_channels_and_keeps_unknown():
+    jobs = [
+        {"aidx": 0, "lang": "eng", "acodec": "ac3", "ch": 6, "sidx": None},
+        {"aidx": 1, "lang": "eng", "acodec": "truehd", "ch": 2, "sidx": None},  # codec xin nhung 2.0
+        {"aidx": 2, "lang": "", "acodec": "aac", "ch": 2, "sidx": None},
+        {"aidx": 3, "lang": "", "acodec": "aac", "ch": 2, "sidx": None},
+    ]
+    kept = S.pick_best_per_lang(jobs)
+    eng = next(j for j in kept if j["lang"] == "eng")
+    assert eng["ch"] == 6                                       # kenh nhieu thang truoc
+    assert sum(1 for j in kept if j["lang"] == "") == 2         # khong ro ngon ngu -> giu het
+
+
+def test_plan_audio_per_lang_best_vs_all(monkeypatch):
+    info = {"streams": [
+        {"codec_type": "video", "width": 1920, "height": 1080},
+        {"codec_type": "audio", "codec_name": "ac3", "channels": 6, "tags": {"language": "chi"}},
+        {"codec_type": "audio", "codec_name": "ac3", "channels": 6, "tags": {"language": "vie"}},
+        {"codec_type": "audio", "codec_name": "dts", "channels": 6, "tags": {"language": "vie"}},
+    ]}
+    monkeypatch.setattr(S.ffmpeg_helper, "probe", lambda p: info)
+    assert len(S.plan("/x/M.2011.mkv", "/o", "caption", "mp4", "all")["outputs"]) == 3
+    best = S.plan("/x/M.2011.mkv", "/o", "caption", "mp4", "best")["outputs"]
+    assert len(best) == 2                                       # chi + 1 vie
+    vie = [o for o in best if o["lang"] == "vie"]
+    assert len(vie) == 1 and vie[0]["acodec"] == "dts"
