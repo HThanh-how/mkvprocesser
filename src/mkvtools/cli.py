@@ -58,6 +58,17 @@ def cmd_watch(cfg, args):
         time.sleep(int(cfg["poll_seconds"]))
 
 
+def cmd_fetch(cfg, args):
+    """Tai 1 link ve -> tach + (tuy chon) upload -> xoa nguon (rotation o nho)."""
+    from . import fetch
+    yt = _service(cfg) if (cfg.get("upload", True) and not args.no_upload) else None
+    dl = cfg.get("downloads_dir") or cfg["inbox_dir"]
+    print(f"Tai: {args.url}")
+    src = fetch.fetch(args.url, dl)
+    rcfg = {**cfg, "delete_source": not args.keep}
+    pipeline.process_file(src, rcfg, yt=yt, do_upload=not args.no_upload, force=args.force)
+
+
 def cmd_sync_titles(cfg, args):
     """Keo tua cac video da upload tren YouTube vao index chong trung (re, ~1 unit/50)."""
     from . import uploader as up
@@ -82,12 +93,17 @@ def main(argv=None):
     so.add_argument("file")
     so.add_argument("--no-upload", action="store_true")
     sub.add_parser("watch", help="theo doi inbox/")
+    sf = sub.add_parser("fetch", help="tai 1 link ve roi tach + upload (xoay vong dia)")
+    sf.add_argument("url")
+    sf.add_argument("--no-upload", action="store_true")
+    sf.add_argument("--keep", action="store_true", help="giu file nguon (khong xoa sau upload)")
+    sf.add_argument("--force", action="store_true", help="bo qua chong-trung")
     sub.add_parser("sync-titles", help="keo tua da upload tren YouTube vao index chong trung")
     args = ap.parse_args(argv)
     if args.cmd != "sync-titles" and not ffmpeg_helper.available():
         raise SystemExit("Khong tim thay ffmpeg/ffprobe. Cai ffmpeg hoac de vao ffmpeg_bin/.")
     cfg = config.load()
-    {"probe": cmd_probe, "once": cmd_once, "watch": cmd_watch,
+    {"probe": cmd_probe, "once": cmd_once, "watch": cmd_watch, "fetch": cmd_fetch,
      "sync-titles": cmd_sync_titles}[args.cmd](cfg, args)
 
 

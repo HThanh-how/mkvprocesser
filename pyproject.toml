@@ -38,9 +38,14 @@ web = [
   "uvicorn[standard]>=0.29",
   "python-multipart>=0.0.9",
 ]
-# Everything needed for the full headless tool (upload + web GUI).
+# Tai tu link (yt-dlp): YouTube / trang stream / file-host / link truc tiep.
+# Lazy-imported, chi can khi dung `mkvtools fetch` hoac hang doi link tren GUI.
+fetch = [
+  "yt-dlp>=2024.8.0",
+]
+# Everything needed for the full headless tool (upload + web GUI + fetch).
 all = [
-  "mkvtools[upload,web]",
+  "mkvtools[upload,web,fetch]",
 ]
 # Legacy PySide6 desktop GUI + resource probing (opt-in; not needed headless).
 desktop = [

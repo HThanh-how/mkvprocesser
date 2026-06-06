@@ -45,3 +45,11 @@ upgrade_on_higher_res: true
 #   proxy: http://127.0.0.1:8080
 #   proxy: socks5://user:pass@host:1080
 proxy: ""
+
+# --- Tai tu link (GUI dan link / `mkvtools fetch <url>`) + XOAY VONG DIA ---
+# Thu vien o tren YouTube, dia local chi la ban lam viec tam: xu ly tuan tu tung
+# link, xoa nguon ngay sau khi upload -> dia chi can chua ~1 phim => o nho van du.
+downloads_dir: inbox          # noi tai link ve (mac dinh chung inbox)
+delete_source: false          # true = XOA file nguon sau khi upload (o nho) thay vi chuyen done/
+min_free_gb: 5                 # doi du chung nay GB trong moi tai link tiep (rotation). 0 = tat
+# (GUI khi chay hang doi link luon bat delete_source de xoay vong, du day de false.)

@@ -28,6 +28,10 @@ _DEFAULTS = {
     "upgrade_on_higher_res": True,
     # Proxy cho upload/API YouTube (rong = khong dung). VD http://host:8080, socks5://host:1080
     "proxy": "",
+    # --- Tai tu link + xoay vong dia (UI dan link -> tu tai -> tach -> upload) ---
+    "downloads_dir": "inbox",   # noi tai link ve (mac dinh chung inbox)
+    "delete_source": False,     # rotation: XOA file nguon sau khi upload (o nho) thay vi move done/
+    "min_free_gb": 5.0,         # doi du chung nay GB trong moi tai link tiep (rotation). 0 = tat
 }
 
 

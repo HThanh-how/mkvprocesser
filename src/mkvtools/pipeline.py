@@ -147,9 +147,13 @@ def process_file(src, cfg, yt=None, pl_cache=None, do_upload=None, log=print,
         for s in caps:                       # don srt dung chung sau khi da up het video
             if os.path.exists(s["srt"]):
                 os.remove(s["srt"])
-    if do_upload and yt and cfg.get("done_dir"):
-        os.makedirs(cfg["done_dir"], exist_ok=True)
-        shutil.move(src, os.path.join(cfg["done_dir"], os.path.basename(src)))
+    if do_upload and yt:
+        if cfg.get("delete_source") and os.path.exists(src):
+            os.remove(src)                       # rotation o nho: xoa nguon thay vi giu done/
+            log(f"[{name}] da xoa nguon (rotation)")
+        elif cfg.get("done_dir"):
+            os.makedirs(cfg["done_dir"], exist_ok=True)
+            shutil.move(src, os.path.join(cfg["done_dir"], os.path.basename(src)))
     _record(store, sig, tkey, name, [o["out"] for o in outs], res_rank=rrank)
     log(f"[{name}] XONG")
     return p
