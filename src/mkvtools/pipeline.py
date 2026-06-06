@@ -113,6 +113,10 @@ def process_file(src, cfg, yt=None, pl_cache=None, do_upload=None, log=print,
         pid = up.get_or_create_playlist(
             yt, pl_cache, _fmt(cfg.get("playlist_template") or "{title} ({year})", _meta_kw(p)),
             privacy=cfg["privacy"], log=log)
+    mpid = None
+    if do_upload and yt and cfg.get("master_playlist"):   # playlist tong (de tim/lay lai)
+        mpid = up.get_or_create_playlist(yt, pl_cache, cfg["master_playlist"],
+                                         privacy=cfg["privacy"], log=log)
 
     # Rut TAT CA phu de chu 1 lan (dung chung cho moi video). captions: all (het) | paired (cung lang)
     caps = []
@@ -141,6 +145,8 @@ def process_file(src, cfg, yt=None, pl_cache=None, do_upload=None, log=print,
                     log(f"  (!) loi up sub [{s['lang'] or '?'}]: {e}")
             if pid:
                 up.add_to_playlist(yt, pid, vid, log=log)
+            if mpid:
+                up.add_to_playlist(yt, mpid, vid, log=log)
             if cfg.get("cleanup_outputs", True) and os.path.exists(out["out"]):
                 os.remove(out["out"])
     if do_upload and yt and cfg.get("cleanup_outputs", True):

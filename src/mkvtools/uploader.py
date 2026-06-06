@@ -135,6 +135,47 @@ def list_uploaded_titles(yt):
     return titles
 
 
+def set_privacy(yt, video_id, privacy="private"):
+    """Doi privacy 1 video (giu nguyen cac field status khac). Tra True neu doi."""
+    r = _retry(yt.videos().list(part="status", id=video_id))
+    items = r.get("items", []) if r else []
+    if not items:
+        return False
+    st = items[0]["status"]
+    if st.get("privacyStatus") == privacy:
+        return False
+    st["privacyStatus"] = privacy
+    _retry(yt.videos().update(part="status", body={"id": video_id, "status": st}))
+    return True
+
+
+def list_playlists(yt):
+    """Tra {title: id} cac playlist cua kenh (de tai dung, tranh tao trung)."""
+    out, token = {}, None
+    while True:
+        resp = _retry(yt.playlists().list(part="snippet", mine=True, maxResults=50, pageToken=token))
+        for it in resp.get("items", []):
+            out.setdefault(it["snippet"]["title"], it["id"])
+        token = resp.get("nextPageToken")
+        if not token:
+            break
+    return out
+
+
+def playlist_video_ids(yt, playlist_id):
+    """Tap videoId da co trong playlist (de khong add trung)."""
+    ids, token = set(), None
+    while True:
+        resp = _retry(yt.playlistItems().list(
+            part="contentDetails", playlistId=playlist_id, maxResults=50, pageToken=token))
+        for it in resp.get("items", []):
+            ids.add(it["contentDetails"]["videoId"])
+        token = resp.get("nextPageToken")
+        if not token:
+            break
+    return ids
+
+
 def list_uploaded_videos(yt, limit=60):
     """Liet ke video da upload (moi nhat truoc) kem chi tiet de quan ly.
 

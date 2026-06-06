@@ -100,6 +100,43 @@ def cmd_sync_titles(cfg, args):
     print(f"YouTube: {len(titles)} video. Them {added} tua moi vao index ({cfg['state_file']}).")
 
 
+def cmd_organize(cfg, args):
+    """Don kenh: ep private + add moi video vao playlist tong (+ playlist phim)."""
+    import re
+
+    from . import uploader as up
+    yt = _service(cfg)
+    vids = up.list_uploaded_videos(yt, limit=500)
+    print(f"Tong {len(vids)} video tren kenh.")
+    cache = up.list_playlists(yt)                          # {title: id} -> tai dung, khong tao trung
+    master = args.master or cfg.get("master_playlist") or "MKVTOOLS - Tat ca"
+    master_id = up.get_or_create_playlist(yt, cache, master, privacy="private")
+    master_have = up.playlist_video_ids(yt, master_id)
+    movie_have = {}
+    struct = re.compile(r"^(?:4K|2K|FHD|HD|SD)_[A-Z]{2,4}_((?:19|20)\d{2})_(.+)$")
+    npriv = nmaster = nmovie = 0
+    for v in vids:
+        if not args.keep_privacy and v["privacy"] != "private" and up.set_privacy(yt, v["id"], "private"):
+            npriv += 1
+            print(f"  -> private: {v['title'][:55]}")
+        if v["id"] not in master_have:
+            up.add_to_playlist(yt, master_id, v["id"])
+            master_have.add(v["id"])
+            nmaster += 1
+        if not args.no_per_movie:
+            m = struct.match(v["title"])
+            if m:
+                pl = f"{m.group(2).strip()} ({m.group(1)})"
+                pid = up.get_or_create_playlist(yt, cache, pl, privacy="private")
+                if pid not in movie_have:
+                    movie_have[pid] = up.playlist_video_ids(yt, pid)
+                if v["id"] not in movie_have[pid]:
+                    up.add_to_playlist(yt, pid, v["id"])
+                    movie_have[pid].add(v["id"])
+                    nmovie += 1
+    print(f"XONG: ep private {npriv} | +playlist tong {nmaster} | +playlist phim {nmovie}")
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="mkvtools", description="Tach MKV nhieu audio + upload YouTube")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -119,12 +156,16 @@ def main(argv=None):
     sr.add_argument("url")
     sr.add_argument("--cookies", help="file cookies.txt cho trang can dang nhap")
     sub.add_parser("sync-titles", help="keo tua da upload tren YouTube vao index chong trung")
+    so = sub.add_parser("organize", help="don kenh: ep private + add video vao playlist tong/phim")
+    so.add_argument("--master", help="ten playlist tong (mac dinh: cfg hoac 'MKVTOOLS - Tat ca')")
+    so.add_argument("--keep-privacy", action="store_true", help="khong ep private")
+    so.add_argument("--no-per-movie", action="store_true", help="chi playlist tong, khong tao playlist phim")
     args = ap.parse_args(argv)
-    if args.cmd not in ("sync-titles", "resolve") and not ffmpeg_helper.available():
+    if args.cmd not in ("sync-titles", "resolve", "organize") and not ffmpeg_helper.available():
         raise SystemExit("Khong tim thay ffmpeg/ffprobe. Cai ffmpeg hoac de vao ffmpeg_bin/.")
     cfg = config.load()
     {"probe": cmd_probe, "once": cmd_once, "watch": cmd_watch, "fetch": cmd_fetch,
-     "resolve": cmd_resolve, "sync-titles": cmd_sync_titles}[args.cmd](cfg, args)
+     "resolve": cmd_resolve, "sync-titles": cmd_sync_titles, "organize": cmd_organize}[args.cmd](cfg, args)
 
 
 if __name__ == "__main__":

@@ -13,6 +13,8 @@ _DEFAULTS = {
     "captions": "all",          # all = up MOI phu de chu (moi ngon ngu) | paired = chi sub cung lang
     "audio_per_lang": "best",   # best = moi ngon ngu giu 1 audio tot nhat | all = giu het
     "make_playlist": True, "default_caption_lang": "vi",
+    # Playlist tong: moi video upload deu them vao day (de tim/lay lai). Rong = tat.
+    "master_playlist": "",
     "description": "", "tags": [],
     # Placeholder: {res} {lang} {year} {title}(da chuan hoa) {label} {base}(ten file tho)
     "title_template": "{res}_{lang}_{year}_{title}",
