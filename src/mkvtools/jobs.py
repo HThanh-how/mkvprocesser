@@ -9,6 +9,7 @@ Y tuong cot loi (tra loi "lam sao du dung luong"):
 `drain()` tiem cac ham phu thuoc (fetch/process/free_gb/remove/sleep) de test
 duoc ma khong can mang hay ffmpeg.
 """
+import json
 import os
 import threading
 import time
@@ -19,7 +20,7 @@ from . import resources
 class JobQueue:
     """Hang doi link an toan thread, kem nhat ky + lich su (xong/loi)."""
 
-    def __init__(self):
+    def __init__(self, history_file=None):
         self._items = []
         self._lock = threading.Lock()
         self._extra = {}       # url -> {cookies, referer} (cho link "bat tay")
@@ -27,6 +28,28 @@ class JobQueue:
         self.running = False
         self.log = []
         self.history = []      # [{url, status: done|error, name?, error?}]
+        self.history_file = history_file
+        if history_file and os.path.exists(history_file):
+            try:
+                with open(history_file, encoding="utf-8") as f:
+                    self.history = json.load(f) or []
+            except (OSError, ValueError):
+                self.history = []
+
+    def record_history(self, item):
+        with self._lock:
+            self.history.append(item)
+            self.history = self.history[-300:]
+        if not self.history_file:
+            return
+        try:
+            os.makedirs(os.path.dirname(self.history_file) or ".", exist_ok=True)
+            tmp = self.history_file + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(self.history, f, ensure_ascii=False)
+            os.replace(tmp, self.history_file)
+        except OSError:
+            pass
 
     def add(self, url, cookies=None, referer=None) -> bool:
         url = (url or "").strip()
@@ -130,11 +153,11 @@ def drain(q: JobQueue, cfg: dict, *, fetch_fn, process_fn,
                     q.say(f"[don] xoa nguon {os.path.basename(src)} -> giai phong dia")
                 except OSError as e:
                     q.say(f"  (!) khong xoa duoc nguon: {e}")
-            q.history.append({"url": url, "status": "done",
+            q.record_history({"url": url, "status": "done",
                               "name": os.path.basename(src) if src else url})
             q.say(f"[OK] {url}")
         except Exception as e:        # noqa: BLE001 - 1 link loi khong duoc keo sap ca hang
-            q.history.append({"url": url, "status": "error", "error": str(e)})
+            q.record_history({"url": url, "status": "error", "error": str(e)})
             q.say(f"[LOI] {url}: {e}")
         finally:
             q.current = None

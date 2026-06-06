@@ -16,6 +16,7 @@ def client(tmp_path, monkeypatch):
     # co lap: kho tai khoan rieng trong tmp + phien moi (khong dung secrets/ that)
     monkeypatch.setattr(webui, "USERS", auth.UserStore(str(tmp_path / "users.json")))
     monkeypatch.setattr(webui, "SESS", auth.Sessions())
+    monkeypatch.setattr(webui, "THROTTLE", auth.LoginThrottle())   # co lap throttle moi test
     webui.USERS.add("admin", "adminpass", role="admin")
     webui.USERS.add("bob", "bobpass", role="user")
     return TestClient(webui.app)
@@ -36,6 +37,14 @@ def test_bad_login_does_not_authenticate(client):
                     follow_redirects=False)
     assert r.status_code == 302 and "/login" in r.headers["location"]
     assert client.get("/", follow_redirects=False).status_code == 302   # van chua vao
+
+
+def test_login_throttled_after_many_fails(client):
+    for _ in range(6):
+        client.post("/login", data={"username": "admin", "password": "sai"}, follow_redirects=False)
+    r = client.post("/login", data={"username": "admin", "password": "adminpass"},
+                    follow_redirects=False)
+    assert r.headers["location"].startswith("/login")     # bi khoa du dung mat khau
 
 
 def test_good_login_grants_access(client):

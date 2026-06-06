@@ -110,9 +110,31 @@ def load_cookies_txt(path: str) -> list:
 # ----------------------------------------------------------------- T1: HTTP truc tiep
 def http_download(url: str, dest_dir: str, log=print, chunk: int = 1 << 20,
                   referer: str = None) -> str:
-    """Tai file truc tiep qua HTTP, ghi streaming ra dia. Tra ve duong dan file."""
+    """Tai file truc tiep qua HTTP. Dung aria2c (da luong + resume) neu co; nguoc lai urllib."""
+    import shutil
     os.makedirs(dest_dir, exist_ok=True)
-    dest = os.path.join(dest_dir, safe_name(guess_name(url) or "download.bin"))
+    name = safe_name(guess_name(url) or "download.bin")
+    dest = os.path.join(dest_dir, name)
+    if shutil.which("aria2c"):
+        import subprocess
+        cmd = ["aria2c", f"--dir={dest_dir}", "-o", name, "-x16", "-s16",
+               "--continue=true", "--auto-file-renaming=false", "--max-tries=5",
+               "--retry-wait=5", "--summary-interval=20", "--console-log-level=warn",
+               f"--user-agent={UA}"]
+        if referer:
+            cmd.append(f"--referer={referer}")
+        cmd.append(url)
+        log("  aria2c: tai HTTP (da luong + resume)...")
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                text=True, bufsize=1)
+        for line in proc.stdout:
+            line = line.rstrip()
+            if line:
+                log("  " + line)
+        if proc.wait() == 0 and os.path.exists(dest):
+            log(f"  tai xong -> {name}")
+            return dest
+        log("  (!) aria2 loi -> chuyen urllib")
     headers = {"User-Agent": UA}
     if referer:
         headers["Referer"] = referer

@@ -85,6 +85,24 @@ def test_bootstrap_admin_creates_when_empty_and_is_idempotent(tmp_path, monkeypa
     assert auth.bootstrap_admin(s, log=lambda *a: None) is None  # da co user -> khong tao nua
 
 
+def test_login_throttle():
+    clock = {"t": 1000.0}
+    th = auth.LoginThrottle(max_fail=3, window=100, lock=60, now=lambda: clock["t"])
+    assert th.blocked("ip") == 0
+    th.record_fail("ip")
+    th.record_fail("ip")
+    assert th.blocked("ip") == 0                 # 2 < 3 -> chua khoa
+    th.record_fail("ip")
+    assert th.blocked("ip") > 0                  # 3 lan sai -> khoa
+    th.reset("ip")
+    assert th.blocked("ip") == 0                 # reset -> mo
+    for _ in range(3):
+        th.record_fail("ip")
+    assert th.blocked("ip") > 0
+    clock["t"] = 1200.0                          # qua cua so 100s -> cac lan sai het hieu luc
+    assert th.blocked("ip") == 0
+
+
 def test_bootstrap_admin_uses_env_password(tmp_path, monkeypatch):
     monkeypatch.setenv("MKV_ADMIN_USER", "root")
     monkeypatch.setenv("MKV_ADMIN_PASS", "fixed-pass")

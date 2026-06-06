@@ -38,13 +38,14 @@ app = FastAPI(title="mkvtools GUI")
 # Lan dau chua co user -> tao admin (env MKV_ADMIN_USER/PASS hoac sinh ngau nhien).
 USERS = auth.UserStore(cfg.get("users_file", "secrets/users.json"))
 SESS = auth.Sessions()
+THROTTLE = auth.LoginThrottle()     # chong do mat khau (theo IP)
 _PUBLIC = {"/login"}        # duong dan khong can dang nhap (bootstrap admin o main())
 
 _job = {"running": False, "log": [], "file": None}
 _lock = threading.Lock()
 
 # Hang doi link: dan URL -> tu tai -> tach -> upload -> xoay vong dia (xoa nguon).
-Q = jobs.JobQueue()
+Q = jobs.JobQueue(history_file=os.path.join(cfg.get("work_dir", "work"), "queue_history.json"))
 # Che do "Bat tay": gan vao Chromium dieu khien-tay (noVNC) + sniff media qua CDP.
 CATCH = catch.CatchSession(cfg.get("catch_cdp", "http://127.0.0.1:9222"))
 # Cache YouTube (tiet kiem quota): lay 1 lan/ngay roi doc cache.
@@ -375,11 +376,20 @@ async def settings_save(request: Request):
 
 
 @app.post("/login")
-def login(username: str = Form(...), password: str = Form(...)):
+def login(request: Request, username: str = Form(...), password: str = Form(...)):
+    key = request.client.host if request.client else "?"
+    wait = THROTTLE.blocked(key)
+    if wait:
+        return RedirectResponse(
+            "/login?err=" + urllib.parse.quote(f"Nhap sai nhieu lan, thu lai sau {wait}s"),
+            status_code=302)
     if USERS.verify(username, password):
+        THROTTLE.reset(key)
         r = RedirectResponse("/", status_code=302)
-        r.set_cookie("mkv_sess", SESS.create(username), httponly=True, samesite="lax")
+        r.set_cookie("mkv_sess", SESS.create(username), httponly=True, samesite="lax",
+                     secure=request.url.scheme == "https")
         return r
+    THROTTLE.record_fail(key)
     return RedirectResponse("/login?err=" + urllib.parse.quote("Sai tai khoan hoac mat khau"),
                             status_code=302)
 

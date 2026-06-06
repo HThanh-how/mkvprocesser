@@ -5,6 +5,16 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 from mkvtools import jobs  # noqa: E402
 
 
+def test_history_persists_across_restart(tmp_path):
+    import os
+    hf = str(tmp_path / "hist.json")
+    q = jobs.JobQueue(history_file=hf)
+    q.record_history({"url": "u1", "status": "done", "name": "a.mkv"})
+    assert os.path.exists(hf)
+    q2 = jobs.JobQueue(history_file=hf)                 # nap lai (gia lap restart)
+    assert q2.snapshot()["history"][-1]["url"] == "u1"
+
+
 def test_queue_add_pop_and_filters():
     q = jobs.JobQueue()
     assert q.add_many("u1\n\n  u2  \n# ghi chu\nu3") == 3      # bo dong rong + comment

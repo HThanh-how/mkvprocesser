@@ -163,6 +163,35 @@ class Sessions:
             self._d.pop(token, None)
 
 
+class LoginThrottle:
+    """Chong do mat khau: khoa tam theo key (IP) sau nhieu lan dang nhap sai."""
+
+    def __init__(self, max_fail=5, window=300, lock=300, now=time.time):
+        self.max_fail = max_fail
+        self.window = window        # cua so dem lan sai (giay)
+        self.lock = lock            # thoi gian khoa sau khi vuot nguong (giay)
+        self._now = now
+        self._fails = {}
+        self._lock = threading.Lock()
+
+    def blocked(self, key) -> int:
+        """Tra so giay con phai cho neu dang bi khoa, 0 neu duoc thu."""
+        with self._lock:
+            recent = [t for t in self._fails.get(key, []) if self._now() - t < self.window]
+            self._fails[key] = recent
+            if len(recent) >= self.max_fail:
+                return max(0, int(self.lock - (self._now() - recent[-1])))
+            return 0
+
+    def record_fail(self, key):
+        with self._lock:
+            self._fails.setdefault(key, []).append(self._now())
+
+    def reset(self, key):
+        with self._lock:
+            self._fails.pop(key, None)
+
+
 def bootstrap_admin(store: UserStore, log=print):
     """Chua co tai khoan nao -> tao admin (tu env hoac sinh mat khau ngau nhien).
 
