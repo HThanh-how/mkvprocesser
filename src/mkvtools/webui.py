@@ -11,7 +11,18 @@ import urllib.parse
 from fastapi import FastAPI, Form, Request, Response
 from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse
 
-from . import auth, catch, config, fetch, ffmpeg_helper, idempotency, jobs, pipeline, resources
+from . import (
+    auth,
+    cache,
+    catch,
+    config,
+    fetch,
+    ffmpeg_helper,
+    idempotency,
+    jobs,
+    pipeline,
+    resources,
+)
 
 _WEBDIR = pathlib.Path(__file__).parent / "web"
 
@@ -36,6 +47,10 @@ _lock = threading.Lock()
 Q = jobs.JobQueue()
 # Che do "Bat tay": gan vao Chromium dieu khien-tay (noVNC) + sniff media qua CDP.
 CATCH = catch.CatchSession(cfg.get("catch_cdp", "http://127.0.0.1:9222"))
+# Cache YouTube (tiet kiem quota): lay 1 lan/ngay roi doc cache.
+VIDEOCACHE = cache.Cache(redis_url=cfg.get("redis_url", ""),
+                         file_dir=os.path.join(cfg.get("work_dir", "work"), "cache"),
+                         ttl=int(cfg.get("cache_ttl", 86400) or 0))
 
 
 def _start_drain():
@@ -255,15 +270,27 @@ def videos_page(request: Request):
 
 
 @app.get("/videos/list")
-def videos_list():
-    """Liet ke video da upload tren YouTube (thu vien). Lazy nap google libs."""
+def videos_list(refresh: int = 0):
+    """Liet ke video da upload (thu vien). Doc CACHE truoc; chi goi API khi het han
+    hoac ?refresh=1. Loi API (vd het quota) -> phuc vu cache cu (stale)."""
+    val, age = VIDEOCACHE.get("videos:list")
+    if val is not None and not refresh and VIDEOCACHE.fresh(age, cfg.get("cache_ttl")):
+        return {"ok": True, "videos": val, "cached": True, "age": int(age),
+                "backend": VIDEOCACHE.backend()}
     if not os.path.exists(cfg.get("token_file", "") or ""):
+        if val is not None:
+            return {"ok": True, "videos": val, "cached": True, "stale": True, "age": int(age)}
         return {"ok": False, "error": "Chua dang nhap YouTube (thieu token)."}
     try:
         from . import uploader as up
         yt = up.get_service(cfg["client_secret"], cfg["token_file"], proxy=cfg.get("proxy", ""))
-        return {"ok": True, "videos": up.list_uploaded_videos(yt, limit=60)}
-    except Exception as e:        # noqa: BLE001
+        vids = up.list_uploaded_videos(yt, limit=2000)
+        VIDEOCACHE.set("videos:list", vids)
+        return {"ok": True, "videos": vids, "cached": False, "age": 0, "backend": VIDEOCACHE.backend()}
+    except Exception as e:        # noqa: BLE001 - vd het quota -> dung cache cu neu co
+        if val is not None:
+            return {"ok": True, "videos": val, "cached": True, "stale": True, "age": int(age),
+                    "error": str(e), "backend": VIDEOCACHE.backend()}
         return {"ok": False, "error": str(e)}
 
 
@@ -299,7 +326,7 @@ _SETTINGS_KEYS = [
     "default_caption_lang", "category_id", "subtitle_mode", "captions", "audio_per_lang",
     "container", "title_template", "playlist_template", "delete_source", "min_free_gb",
     "inbox_dir", "work_dir", "done_dir", "downloads_dir", "skip_processed", "dedup_by_title",
-    "on_title_match", "upgrade_on_higher_res", "cookies_file", "proxy",
+    "on_title_match", "upgrade_on_higher_res", "cookies_file", "proxy", "cache_ttl",
 ]
 
 

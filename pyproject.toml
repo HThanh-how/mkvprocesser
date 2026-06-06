@@ -48,9 +48,13 @@ fetch = [
 browser = [
   "playwright>=1.40",
 ]
-# Everything needed for the full headless tool (upload + web GUI + fetch + sniff).
+# Cache Redis (tiet kiem quota YouTube). Khong cai -> tu dong dung cache file.
+cache = [
+  "redis>=5.0",
+]
+# Everything needed for the full headless tool (upload + web GUI + fetch + sniff + cache).
 all = [
-  "mkvtools[upload,web,fetch,browser]",
+  "mkvtools[upload,web,fetch,browser,cache]",
 ]
 # Legacy PySide6 desktop GUI + resource probing (opt-in; not needed headless).
 desktop = [

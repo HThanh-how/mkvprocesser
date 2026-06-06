@@ -80,6 +80,9 @@ const SCHEMA=[
    {k:'cookies_file', label:'File cookies.txt', type:'text', hint:'Cho trang cần đăng nhập'},
    {k:'proxy', label:'Proxy', type:'text', hint:'http://… hoặc socks5://…'},
  ]},
+ {title:'Cache (tiết kiệm quota)', icon:'bolt', fields:[
+   {k:'cache_ttl', label:'TTL cache (giây)', type:'number', hint:'86400 = lấy YouTube 1 lần/ngày; còn lại đọc cache (0 quota)'},
+ ]},
 ];
 const BOOLS=new Set();
 function ctrl(f){

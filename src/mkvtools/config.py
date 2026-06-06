@@ -45,6 +45,9 @@ _DEFAULTS = {
     "catch_cdp": "http://127.0.0.1:9222",   # CDP cua Chromium dieu khien-tay
     "catch_novnc_port": 6080,               # cong noVNC (iframe nhung vao GUI)
     "vnc_password": "",                     # mat khau VNC (dat qua env MKV_VNC_PASSWORD)
+    # --- Cache (tiet kiem quota YouTube): lay 1 lan/ngay roi doc cache ---
+    "redis_url": "",            # redis://host:6379/0 (rong = cache file tren dia)
+    "cache_ttl": 86400,         # TTL cache giay (86400 = lay YouTube 1 lan/ngay)
 }
 
 

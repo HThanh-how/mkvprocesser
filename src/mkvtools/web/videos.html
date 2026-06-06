@@ -30,6 +30,7 @@
     <div class="flex items-center gap-stack-sm">
       <span class="font-label-sm text-label-sm text-on-surface-variant uppercase tracking-widest">Thư viện video đã upload</span>
       <span id="vcount" class="font-label-xs text-label-xs bg-surface-variant text-on-surface-variant px-2 py-1 rounded-full">…</span>
+      <span id="vfresh" class="font-label-xs text-label-xs text-on-surface-variant/60"></span>
     </div>
     <div class="flex items-center gap-stack-sm">
       <input id="vsearch" placeholder="Tìm tựa…" class="h-9 px-gutter rounded-lg bg-surface-container-lowest border border-outline-variant text-on-surface text-sm focus:outline-none focus:border-primary-fixed-dim placeholder-on-surface-variant/40">
@@ -78,17 +79,22 @@ function applyFilter(){
   const q=$('vsearch').value.trim().toLowerCase();
   render(q?ALL.filter(v=>(v.title||'').toLowerCase().includes(q)):ALL);
 }
-async function load(){
+function ageText(s){ s=+s||0; if(s<60)return'vừa cập nhật'; if(s<3600)return Math.round(s/60)+' phút trước'; if(s<86400)return Math.round(s/3600)+' giờ trước'; return Math.round(s/86400)+' ngày trước'; }
+async function load(force){
   $('vstate').textContent='Đang tải danh sách video…'; $('vstate').style.display='';
-  $('vgrid').innerHTML='';
-  let d; try{ d=await (await fetch('/videos/list',{cache:'no-store'})).json(); }
+  $('vgrid').innerHTML=''; $('vfresh').textContent='';
+  let d; try{ d=await (await fetch('/videos/list'+(force?'?refresh=1':''),{cache:'no-store'})).json(); }
   catch(e){ $('vstate').textContent='Lỗi tải danh sách.'; return; }
   if(!d.ok){ $('vstate').innerHTML='<span class="text-error">'+esc(d.error||'Lỗi')+'</span>'; return; }
   ALL=d.videos||[];
+  let f = d.cached ? ('• cache ('+ageText(d.age)+')') : '• mới lấy';
+  if(d.stale) f='• cache cũ ('+ageText(d.age)+(d.error?', API lỗi/quota':'')+')';
+  if(d.backend) f+=' · '+d.backend;
+  $('vfresh').textContent=f;
   if(!ALL.length){ $('vstate').textContent='Chưa có video nào trên kênh.'; return; }
   $('vstate').style.display='none'; applyFilter();
 }
-$('vrefresh').onclick=load;
+$('vrefresh').onclick=()=>load(true);
 $('vsearch').oninput=applyFilter;
 load();
 </script>
