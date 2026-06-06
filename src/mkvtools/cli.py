@@ -104,9 +104,11 @@ def cmd_organize(cfg, args):
     """Don kenh: ep private + add moi video vao playlist tong (+ playlist phim)."""
     import re
 
+    from googleapiclient.errors import HttpError
+
     from . import uploader as up
     yt = _service(cfg)
-    vids = up.list_uploaded_videos(yt, limit=500)
+    vids = up.list_uploaded_videos(yt, limit=2000)
     print(f"Tong {len(vids)} video tren kenh.")
     cache = up.list_playlists(yt)                          # {title: id} -> tai dung, khong tao trung
     master = args.master or cfg.get("master_playlist") or "MKVTOOLS - Tat ca"
@@ -115,26 +117,35 @@ def cmd_organize(cfg, args):
     movie_have = {}
     struct = re.compile(r"^(?:4K|2K|FHD|HD|SD)_[A-Z]{2,4}_((?:19|20)\d{2})_(.+)$")
     npriv = nmaster = nmovie = 0
+    stopped = False
     for v in vids:
-        if not args.keep_privacy and v["privacy"] != "private" and up.set_privacy(yt, v["id"], "private"):
-            npriv += 1
-            print(f"  -> private: {v['title'][:55]}")
-        if v["id"] not in master_have:
-            up.add_to_playlist(yt, master_id, v["id"])
-            master_have.add(v["id"])
-            nmaster += 1
-        if not args.no_per_movie:
-            m = struct.match(v["title"])
-            if m:
-                pl = f"{m.group(2).strip()} ({m.group(1)})"
-                pid = up.get_or_create_playlist(yt, cache, pl, privacy="private")
-                if pid not in movie_have:
-                    movie_have[pid] = up.playlist_video_ids(yt, pid)
-                if v["id"] not in movie_have[pid]:
-                    up.add_to_playlist(yt, pid, v["id"])
-                    movie_have[pid].add(v["id"])
-                    nmovie += 1
-    print(f"XONG: ep private {npriv} | +playlist tong {nmaster} | +playlist phim {nmovie}")
+        try:
+            if not args.keep_privacy and v["privacy"] != "private" and up.set_privacy(yt, v["id"], "private"):
+                npriv += 1
+                print(f"  -> private: {v['title'][:55]}")
+            if v["id"] not in master_have:
+                up.add_to_playlist(yt, master_id, v["id"])
+                master_have.add(v["id"])
+                nmaster += 1
+            if not args.no_per_movie:
+                m = struct.match(v["title"])
+                if m:
+                    pl = f"{m.group(2).strip()} ({m.group(1)})"
+                    pid = up.get_or_create_playlist(yt, cache, pl, privacy="private")
+                    if pid not in movie_have:
+                        movie_have[pid] = up.playlist_video_ids(yt, pid)
+                    if v["id"] not in movie_have[pid]:
+                        up.add_to_playlist(yt, pid, v["id"])
+                        movie_have[pid].add(v["id"])
+                        nmovie += 1
+        except HttpError as e:
+            if e.resp.status == 403 or "quota" in str(e).lower():
+                print("  (!) Het quota YouTube hom nay -> dung. Chay lai 'mkvtools organize' de tiep (resume).")
+                stopped = True
+                break
+            raise
+    tag = "DUNG (het quota, chay lai de tiep)" if stopped else "XONG"
+    print(f"{tag}: ep private {npriv} | +playlist tong {nmaster} | +playlist phim {nmovie}")
 
 
 def main(argv=None):

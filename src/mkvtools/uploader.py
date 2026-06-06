@@ -163,11 +163,16 @@ def list_playlists(yt):
 
 
 def playlist_video_ids(yt, playlist_id):
-    """Tap videoId da co trong playlist (de khong add trung)."""
+    """Tap videoId da co trong playlist (de khong add trung). Playlist moi/rong -> set rong."""
     ids, token = set(), None
     while True:
-        resp = _retry(yt.playlistItems().list(
-            part="contentDetails", playlistId=playlist_id, maxResults=50, pageToken=token))
+        try:
+            resp = _retry(yt.playlistItems().list(
+                part="contentDetails", playlistId=playlist_id, maxResults=50, pageToken=token))
+        except HttpError as e:
+            if e.resp.status == 404:           # playlist vua tao chua propagate / rong
+                return ids
+            raise
         for it in resp.get("items", []):
             ids.add(it["contentDetails"]["videoId"])
         token = resp.get("nextPageToken")
