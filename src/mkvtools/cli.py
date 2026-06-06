@@ -16,8 +16,12 @@ def cmd_probe(cfg, args):
     p = pipeline.analyze_file(os.path.abspath(args.file), cfg)
     print(f"{p['base']}  [{p['res']}{(' ' + p['year']) if p['year'] else ''}]")
     for o in p["outputs"]:
-        sub = os.path.basename(o["srt"]) if o["srt"] else "khong co sub"
-        print(f"  - {o['lang'] or '?'} ({o['ch']}ch) -> {os.path.basename(o['out'])} | {sub}")
+        print(f"  - audio {o['lang'] or '?'} ({o['ch']}ch, {o['acodec']}) -> {os.path.basename(o['out'])}")
+    subs = p.get("subs", [])
+    if subs:
+        print(f"  + {len(subs)} phu de chu (up het): " + ", ".join(s["lang"] or "?" for s in subs))
+    else:
+        print("  (khong co phu de chu de up)")
 
 
 def cmd_once(cfg, args):

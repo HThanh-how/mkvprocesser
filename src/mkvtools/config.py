@@ -10,11 +10,12 @@ _DEFAULTS = {
     "cleanup_outputs": True, "upload": True,
     "privacy": "private", "category_id": 22,
     "subtitle_mode": "caption", "container": "mp4",
+    "captions": "all",          # all = up MOI phu de chu (moi ngon ngu) | paired = chi sub cung lang
     "audio_per_lang": "best",   # best = moi ngon ngu giu 1 audio tot nhat | all = giu het
     "make_playlist": True, "default_caption_lang": "vi",
     "description": "", "tags": [],
     # Placeholder: {res} {lang} {year} {title}(da chuan hoa) {label} {base}(ten file tho)
-    "title_template": "[{res}][{lang}] {title} ({year})",
+    "title_template": "{res}_{lang}_{year}_{title}",
     "playlist_template": "{title} ({year})",
     "watch_ext": [".mkv", ".mp4", ".ts", ".mov", ".webm"], "poll_seconds": 10,
     # Idempotency: bo qua file da xu ly (theo chu ky noi dung), trang thai ben dia.
@@ -55,6 +56,7 @@ _ENUMS = {
     "container": {"mp4", "mkv"},
     "on_title_match": {"skip", "warn"},
     "audio_per_lang": {"best", "all"},
+    "captions": {"all", "paired"},
 }
 
 

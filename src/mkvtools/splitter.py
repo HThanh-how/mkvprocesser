@@ -134,6 +134,13 @@ def plan(src, outdir, sub_mode="caption", container="mp4", audio_per_lang="all")
     for j in jobs:
         lang_counts[j["lang"]] = lang_counts.get(j["lang"], 0) + 1
     ext = "mkv" if container == "mkv" else "mp4"
+    # Tat ca phu de CHU (moi ngon ngu) -> upload het lam caption, dung chung cho moi video.
+    subs = []
+    for s in a["subs"]:
+        if s["text"]:
+            lab = metadata.lang_abbr(s["lang"]) if s["lang"] else f"s{s['rel']}"
+            subs.append({"sidx": s["rel"], "lang": s["lang"],
+                         "srt": os.path.join(outdir, f"{safe(base)}.{lab}.srt")})
     outs, seen = [], set()
     for i, job in enumerate(jobs):
         label = label_for(job, i)
@@ -153,7 +160,7 @@ def plan(src, outdir, sub_mode="caption", container="mp4", audio_per_lang="all")
                      "out": mp4, "srt": srt, "aidx": job["aidx"], "sidx": job["sidx"],
                      "acodec": job["acodec"], "sub_mode": sub_mode, "container": container,
                      "burn": sub_mode in ("burn", "both")})
-    return {"base": base, "res": res, "year": year, "outputs": outs}
+    return {"base": base, "res": res, "year": year, "outputs": outs, "subs": subs}
 
 
 def execute(src, out, log=print):
@@ -166,11 +173,14 @@ def execute(src, out, log=print):
     r = ffmpeg_helper.run(cmd, capture_output=True)
     if r.returncode != 0:
         raise RuntimeError("ffmpeg loi: " + r.stderr.decode("utf-8", "replace")[-800:])
-    if out["srt"] and out["sub_mode"] in ("caption", "both"):
-        log(f"  sub   -> {os.path.basename(out['srt'])}")
-        rs = ffmpeg_helper.run(build_extract_sub_cmd(src, out["srt"], out["sidx"]),
-                               capture_output=True)
-        if rs.returncode != 0:
-            log("  (!) khong rut duoc sub (co the la sub anh) - bo qua")
-            out["srt"] = None
     return out
+
+
+def extract_sub(src, sidx, srt, log=print) -> bool:
+    """Rut 1 phu de CHU ra .srt. False neu khong rut duoc (vd sub anh PGS/VobSub)."""
+    log(f"  sub   -> {os.path.basename(srt)}")
+    rs = ffmpeg_helper.run(build_extract_sub_cmd(src, srt, sidx), capture_output=True)
+    if rs.returncode != 0:
+        log(f"  (!) khong rut duoc sub idx {sidx} (co the la sub anh) - bo qua")
+        return False
+    return True

@@ -130,3 +130,18 @@ def test_plan_audio_per_lang_best_vs_all(monkeypatch):
     assert len(best) == 2                                       # chi + 1 vie
     vie = [o for o in best if o["lang"] == "vie"]
     assert len(vie) == 1 and vie[0]["acodec"] == "dts"
+
+
+def test_plan_returns_all_text_subs_drops_image_subs(monkeypatch):
+    info = {"streams": [
+        {"codec_type": "video", "width": 1920, "height": 1080},
+        {"codec_type": "audio", "codec_name": "aac", "channels": 2, "tags": {"language": "vie"}},
+        {"codec_type": "subtitle", "codec_name": "ass", "tags": {"language": "vie"}},     # chu
+        {"codec_type": "subtitle", "codec_name": "subrip", "tags": {"language": "eng"}},  # chu
+        {"codec_type": "subtitle", "codec_name": "hdmv_pgs_subtitle", "tags": {"language": "chi"}},  # anh
+    ]}
+    monkeypatch.setattr(S.ffmpeg_helper, "probe", lambda p: info)
+    subs = S.plan("/x/Movie.2020.mkv", "/out", "caption", "mp4")["subs"]
+    assert len(subs) == 2                                   # 2 sub chu (vie+eng), bo PGS anh
+    assert {s["lang"] for s in subs} == {"vie", "eng"}
+    assert all(s["srt"].endswith(".srt") for s in subs)

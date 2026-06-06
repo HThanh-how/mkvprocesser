@@ -11,6 +11,7 @@ upload: true                 # false = chi tach, khong upload
 privacy: private             # private | unlisted | public
 category_id: 22
 subtitle_mode: caption       # caption | burn | both
+captions: all                # all = up MOI phu de chu (moi ngon ngu) | paired = chi sub cung lang audio
 container: mp4               # mp4 (cast/upload) | mkv (giu attachment/font)
 audio_per_lang: best         # best = moi ngon ngu 1 audio tot nhat (kenh/codec) | all = giu het
 make_playlist: true
@@ -19,8 +20,8 @@ description: ""
 tags: []
 
 # Tieu de YouTube. Placeholder: {res} {lang} {year} {title}(da chuan hoa, sach) {label} {base}(ten tho)
-# Vi du khac:  "{res} | {lang} | {year} | {title}"  hoac  "{res}_{lang}_{year}_{title}"
-title_template: "[{res}][{lang}] {title} ({year})"
+# Vi du khac:  "[{res}][{lang}] {title} ({year})"  hoac  "{res} | {lang} | {year} | {title}"
+title_template: "{res}_{lang}_{year}_{title}"
 playlist_template: "{title} ({year})"
 
 watch_ext: [".mkv", ".mp4", ".ts", ".mov", ".webm"]

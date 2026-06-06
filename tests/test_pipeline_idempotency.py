@@ -157,14 +157,14 @@ def test_title_for_clean_prefixed_default():
     p = {"base": "You.Are.the.Apple.of.My.Eye.2011.VIE.1080p.BluRay.x264-GRP",
          "res": "FHD", "year": "2011"}
     out = {"lang": "vie", "label": "vie"}
-    assert pipeline.title_for({}, p, out) == "[FHD][VIE] You Are The Apple Of My Eye (2011)"
+    assert pipeline.title_for({}, p, out) == "FHD_VIE_2011_You Are The Apple Of My Eye"
 
 
-def test_title_for_missing_year_no_empty_parens():
+def test_title_for_missing_year_collapses_separators():
     p = {"base": "Show.S01E01.1080p", "res": "FHD", "year": ""}
     out = {"lang": "eng", "label": "eng"}
     t = pipeline.title_for({}, p, out)
-    assert t == "[FHD][ENG] Show S01E01" and "()" not in t
+    assert t == "FHD_ENG_Show S01E01" and "__" not in t   # thieu nam -> khong de lai __
 
 
 def test_title_for_custom_underscore_template():

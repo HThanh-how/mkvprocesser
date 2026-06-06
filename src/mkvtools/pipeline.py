@@ -29,12 +29,13 @@ def _meta_kw(p, out=None):
 def _fmt(tmpl, kw):
     """Dien template + don ngoac/dau rong (vd thieu nam) + cat 100 ky tu (gioi han YouTube)."""
     t = tmpl.format(**kw)
-    t = re.sub(r"\(\s*\)|\[\s*\]|\{\s*\}", "", t)
+    t = re.sub(r"\(\s*\)|\[\s*\]|\{\s*\}", "", t)   # bo ngoac rong
+    t = re.sub(r"([_|-])\1+", r"\1", t)             # gop dau phan cach lap (vd __ -> _)
     return re.sub(r"\s{2,}", " ", t).strip(" -|_")[:100]
 
 
 def title_for(cfg, p, out):
-    return _fmt(cfg.get("title_template") or "[{res}][{lang}] {title} ({year})", _meta_kw(p, out))
+    return _fmt(cfg.get("title_template") or "{res}_{lang}_{year}_{title}", _meta_kw(p, out))
 
 
 def _record(store, sig, tkey, name, outs, res_rank=0, note=""):
@@ -112,6 +113,15 @@ def process_file(src, cfg, yt=None, pl_cache=None, do_upload=None, log=print,
         pid = up.get_or_create_playlist(
             yt, pl_cache, _fmt(cfg.get("playlist_template") or "{title} ({year})", _meta_kw(p)),
             privacy=cfg["privacy"], log=log)
+
+    # Rut TAT CA phu de chu 1 lan (dung chung cho moi video). captions: all (het) | paired (cung lang)
+    caps = []
+    if cfg.get("subtitle_mode", "caption") in ("caption", "both"):
+        for s in p.get("subs", []):
+            if splitter.extract_sub(src, s["sidx"], s["srt"], log=log):
+                caps.append(s)
+    cap_all = cfg.get("captions", "all") == "all"
+
     for out in outs:
         splitter.execute(src, out, log=log)
         if do_upload and yt:
@@ -120,19 +130,23 @@ def process_file(src, cfg, yt=None, pl_cache=None, do_upload=None, log=print,
                                   tags=cfg.get("tags", []), privacy=cfg["privacy"],
                                   category_id=cfg.get("category_id", 22),
                                   language=out["lang"] or None, log=log)
-            if out["srt"]:
+            wanted = caps if cap_all else [s for s in caps if s["sidx"] == out["sidx"]]
+            for s in wanted:
                 try:
-                    up.upload_caption(yt, vid, out["srt"],
-                                      language=out["lang"] or cfg["default_caption_lang"],
-                                      name=out["label"], log=log)
+                    up.upload_caption(yt, vid, s["srt"],
+                                      language=s["lang"] or cfg["default_caption_lang"],
+                                      name=metadata.lang_abbr(s["lang"]) if s["lang"] else "sub",
+                                      log=log)
                 except Exception as e:
-                    log(f"  (!) loi up sub: {e}")
+                    log(f"  (!) loi up sub [{s['lang'] or '?'}]: {e}")
             if pid:
                 up.add_to_playlist(yt, pid, vid, log=log)
-            if cfg.get("cleanup_outputs", True):
-                for f in (out["out"], out["srt"]):
-                    if f and os.path.exists(f):
-                        os.remove(f)
+            if cfg.get("cleanup_outputs", True) and os.path.exists(out["out"]):
+                os.remove(out["out"])
+    if do_upload and yt and cfg.get("cleanup_outputs", True):
+        for s in caps:                       # don srt dung chung sau khi da up het video
+            if os.path.exists(s["srt"]):
+                os.remove(s["srt"])
     if do_upload and yt and cfg.get("done_dir"):
         os.makedirs(cfg["done_dir"], exist_ok=True)
         shutil.move(src, os.path.join(cfg["done_dir"], os.path.basename(src)))
