@@ -125,6 +125,18 @@ def process_file(src, cfg, yt=None, pl_cache=None, do_upload=None, log=print,
             if splitter.extract_sub(src, s["sidx"], s["srt"], log=log):
                 caps.append(s)
     cap_all = cfg.get("captions", "all") == "all"
+    # Khong co sub chu nhung + bat auto -> tu tim sub (vi/en) tren OpenSubtitles, up cho moi video
+    if not caps and cfg.get("auto_fetch_subs") and do_upload and yt:
+        from . import subfetch
+        langs = [x.strip() for x in str(cfg.get("sub_langs", "vi,en")).split(",") if x.strip()]
+        for srt, lg in subfetch.find_subs(
+                src, cfg.get("work_dir", "work"), langs=langs,
+                api_key=cfg.get("opensubtitles_api_key", ""),
+                username=cfg.get("opensubtitles_user", ""),
+                password=cfg.get("opensubtitles_pass", ""), log=log):
+            caps.append({"srt": srt, "lang": lg, "sidx": -1, "label": lg})
+        if caps:
+            cap_all = True
 
     for out in outs:
         splitter.execute(src, out, log=log)

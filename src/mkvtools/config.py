@@ -48,6 +48,12 @@ _DEFAULTS = {
     # --- Cache (tiet kiem quota YouTube): lay 1 lan/ngay roi doc cache ---
     "redis_url": "",            # redis://host:6379/0 (rong = cache file tren dia)
     "cache_ttl": 86400,         # TTL cache giay (86400 = lay YouTube 1 lan/ngay)
+    # --- Tu tim sub (OpenSubtitles) cho phim KHONG co sub nhung ---
+    "auto_fetch_subs": False,   # bat: phim khong co sub chu -> tu tim vi/en va up caption
+    "sub_langs": "vi,en",       # ngon ngu uu tien khi tu tim sub
+    "opensubtitles_api_key": "",   # tu opensubtitles.com (free)
+    "opensubtitles_user": "",
+    "opensubtitles_pass": "",
 }
 
 

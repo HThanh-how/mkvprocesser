@@ -57,6 +57,8 @@ const SCHEMA=[
    {k:'captions', label:'Up phụ đề', type:'select', options:['all','paired'], hint:'all = mọi ngôn ngữ; paired = cùng lang audio'},
    {k:'audio_per_lang', label:'Audio mỗi ngôn ngữ', type:'select', options:['best','all']},
    {k:'container', label:'Định dạng', type:'select', options:['mp4','mkv']},
+   {k:'auto_fetch_subs', label:'Tự tìm sub khi phim không có sub', type:'bool', hint:'Cần OpenSubtitles key+account đặt trong config'},
+   {k:'sub_langs', label:'Ngôn ngữ ưu tiên tìm sub', type:'text', hint:'vd: vi,en'},
  ]},
  {title:'Tiêu đề', icon:'title', fields:[
    {k:'title_template', label:'Mẫu tiêu đề', type:'text', hint:'{res} {lang} {year} {title}'},
