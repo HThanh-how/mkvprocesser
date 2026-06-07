@@ -54,6 +54,8 @@ _DEFAULTS = {
     "opensubtitles_api_key": "",   # tu opensubtitles.com (free)
     "opensubtitles_user": "",
     "opensubtitles_pass": "",
+    # SubDL (subdl.com): nguon sub thu 2, manh VI + phim doi moi (co API, free khi co key)
+    "subdl_api_key": "",
     # Day sub len git repo rieng (clone san tai day + push auth tren may). Rong = tat.
     "subs_repo_dir": "",
     "subs_repo_push": True,

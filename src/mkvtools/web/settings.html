@@ -85,6 +85,12 @@ const SCHEMA=[
  {title:'Cache (tiết kiệm quota)', icon:'bolt', fields:[
    {k:'cache_ttl', label:'TTL cache (giây)', type:'number', hint:'86400 = lấy YouTube 1 lần/ngày; còn lại đọc cache (0 quota)'},
  ]},
+ {title:'Khóa API nguồn sub', icon:'key', fields:[
+   {k:'subdl_api_key', label:'SubDL API key', type:'password', hint:'subdl.com → đăng nhập → panel API. Mạnh sub VI + phim mới (ưu tiên nguồn này)'},
+   {k:'opensubtitles_api_key', label:'OpenSubtitles API key', type:'password', hint:'opensubtitles.com → Profile → API consumers'},
+   {k:'opensubtitles_user', label:'OpenSubtitles username', type:'text'},
+   {k:'opensubtitles_pass', label:'OpenSubtitles password', type:'password'},
+ ]},
  {title:'Sub → GitHub', icon:'cloud_sync', fields:[
    {k:'subs_repo_dir', label:'Thư mục repo Subtitles (clone sẵn)', type:'text', hint:'Trống = tắt. Cần git push auth (PAT/SSH) trên máy.'},
    {k:'subs_repo_push', label:'Tự push lên GitHub sau commit', type:'bool'},
@@ -94,8 +100,9 @@ const BOOLS=new Set();
 function ctrl(f){
   if(f.type==='bool'){BOOLS.add(f.k);return `<label class="flex items-center gap-stack-sm cursor-pointer"><input type="checkbox" id="f_${f.k}" class="w-5 h-5 rounded bg-surface-container-lowest border-outline-variant text-primary-fixed-dim focus:ring-0"><span class="text-on-surface-variant text-sm">${f.label}</span></label>`;}
   if(f.type==='select'){return `<label class="block"><span class="text-on-surface-variant text-sm">${f.label}</span><select id="f_${f.k}" class="fld mt-1">${f.options.map(o=>`<option value="${o}">${o}</option>`).join('')}</select></label>`;}
-  const t=f.type==='number'?'number':'text';
-  return `<label class="block"><span class="text-on-surface-variant text-sm">${f.label}</span><input type="${t}" id="f_${f.k}" class="fld mt-1"></label>`;
+  const t=f.type==='number'?'number':(f.type==='password'?'password':'text');
+  const auto=f.type==='password'?' autocomplete="off"':'';
+  return `<label class="block"><span class="text-on-surface-variant text-sm">${f.label}</span><input type="${t}"${auto} id="f_${f.k}" class="fld mt-1"></label>`;
 }
 $('form').innerHTML=SCHEMA.map(s=>`<section class="glass-panel rounded-xl p-panel-padding">
   <h3 class="font-headline-md text-base font-semibold mb-stack-md flex items-center gap-unit"><span class="ms text-primary-fixed-dim text-[18px]">${s.icon}</span>${s.title}</h3>

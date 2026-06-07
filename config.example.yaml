@@ -91,6 +91,9 @@ cache_ttl: 86400                     # TTL cache giay (86400 = lay YouTube 1 lan
 # Can dang ky opensubtitles.com (free) lay API key + tai khoan, dien vao day.
 auto_fetch_subs: false
 sub_langs: "vi,en"
+# Nguon 1 - SubDL (subdl.com): hau due Subscene, manh sub VI + phim doi moi. Dang ky free lay key.
+subdl_api_key: ""
+# Nguon 2 - OpenSubtitles.com (kho sau, phim cu/hiem). Dang ky free lay key + tai khoan.
 opensubtitles_api_key: ""
 opensubtitles_user: ""
 opensubtitles_pass: ""
