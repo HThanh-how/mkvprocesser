@@ -328,7 +328,7 @@ _SETTINGS_KEYS = [
     "container", "title_template", "playlist_template", "delete_source", "min_free_gb",
     "inbox_dir", "work_dir", "done_dir", "downloads_dir", "skip_processed", "dedup_by_title",
     "on_title_match", "upgrade_on_higher_res", "cookies_file", "proxy", "cache_ttl",
-    "auto_fetch_subs", "sub_langs",
+    "auto_fetch_subs", "sub_langs", "subs_repo_dir", "subs_repo_push",
 ]
 
 

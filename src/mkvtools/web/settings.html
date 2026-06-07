@@ -85,6 +85,10 @@ const SCHEMA=[
  {title:'Cache (tiết kiệm quota)', icon:'bolt', fields:[
    {k:'cache_ttl', label:'TTL cache (giây)', type:'number', hint:'86400 = lấy YouTube 1 lần/ngày; còn lại đọc cache (0 quota)'},
  ]},
+ {title:'Sub → GitHub', icon:'cloud_sync', fields:[
+   {k:'subs_repo_dir', label:'Thư mục repo Subtitles (clone sẵn)', type:'text', hint:'Trống = tắt. Cần git push auth (PAT/SSH) trên máy.'},
+   {k:'subs_repo_push', label:'Tự push lên GitHub sau commit', type:'bool'},
+ ]},
 ];
 const BOOLS=new Set();
 function ctrl(f){

@@ -137,6 +137,12 @@ def process_file(src, cfg, yt=None, pl_cache=None, do_upload=None, log=print,
             caps.append({"srt": srt, "lang": lg, "sidx": -1, "label": lg})
         if caps:
             cap_all = True
+    if cfg.get("subs_repo_dir") and caps:                  # day sub len git repo rieng
+        from . import subrepo
+        kw = _meta_kw(p)
+        movie = f"{kw['title']} ({p['year']})" if p.get("year") else kw["title"]
+        subrepo.push_subs([(s["srt"], s.get("lang")) for s in caps], movie,
+                          cfg["subs_repo_dir"], push=cfg.get("subs_repo_push", True), log=log)
 
     for out in outs:
         splitter.execute(src, out, log=log)

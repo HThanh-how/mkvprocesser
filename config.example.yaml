@@ -95,5 +95,11 @@ opensubtitles_api_key: ""
 opensubtitles_user: ""
 opensubtitles_pass: ""
 
+# --- Day sub len git repo rieng (vd github.com/HThanh-how/Subtitles) ---
+# Clone repo san tai subs_repo_dir + cau hinh git push auth (PAT/SSH) tren may.
+# Moi phim xu ly se commit srt vao <repo>/<Ten phim (Nam)>/<lang>.srt. Rong = tat.
+subs_repo_dir: ""
+subs_repo_push: true
+
 # Hau het cac muc tren co the sua TRUC TIEP tren web (trang Cai dat, chi admin).
 

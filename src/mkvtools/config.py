@@ -54,6 +54,9 @@ _DEFAULTS = {
     "opensubtitles_api_key": "",   # tu opensubtitles.com (free)
     "opensubtitles_user": "",
     "opensubtitles_pass": "",
+    # Day sub len git repo rieng (clone san tai day + push auth tren may). Rong = tat.
+    "subs_repo_dir": "",
+    "subs_repo_push": True,
 }
 
 
