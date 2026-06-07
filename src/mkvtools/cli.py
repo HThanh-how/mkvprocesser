@@ -163,6 +163,41 @@ def cmd_organize(cfg, args):
     print(f"{tag}: ~{spent} quota | private {npriv} | +tong {nmaster} | +phim {nmovie}")
 
 
+def cmd_series_gaps(cfg, args):
+    """Doi chieu thu vien da upload voi TMDB collection -> liet ke phim THIEU trong series."""
+    from googleapiclient.errors import HttpError
+
+    from . import seriesgaps
+    from . import uploader as up
+    key = cfg.get("tmdb_api_key", "")
+    if not key:
+        raise SystemExit("Thieu tmdb_api_key -> dat o trang Cai dat (muc TMDB) hoac config.yaml.")
+    yt = _service(cfg)
+    try:
+        titles = sorted(up.list_uploaded_titles(yt))
+    except HttpError as e:
+        if e.resp.status == 403 or "quota" in str(e).lower():
+            raise SystemExit("Het quota YouTube -> khong doc duoc list video. Thu lai sau khi quota reset.") from None
+        raise
+    print(f"Da upload: {len(titles)} video tren kenh. Dang tra TMDB collection ...")
+    cols, unmatched = seriesgaps.analyze(titles, key)
+    total_missing = sum(len(c["missing"]) for c in cols)
+    gaps = [c for c in cols if c["missing"]]
+    print(f"\n=== {len(cols)} series; {len(gaps)} series con thieu, tong {total_missing} phim ===")
+    for c in gaps:
+        print(f"\n[{c['name']}]  co {len(c['have'])}/{c['total']}  -> THIEU {len(c['missing'])}:")
+        for m in c["missing"]:
+            yr = f" ({m['year']})" if m["year"] else ""
+            print(f"   - {m['title']}{yr}")
+    full = [c for c in cols if not c["missing"]]
+    if full:
+        print("\n=== Series DU ===")
+        for c in full:
+            print(f"  [{c['name']}] {c['total']}/{c['total']}")
+    if unmatched:
+        print(f"\n({len(unmatched)} tua khong khop TMDB, bo qua) vd: " + "; ".join(unmatched[:5]))
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="mkvtools", description="Tach MKV nhieu audio + upload YouTube")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -188,12 +223,15 @@ def main(argv=None):
     so.add_argument("--no-per-movie", action="store_true", help="chi playlist tong, khong tao playlist phim")
     so.add_argument("--budget", type=int, default=None,
                     help="gioi han quota moi lan (mac dinh: cfg organize_budget; 0 = khong gioi han)")
+    sub.add_parser("series-gaps", help="doi chieu thu vien voi TMDB collection -> liet ke phim thieu")
     args = ap.parse_args(argv)
-    if args.cmd not in ("sync-titles", "resolve", "organize") and not ffmpeg_helper.available():
+    _no_ff = ("sync-titles", "resolve", "organize", "series-gaps")
+    if args.cmd not in _no_ff and not ffmpeg_helper.available():
         raise SystemExit("Khong tim thay ffmpeg/ffprobe. Cai ffmpeg hoac de vao ffmpeg_bin/.")
     cfg = config.load()
     {"probe": cmd_probe, "once": cmd_once, "watch": cmd_watch, "fetch": cmd_fetch,
-     "resolve": cmd_resolve, "sync-titles": cmd_sync_titles, "organize": cmd_organize}[args.cmd](cfg, args)
+     "resolve": cmd_resolve, "sync-titles": cmd_sync_titles, "organize": cmd_organize,
+     "series-gaps": cmd_series_gaps}[args.cmd](cfg, args)
 
 
 if __name__ == "__main__":
