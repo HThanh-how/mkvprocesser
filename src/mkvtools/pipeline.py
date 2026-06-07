@@ -145,6 +145,13 @@ def process_file(src, cfg, yt=None, pl_cache=None, do_upload=None, log=print,
         subrepo.push_subs([(s["srt"], s.get("lang")) for s in caps], movie,
                           cfg["subs_repo_dir"], push=cfg.get("subs_repo_push", True), log=log)
 
+    thumb_path = None                          # poster TMDB lam thumbnail (chung cho moi video)
+    if do_upload and yt and cfg.get("tmdb_thumbnail") and cfg.get("tmdb_api_key"):
+        from . import tmdb
+        kw = _meta_kw(p)
+        thumb_path = tmdb.make_thumbnail(kw["title"], p.get("year"), cfg["tmdb_api_key"],
+                                         cfg.get("work_dir", "work"), log=log)
+
     for out in outs:
         splitter.execute(src, out, log=log)
         if do_upload and yt:
@@ -153,6 +160,8 @@ def process_file(src, cfg, yt=None, pl_cache=None, do_upload=None, log=print,
                                   tags=cfg.get("tags", []), privacy=cfg["privacy"],
                                   category_id=cfg.get("category_id", 22),
                                   language=out["lang"] or None, log=log)
+            if thumb_path:
+                up.set_thumbnail(yt, vid, thumb_path, log=log)
             wanted = caps if cap_all else [s for s in caps if s["sidx"] == out["sidx"]]
             for s in wanted:
                 try:
@@ -172,6 +181,8 @@ def process_file(src, cfg, yt=None, pl_cache=None, do_upload=None, log=print,
         for s in caps:                       # don srt dung chung sau khi da up het video
             if os.path.exists(s["srt"]):
                 os.remove(s["srt"])
+        if thumb_path and os.path.exists(thumb_path):
+            os.remove(thumb_path)
     if do_upload and yt:
         if cfg.get("delete_source") and os.path.exists(src):
             os.remove(src)                       # rotation o nho: xoa nguon thay vi giu done/

@@ -56,6 +56,9 @@ _DEFAULTS = {
     "opensubtitles_pass": "",
     # SubDL (subdl.com): nguon sub thu 2, manh VI + phim doi moi (co API, free khi co key)
     "subdl_api_key": "",
+    # TMDB (themoviedb.org): tim phim -> poster lam thumbnail YouTube + phan tich series
+    "tmdb_api_key": "",
+    "tmdb_thumbnail": False,    # bat: moi video up dat poster TMDB lam thumbnail (kenh phai xac minh)
     # Day sub len git repo rieng (clone san tai day + push auth tren may). Rong = tat.
     "subs_repo_dir": "",
     "subs_repo_push": True,

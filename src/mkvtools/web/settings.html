@@ -94,6 +94,10 @@ const SCHEMA=[
    {k:'opensubtitles_user', label:'③ OpenSubtitles username', type:'text', hint:'Tài khoản đăng nhập opensubtitles.com (khác api key, khác email)'},
    {k:'opensubtitles_pass', label:'④ OpenSubtitles password', type:'password', hint:'Mật khẩu tài khoản opensubtitles.com'},
  ]},
+ {title:'TMDB (poster + series)', icon:'movie', fields:[
+   {k:'tmdb_api_key', label:'TMDB API key (v3)', type:'password', hint:'themoviedb.org → Settings → API → API Key (v3 auth). Dùng cho poster + phân tích series'},
+   {k:'tmdb_thumbnail', label:'Lấy poster TMDB làm thumbnail khi up', type:'bool', hint:'Mỗi video tự tìm poster phim → đặt làm thumbnail (kênh phải xác minh SĐT, tốn 50 quota/video)'},
+ ]},
  {title:'Sub → GitHub', icon:'cloud_sync', fields:[
    {k:'subs_repo_dir', label:'Thư mục repo Subtitles (clone sẵn)', type:'text', hint:'Trống = tắt. Cần git push auth (PAT/SSH) trên máy.'},
    {k:'subs_repo_push', label:'Tự push lên GitHub sau commit', type:'bool'},

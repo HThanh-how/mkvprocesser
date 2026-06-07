@@ -98,6 +98,10 @@ opensubtitles_api_key: ""
 opensubtitles_user: ""
 opensubtitles_pass: ""
 
+# --- TMDB (themoviedb.org): poster lam thumbnail YouTube + phan tich series ---
+tmdb_api_key: ""           # API Key (v3 auth) tu themoviedb.org -> Settings -> API
+tmdb_thumbnail: false      # bat: moi video up tu lay poster TMDB lam thumbnail (kenh phai xac minh SDT)
+
 # --- Day sub len git repo rieng (vd github.com/HThanh-how/Subtitles) ---
 # Clone repo san tai subs_repo_dir + cau hinh git push auth (PAT/SSH) tren may.
 # Moi phim xu ly se commit srt vao <repo>/<Ten phim (Nam)>/<lang>.srt. Rong = tat.

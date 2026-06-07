@@ -92,6 +92,24 @@ def upload_caption(yt, video_id, srt_path, language="vi", name="", log=print):
     log(f"  caption [{language}] added")
 
 
+def set_thumbnail(yt, video_id, image_path, log=print):
+    """Dat thumbnail tuy chinh (poster TMDB) cho video. Tra True/False.
+
+    Luu y: YouTube chi cho thumbnail tuy chinh khi KENH DA XAC MINH (verify SDT).
+    Chua xac minh -> 403; ta bat loi, log va bo qua (khong chan upload). Quota 50 unit.
+    """
+    if not (image_path and os.path.exists(image_path)):
+        return False
+    try:
+        media = MediaFileUpload(image_path, mimetype="image/jpeg", resumable=False)
+        _retry(yt.thumbnails().set(videoId=video_id, media_body=media))
+        log("  thumbnail TMDB da dat")
+        return True
+    except HttpError as e:
+        log(f"  (!) dat thumbnail loi (kenh chua xac minh?): {e}")
+        return False
+
+
 def get_or_create_playlist(yt, cache, title, privacy="private", log=print):
     if title in cache:
         return cache[title]
