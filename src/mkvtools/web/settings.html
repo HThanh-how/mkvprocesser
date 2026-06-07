@@ -59,7 +59,7 @@ const SCHEMA=[
    {k:'captions', label:'Up phụ đề', type:'select', options:['all','paired'], hint:'all = mọi ngôn ngữ; paired = cùng lang audio'},
    {k:'audio_per_lang', label:'Audio mỗi ngôn ngữ', type:'select', options:['best','all']},
    {k:'container', label:'Định dạng', type:'select', options:['mp4','mkv']},
-   {k:'auto_fetch_subs', label:'Tự tìm sub khi phim không có sub', type:'bool', hint:'Cần OpenSubtitles key+account đặt trong config'},
+   {k:'auto_fetch_subs', label:'Tự tìm sub khi phim không có sub', type:'bool', hint:'Chỉ cần điền SubDL key ở mục "Khóa API nguồn sub" bên dưới'},
    {k:'sub_langs', label:'Ngôn ngữ ưu tiên tìm sub', type:'text', hint:'vd: vi,en'},
  ]},
  {title:'Tiêu đề', icon:'title', fields:[
@@ -88,10 +88,10 @@ const SCHEMA=[
    {k:'cache_ttl', label:'TTL cache (giây)', type:'number', hint:'86400 = lấy YouTube 1 lần/ngày; còn lại đọc cache (0 quota)'},
  ]},
  {title:'Khóa API nguồn sub', icon:'key', fields:[
-   {k:'subdl_api_key', label:'SubDL API key', type:'password', hint:'subdl.com → đăng nhập → panel API. Mạnh sub VI + phim mới (ưu tiên nguồn này)'},
-   {k:'opensubtitles_api_key', label:'OpenSubtitles API key', type:'password', hint:'opensubtitles.com → Profile → API consumers'},
-   {k:'opensubtitles_user', label:'OpenSubtitles username', type:'text'},
-   {k:'opensubtitles_pass', label:'OpenSubtitles password', type:'password'},
+   {k:'subdl_api_key', label:'① SubDL API key — đủ dùng cho VI', type:'password', hint:'CHỈ CẦN ô này là tự tìm sub VI được. subdl.com → đăng nhập → panel API'},
+   {k:'opensubtitles_api_key', label:'② OpenSubtitles API key (TÙY CHỌN)', type:'password', hint:'Bỏ trống cũng được. Chỉ bù phim cũ/hiếm — và phải điền ĐỦ CẢ 3 ô ②③④ mới chạy'},
+   {k:'opensubtitles_user', label:'③ OpenSubtitles username', type:'text', hint:'Tài khoản đăng nhập opensubtitles.com (khác api key, khác email)'},
+   {k:'opensubtitles_pass', label:'④ OpenSubtitles password', type:'password', hint:'Mật khẩu tài khoản opensubtitles.com'},
  ]},
  {title:'Sub → GitHub', icon:'cloud_sync', fields:[
    {k:'subs_repo_dir', label:'Thư mục repo Subtitles (clone sẵn)', type:'text', hint:'Trống = tắt. Cần git push auth (PAT/SSH) trên máy.'},
