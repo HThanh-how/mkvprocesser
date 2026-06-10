@@ -8,7 +8,7 @@ import pathlib
 import threading
 import urllib.parse
 
-from fastapi import FastAPI, Form, Request, Response
+from fastapi import FastAPI, File, Form, Request, Response, UploadFile
 from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse
 
 from . import (
@@ -255,6 +255,36 @@ def enqueue(links: str = Form(...)):
         _start_drain()
     return page(f"<div class=card>Da them <b>{n}</b> link vao hang doi. "
                 f"<a href=/>Theo doi tien trinh &raquo;</a></div>")
+
+
+@app.post("/enqueue-torrent")
+async def enqueue_torrent(files: list[UploadFile] = File(...)):
+    """Nhan file .torrent upload tu trinh duyet -> luu vao work/torrents/ -> vao hang doi.
+    fetch.is_torrent() nhan duong dan ket thuc .torrent, aria2c doc truc tiep file local."""
+    tor_dir = os.path.join(cfg.get("work_dir", "work"), "torrents")
+    os.makedirs(tor_dir, exist_ok=True)
+    n = 0
+    for f in files:
+        name = os.path.basename(f.filename or "")
+        if not name.lower().endswith(".torrent"):
+            continue
+        data = await f.read()
+        if not data:
+            continue
+        path = os.path.join(tor_dir, name)
+        if os.path.exists(path):                       # tranh ghi de khi trung ten
+            stem, ext = os.path.splitext(name)
+            i = 1
+            while os.path.exists(path):
+                path = os.path.join(tor_dir, f"{stem}_{i}{ext}")
+                i += 1
+        with open(path, "wb") as out:
+            out.write(data)
+        Q.add(path)
+        n += 1
+    if n:
+        _start_drain()
+    return {"ok": True, "added": n}
 
 
 @app.get("/queue")

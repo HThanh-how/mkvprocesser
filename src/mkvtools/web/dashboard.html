@@ -70,14 +70,19 @@
   <div class="mb-stack-lg glass-panel p-panel-padding rounded-xl relative overflow-hidden">
     <div class="absolute top-0 left-0 w-1 h-full bg-primary-fixed-dim shadow-[0_0_15px_#00dbe7]"></div>
     <form id="addForm" class="relative z-10">
-      <label class="font-label-xs text-label-xs text-primary-fixed-dim uppercase tracking-widest">Dán link — mỗi dòng 1 link (YouTube · trang phim · Google Drive · .mkv/.mp4)</label>
+      <label class="font-label-xs text-label-xs text-primary-fixed-dim uppercase tracking-widest">Dán link — mỗi dòng 1 link (YouTube · trang phim · Google Drive · .mkv/.mp4 · magnet) — hoặc upload file .torrent</label>
       <textarea id="links" rows="3" class="mt-stack-sm w-full input-glow border border-outline-variant rounded-lg bg-surface-container-lowest text-on-surface font-body-md p-gutter focus:ring-0 placeholder-on-surface-variant/40 resize-none" placeholder="https://...&#10;https://..."></textarea>
-      <div class="mt-stack-sm flex items-center justify-between">
+      <div class="mt-stack-sm flex items-center justify-between flex-wrap gap-stack-sm">
         <span class="font-label-xs text-label-xs text-on-surface-variant">upload: bật · xoá nguồn sau khi đăng (rotation)</span>
-        <button type="submit" class="h-11 px-stack-lg bg-primary-fixed-dim text-on-primary-fixed font-label-sm text-label-sm uppercase tracking-wider rounded-lg hover:bg-primary-fixed transition-colors flex items-center gap-unit shadow-[0_0_15px_rgba(0,219,231,.4)]">
-          <span class="ms text-[18px]" style="font-variation-settings:'FILL' 1">add</span> Thêm vào hàng đợi</button>
+        <div class="flex items-center gap-stack-sm">
+          <button type="button" id="torrentBtn" class="h-11 px-gutter border border-outline-variant text-on-surface-variant font-label-sm text-label-sm uppercase tracking-wider rounded-lg hover:border-primary-fixed-dim hover:text-primary-fixed-dim transition-colors flex items-center gap-unit">
+            <span class="ms text-[18px]">upload_file</span> File .torrent</button>
+          <button type="submit" class="h-11 px-stack-lg bg-primary-fixed-dim text-on-primary-fixed font-label-sm text-label-sm uppercase tracking-wider rounded-lg hover:bg-primary-fixed transition-colors flex items-center gap-unit shadow-[0_0_15px_rgba(0,219,231,.4)]">
+            <span class="ms text-[18px]" style="font-variation-settings:'FILL' 1">add</span> Thêm vào hàng đợi</button>
+        </div>
       </div>
     </form>
+    <input type="file" id="torrentFile" accept=".torrent" multiple class="hidden"/>
   </div>
 
   <!-- Bento -->
@@ -186,6 +191,15 @@ $('addForm').addEventListener('submit',async e=>{
   const f=new FormData(); f.append('links',v);
   await fetch('/enqueue',{method:'POST',body:f});
   $('links').value=''; if(btn){btn.disabled=false;}
+  setTimeout(refresh,300);
+});
+$('torrentBtn').addEventListener('click',()=>$('torrentFile').click());
+$('torrentFile').addEventListener('change',async e=>{
+  const files=e.target.files; if(!files.length) return;
+  const btn=$('torrentBtn'); btn.disabled=true;
+  const f=new FormData(); for(const t of files) f.append('files',t);
+  try{ await fetch('/enqueue-torrent',{method:'POST',body:f}); }catch(err){}
+  e.target.value=''; btn.disabled=false;
   setTimeout(refresh,300);
 });
 setInterval(refresh,2000); refresh();
