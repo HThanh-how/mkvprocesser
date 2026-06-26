@@ -68,6 +68,21 @@
   </section>
 </main>
 
+<!-- Modal xem truoc clip -->
+<div id="vmodal" class="hidden fixed inset-0 z-[80] bg-black/70 backdrop-blur-sm flex items-center justify-center p-gutter">
+  <div class="glass-panel rounded-xl overflow-hidden w-full max-w-[420px] flex flex-col">
+    <div class="flex items-center justify-between px-gutter py-stack-sm border-b border-outline-variant/20">
+      <span id="vmTitle" class="font-label-sm text-label-sm text-on-surface flex items-center gap-unit"><span class="ms text-[18px] text-primary-fixed-dim">play_circle</span> Xem trước</span>
+      <button id="vmClose" class="w-8 h-8 rounded-lg text-on-surface-variant hover:text-error flex items-center justify-center"><span class="ms">close</span></button>
+    </div>
+    <video id="vmVideo" controls autoplay playsinline class="w-full max-h-[60vh] bg-black"></video>
+    <div class="flex gap-stack-sm p-gutter">
+      <button id="vmDownload" class="flex-1 h-10 rounded-lg bg-primary-fixed-dim text-on-primary-fixed font-label-sm text-label-sm uppercase flex items-center justify-center gap-unit hover:bg-primary-fixed"><span class="ms text-[18px]">download</span> Tải về máy</button>
+      <button id="vmUpload" class="flex-1 h-10 rounded-lg bg-surface-variant text-secondary font-label-sm text-label-sm uppercase flex items-center justify-center gap-unit hover:text-on-surface"><span class="ms text-[18px]">smart_display</span> Up Short</button>
+    </div>
+  </div>
+</div>
+
 <script src="/web/shell.js"></script>
 <script>
 MKVShell('shorts','Short');
@@ -90,11 +105,13 @@ function candGrid(j){
   const cells=cs.map((c,i)=>{
     const res=(c.width&&c.height)?`${c.width}×${c.height}`:'? × ?';
     const star=c.primary?`<span class="ms text-[14px] text-warn" title="Đang hiển thị" style="font-variation-settings:'FILL' 1">star</span>`:'';
-    const poster=c.poster?`<img src="${esc(c.poster)}" referrerpolicy="no-referrer" class="w-full h-32 object-cover rounded-t-lg bg-surface-container-lowest" onerror="this.style.display='none'"/>`
-      :`<div class="w-full h-32 rounded-t-lg bg-surface-container-lowest flex items-center justify-center text-outline"><span class="ms text-[32px]">movie</span></div>`;
     const meta=encodeURIComponent(JSON.stringify({url:c.url,referer:c.referer||'',label:res}));
+    const bg=c.poster?`background-image:url('${esc(c.poster)}');background-size:cover;background-position:center`:'';
     return `<div class="bg-surface-container-high border border-outline-variant/30 rounded-lg overflow-hidden flex flex-col">
-      ${poster}
+      <button data-view="${meta}" title="Xem trước" class="group relative w-full h-32 bg-surface-container-lowest flex items-center justify-center" style="${bg}">
+        <span class="absolute inset-0 bg-black/30 group-hover:bg-black/10 transition-colors"></span>
+        <span class="ms text-[40px] text-white relative drop-shadow-lg" style="font-variation-settings:'FILL' 1">play_circle</span>
+      </button>
       <div class="p-stack-sm flex flex-col gap-stack-sm">
         <div class="flex items-center justify-between">
           <span class="font-label-sm text-label-sm text-on-surface">#${i+1} ${star}</span>
@@ -170,6 +187,29 @@ async function enqueue(mode){
 }
 $('btnProbe').addEventListener('click',()=>enqueue('probe'));
 
+async function grab(m,mode){
+  const f=new FormData();
+  f.append('media_url',m.url); f.append('referer',m.referer||''); f.append('label',m.label||'');
+  f.append('mode',mode||'download');
+  try{ await fetch('/shorts/grab',{method:'POST',body:f}); }catch(e){}
+  setTimeout(refresh,300);
+}
+
+// Modal xem truoc — phat qua proxy /shorts/preview (kem referer) roi tai/up neu ung
+let viewMeta=null;
+const vmodal=$('vmodal'), vmVideo=$('vmVideo');
+function openView(m){
+  viewMeta=m;
+  $('vmTitle').innerHTML='<span class="ms text-[18px] text-primary-fixed-dim">play_circle</span> Xem trước · '+esc(m.label||'');
+  vmVideo.src='/shorts/preview?url='+encodeURIComponent(m.url)+'&referer='+encodeURIComponent(m.referer||'');
+  vmodal.classList.remove('hidden'); vmVideo.play().catch(()=>{});
+}
+function closeView(){ vmodal.classList.add('hidden'); vmVideo.pause(); vmVideo.removeAttribute('src'); vmVideo.load(); viewMeta=null; }
+$('vmClose').onclick=closeView;
+vmodal.addEventListener('click',e=>{ if(e.target===vmodal) closeView(); });
+$('vmDownload').onclick=()=>{ if(viewMeta){ grab(viewMeta,'download'); closeView(); } };
+$('vmUpload').onclick=()=>{ if(viewMeta){ grab(viewMeta,'upload'); closeView(); } };
+
 $('jobList').addEventListener('click',async e=>{
   const del=e.target.closest('[data-del]');
   if(del){
@@ -177,15 +217,15 @@ $('jobList').addEventListener('click',async e=>{
     try{ await fetch('/shorts/delete',{method:'POST',body:f}); }catch(e){}
     return refresh();
   }
-  const grab=e.target.closest('[data-grab]');
-  if(grab){
-    let m; try{ m=JSON.parse(decodeURIComponent(grab.dataset.grab)); }catch(e){ return; }
-    grab.disabled=true;
-    const f=new FormData();
-    f.append('media_url',m.url); f.append('referer',m.referer||''); f.append('label',m.label||'');
-    f.append('mode',grab.dataset.gmode||'download');
-    try{ await fetch('/shorts/grab',{method:'POST',body:f}); }catch(e){}
-    setTimeout(refresh,300);
+  const view=e.target.closest('[data-view]');
+  if(view){
+    let m; try{ m=JSON.parse(decodeURIComponent(view.dataset.view)); }catch(e){ return; }
+    return openView(m);
+  }
+  const g=e.target.closest('[data-grab]');
+  if(g){
+    let m; try{ m=JSON.parse(decodeURIComponent(g.dataset.grab)); }catch(e){ return; }
+    g.disabled=true; grab(m,g.dataset.gmode||'download');
   }
 });
 

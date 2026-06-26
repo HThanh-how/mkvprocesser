@@ -405,6 +405,44 @@ def shorts_grab(media_url: str = Form(...), referer: str = Form(""), mode: str =
     return {"ok": bool(job), "id": job["id"] if job else None}
 
 
+@app.get("/shorts/preview")
+def shorts_preview(request: Request, url: str, referer: str = ""):
+    """Phat thu 1 clip trong UI: proxy stream tu CDN (kem UA/referer) -> tranh CORS/chan
+    referer khi nhung <video> truc tiep. Ho tro Range de tua. Sau khi xem moi tai."""
+    import urllib.request
+    from fastapi.responses import StreamingResponse
+    if not url.startswith(("http://", "https://")):
+        return PlainTextResponse("url khong hop le", status_code=400)
+    headers = {"User-Agent": fetch.UA}
+    if referer:
+        headers["Referer"] = referer
+    rng = request.headers.get("range")
+    if rng:
+        headers["Range"] = rng
+    try:
+        up = urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=30)  # noqa: S310
+    except Exception as e:        # noqa: BLE001
+        return PlainTextResponse(f"khong phat duoc: {e}", status_code=502)
+    out_headers = {}
+    for h in ("Content-Length", "Content-Range", "Accept-Ranges"):
+        v = up.headers.get(h)
+        if v:
+            out_headers[h] = v
+    ctype = up.headers.get("Content-Type") or "video/mp4"
+
+    def gen():
+        try:
+            while True:
+                b = up.read(65536)
+                if not b:
+                    break
+                yield b
+        finally:
+            up.close()
+
+    return StreamingResponse(gen(), status_code=up.status, media_type=ctype, headers=out_headers)
+
+
 @app.get("/shorts/status")
 def shorts_status():
     return SHORTS.snapshot()
