@@ -51,15 +51,9 @@
       <label class="font-label-xs text-label-xs text-primary-fixed-dim uppercase tracking-widest">Dán link video ngắn — mỗi dòng 1 link (Threads · Reels · TikTok · YouTube Short · .mp4)</label>
       <textarea id="links" rows="3" class="mt-stack-sm w-full input-glow border border-outline-variant rounded-lg bg-surface-container-lowest text-on-surface font-body-md p-gutter focus:ring-0 placeholder-on-surface-variant/40 resize-none" placeholder="https://www.threads.com/...&#10;https://..."></textarea>
       <div class="mt-stack-md flex items-center justify-between flex-wrap gap-stack-sm">
-        <span class="font-label-xs text-label-xs text-on-surface-variant">Liệt kê video để xem & chọn từng clip · hoặc tải/up nhanh clip chính.</span>
-        <div class="flex items-center gap-stack-sm flex-wrap">
-          <button id="btnProbe" class="h-11 px-gutter border border-secondary/50 text-secondary font-label-sm text-label-sm uppercase tracking-wider rounded-lg hover:border-secondary hover:bg-secondary/10 transition-colors flex items-center gap-unit">
-            <span class="ms text-[18px]">format_list_bulleted</span> Liệt kê video</button>
-          <button id="btnDownload" class="h-11 px-gutter border border-outline-variant text-on-surface font-label-sm text-label-sm uppercase tracking-wider rounded-lg hover:border-primary-fixed-dim hover:text-primary-fixed-dim transition-colors flex items-center gap-unit">
-            <span class="ms text-[18px]">download</span> Tải về máy</button>
-          <button id="btnUpload" class="h-11 px-stack-lg bg-primary-fixed-dim text-on-primary-fixed font-label-sm text-label-sm uppercase tracking-wider rounded-lg hover:bg-primary-fixed transition-colors flex items-center gap-unit shadow-[0_0_15px_rgba(0,219,231,.4)]">
-            <span class="ms text-[18px]" style="font-variation-settings:'FILL' 1">smart_display</span> Up YouTube Short</button>
-        </div>
+        <span class="font-label-xs text-label-xs text-on-surface-variant">Dán link rồi bấm — hệ thống liệt kê các clip để bạn chọn Tải về máy hoặc Up YouTube Short.</span>
+        <button id="btnProbe" class="h-11 px-stack-lg bg-primary-fixed-dim text-on-primary-fixed font-label-sm text-label-sm uppercase tracking-wider rounded-lg hover:bg-primary-fixed transition-colors flex items-center gap-unit shadow-[0_0_15px_rgba(0,219,231,.4)]">
+          <span class="ms text-[18px]" style="font-variation-settings:'FILL' 1">search</span> Tìm video</button>
       </div>
     </div>
   </div>
@@ -156,15 +150,13 @@ async function refresh(){
 
 async function enqueue(mode){
   const v=$('links').value.trim(); if(!v) return;
-  const btns=['btnProbe','btnDownload','btnUpload']; btns.forEach(b=>$(b).disabled=true);
+  $('btnProbe').disabled=true;
   const f=new FormData(); f.append('url',v); f.append('mode',mode);
   try{ await fetch('/shorts/enqueue',{method:'POST',body:f}); }catch(e){}
-  $('links').value=''; btns.forEach(b=>$(b).disabled=false);
+  $('links').value=''; $('btnProbe').disabled=false;
   setTimeout(refresh,300);
 }
 $('btnProbe').addEventListener('click',()=>enqueue('probe'));
-$('btnDownload').addEventListener('click',()=>enqueue('download'));
-$('btnUpload').addEventListener('click',()=>enqueue('upload'));
 
 $('jobList').addEventListener('click',async e=>{
   const del=e.target.closest('[data-del]');
