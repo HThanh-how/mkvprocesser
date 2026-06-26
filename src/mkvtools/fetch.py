@@ -71,11 +71,13 @@ _MEDIA_RANK = {".m3u8": 5, ".mpd": 5, ".mkv": 4, ".mp4": 4, ".m4v": 3, ".webm": 
 
 
 def rank_media(cands: list):
-    """Chon ung vien media tot nhat: manifest (m3u8/mpd) > mp4/mkv > ts. None neu rong."""
+    """Chon ung vien media tot nhat. Uu tien clip ĐANG HIEN THI (primary, lay tu the
+    <video> chinh) -> tranh tai nham clip khac/goi-y ma trang prefetch. Sau do:
+    manifest (m3u8/mpd) > mp4/mkv > ts. None neu rong."""
     def score(c):
         path = urllib.parse.urlparse(c.get("url", "")).path.lower()
         ext = next((e for e in MEDIA_EXTS if path.endswith(e)), "")
-        return _MEDIA_RANK.get(ext, 0)
+        return (1000 if c.get("primary") else 0) + _MEDIA_RANK.get(ext, 0)
     return sorted(cands, key=score, reverse=True)[0] if cands else None
 
 
@@ -280,6 +282,20 @@ def browser_sniff(url: str, log=print, cookies: str = None, wait: int = 8,
                 except Exception:        # noqa: BLE001
                     pass
             page.wait_for_timeout(wait * 1000)   # cho media request bay ra
+            # Clip ĐANG HIEN THI: src cua the <video> dau tien (DOM order) = clip nguoi
+            # dung thay, tranh nham voi clip goi-y trang prefetch. Bo qua blob: (MSE/HLS).
+            try:
+                el = page.query_selector("video")
+                primary = page.evaluate("e => e.currentSrc || e.src", el) if el else ""
+            except Exception:            # noqa: BLE001
+                primary = ""
+            if primary and primary.startswith("http"):
+                hit = found.get(primary)
+                if hit:
+                    hit["primary"] = True
+                else:
+                    found[primary] = {"url": primary, "type": "video/mp4",
+                                      "referer": ref["url"], "primary": True}
         except Exception as e:           # noqa: BLE001
             log(f"  (sniff) {e}")
         finally:

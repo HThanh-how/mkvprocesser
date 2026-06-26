@@ -43,6 +43,13 @@ def test_rank_media_prefers_manifest_then_mp4():
     assert F.rank_media([]) is None
 
 
+def test_rank_media_primary_beats_others():
+    # Clip dang hien thi (primary) thang ca clip khac, ke ca manifest -> tranh tai nham.
+    cands = [{"url": "https://c/other.mp4"}, {"url": "https://c/main", "primary": True},
+             {"url": "https://c/feed.m3u8"}]
+    assert F.rank_media(cands)["url"] == "https://c/main"
+
+
 def test_safe_name():
     assert F.safe_name('a:b/c\\d?e*f') == "a_b_c_d_e_f"
     assert F.safe_name("") == "download"
