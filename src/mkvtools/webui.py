@@ -115,17 +115,26 @@ def _start_shorts():
                     SHORTS.log(_j, m)
 
                 try:
-                    if job["mode"] == "upload":
+                    if job["mode"] == "probe":
+                        log(f"[tim] {job['url']}")
+                        cands = fetch.list_video_candidates(job["url"], log=log, cookies=cookies)
+                        job["candidates"] = cands
+                        job["status"] = "ready"
+                        log(f"[OK] tim thay {len(cands)} video")
+                    elif job["mode"] == "upload":
+                        log(f"[tai] {job.get('media_url') or job['url']}")
                         tmp = os.path.join(SHORTS.dest_dir, "_tmp")
                         os.makedirs(tmp, exist_ok=True)
-                        log(f"[tai] {job['url']}")
-                        src = fetch.fetch(job["url"], tmp, log=log, cookies=cookies)
-                        job["name"] = os.path.basename(src)
+                        if job.get("media_url"):           # clip da chon -> tai thang
+                            src = fetch.download_media_url(job["media_url"], tmp, log=log,
+                                                           referer=job.get("referer"), cookies=cookies)
+                        else:
+                            src = fetch.fetch(job["url"], tmp, log=log, cookies=cookies)
                         from . import uploader as up
                         if yt is None:
                             yt = up.get_service(cfg["client_secret"], cfg["token_file"],
                                                 proxy=cfg.get("proxy", ""))
-                        title = shorts.short_title(src)
+                        title = shorts.short_title(job.get("name") or src)
                         log(f"[up] YouTube Short: {title}")
                         vid = up.upload_video(
                             yt, src, title, description=shorts.SHORTS_DESC,
@@ -137,12 +146,18 @@ def _start_shorts():
                         job["status"] = "done"
                         log(f"[OK] {job['video_url']}")
                     else:
-                        log(f"[tai] {job['url']}")
-                        src = fetch.fetch(job["url"], SHORTS.dest_dir, log=log, cookies=cookies)
+                        log(f"[tai] {job.get('media_url') or job['url']}")
+                        if job.get("media_url"):           # clip da chon -> tai thang
+                            src = fetch.download_media_url(job["media_url"], SHORTS.dest_dir,
+                                                           log=log, referer=job.get("referer"),
+                                                           cookies=cookies)
+                        else:
+                            src = fetch.fetch(job["url"], SHORTS.dest_dir, log=log, cookies=cookies)
                         job["file"] = src
-                        job["name"] = os.path.basename(src)
+                        if not job.get("name"):
+                            job["name"] = os.path.basename(src)
                         job["status"] = "done"
-                        log(f"[OK] tai xong {job['name']}")
+                        log(f"[OK] tai xong {os.path.basename(src)}")
                 except Exception as e:        # noqa: BLE001 - 1 job loi khong keo sap worker
                     job["status"] = "error"
                     job["error"] = str(e)
@@ -375,6 +390,19 @@ def shorts_enqueue(url: str = Form(...), mode: str = Form("download")):
     if n:
         _start_shorts()
     return {"ok": True, "added": n}
+
+
+@app.post("/shorts/grab")
+def shorts_grab(media_url: str = Form(...), referer: str = Form(""), mode: str = Form("download"),
+                label: str = Form("")):
+    """Tai 1 clip CU THE da chon tu danh sach (probe). mode: download | upload."""
+    if mode not in ("download", "upload"):
+        mode = "download"
+    job = SHORTS.add(referer or media_url, mode, media_url=media_url,
+                     referer=referer or None, label=label)
+    if job:
+        _start_shorts()
+    return {"ok": bool(job), "id": job["id"] if job else None}
 
 
 @app.get("/shorts/status")

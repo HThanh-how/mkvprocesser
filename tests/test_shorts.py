@@ -36,6 +36,16 @@ def test_add_defaults_invalid_mode_to_download():
     assert m.add("https://a", "nonsense")["mode"] == "download"
 
 
+def test_add_probe_and_media_url():
+    m = shorts.ShortsManager("work/shorts")
+    p = m.add("https://page", "probe")
+    assert p["mode"] == "probe" and p["candidates"] == []
+    g = m.add("https://page", "download", media_url="https://cdn/v.mp4",
+              referer="https://page", label="720x1280")
+    assert g["media_url"] == "https://cdn/v.mp4" and g["referer"] == "https://page"
+    assert g["name"] == "720x1280"
+
+
 def test_worker_lifecycle_try_start_next_stop():
     m = shorts.ShortsManager("work/shorts")
     m.add("https://a", "download")

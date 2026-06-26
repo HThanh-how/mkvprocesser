@@ -44,17 +44,24 @@ class ShortsManager:
         self._running = False
         self._seq = 0
 
-    def add(self, url: str, mode: str):
+    def add(self, url: str, mode: str, media_url: str = None, referer: str = None,
+            label: str = ""):
+        """Them job. mode: download | upload | probe.
+
+        media_url: neu co (vd clip da chon tu danh sach) -> tai THANG url nay,
+        khong sniff lai. label: ten hien thi (vd '720x1280').
+        """
         url = (url or "").strip()
         if not url or url.startswith("#"):
             return None
-        if mode not in ("download", "upload"):
+        if mode not in ("download", "upload", "probe"):
             mode = "download"
         with self._lock:
             self._seq += 1
             jid = self._seq
             job = {"id": jid, "url": url, "mode": mode, "status": "queued",
-                   "name": "", "file": None, "video_url": "", "error": "", "log": []}
+                   "name": label or "", "file": None, "video_url": "", "error": "",
+                   "media_url": media_url, "referer": referer, "candidates": [], "log": []}
             self._jobs[jid] = job
             self._order.append(jid)
             self._queue.append(jid)

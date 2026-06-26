@@ -282,25 +282,64 @@ def browser_sniff(url: str, log=print, cookies: str = None, wait: int = 8,
                 except Exception:        # noqa: BLE001
                     pass
             page.wait_for_timeout(wait * 1000)   # cho media request bay ra
-            # Clip ĐANG HIEN THI: src cua the <video> dau tien (DOM order) = clip nguoi
-            # dung thay, tranh nham voi clip goi-y trang prefetch. Bo qua blob: (MSE/HLS).
+            # The <video> trong DOM: lay src + kich thuoc + poster de NGUOI DUNG nhin thay
+            # va chon clip dung. Video DAU TIEN (DOM order) = clip dang hien thi -> primary.
+            # Bo qua blob: (MSE/HLS khong tai truc tiep duoc).
             try:
-                el = page.query_selector("video")
-                primary = page.evaluate("e => e.currentSrc || e.src", el) if el else ""
+                vids = page.eval_on_selector_all(
+                    "video",
+                    "els => els.map(e => ({src: e.currentSrc || e.src, "
+                    "w: e.videoWidth, h: e.videoHeight, poster: e.poster}))")
             except Exception:            # noqa: BLE001
-                primary = ""
-            if primary and primary.startswith("http"):
-                hit = found.get(primary)
-                if hit:
-                    hit["primary"] = True
-                else:
-                    found[primary] = {"url": primary, "type": "video/mp4",
-                                      "referer": ref["url"], "primary": True}
+                vids = []
+            for i, v in enumerate(vids):
+                u = v.get("src") or ""
+                if not u.startswith("http"):
+                    continue
+                rec = found.get(u) or {"url": u, "type": "video/mp4", "referer": ref["url"]}
+                rec["width"] = v.get("w") or rec.get("width") or 0
+                rec["height"] = v.get("h") or rec.get("height") or 0
+                if v.get("poster"):
+                    rec["poster"] = v["poster"]
+                if i == 0:                # clip dang hien thi
+                    rec["primary"] = True
+                found[u] = rec
         except Exception as e:           # noqa: BLE001
             log(f"  (sniff) {e}")
         finally:
             browser.close()
     return list(found.values())
+
+
+def list_video_candidates(url: str, log=print, cookies: str = None) -> list:
+    """Liet ke MOI clip bat duoc tu trang (cho UI hien ra de nguoi dung chon).
+
+    Tra ve list dict: {url, width, height, poster, primary, referer}. Clip dang hien
+    thi (primary) + do phan giai cao len truoc. Rong neu khong bat duoc / chua co Playwright.
+    """
+    try:
+        cands = browser_sniff(url, log=log, cookies=cookies)
+    except ImportError:
+        log("  (!) chua cai Playwright -> khong liet ke duoc")
+        return []
+    out, seen = [], set()
+    for c in cands:
+        u = c.get("url", "")
+        if not u or u in seen:
+            continue
+        seen.add(u)
+        out.append({"url": u, "width": c.get("width") or 0, "height": c.get("height") or 0,
+                    "poster": c.get("poster") or "", "primary": bool(c.get("primary")),
+                    "referer": c.get("referer") or url})
+    out.sort(key=lambda c: (c["primary"], c["width"] * c["height"]), reverse=True)
+    return out
+
+
+def download_media_url(url: str, dest_dir: str, log=print, referer: str = None,
+                       cookies: str = None) -> str:
+    """Tai 1 URL media DA CHON (truc tiep, vd tu list_video_candidates). file -> HTTP;
+    khac -> yt-dlp. Dung khi nguoi dung bam tai 1 clip cu the tren UI."""
+    return _download_resolved({"url": url, "referer": referer}, dest_dir, log, cookies)
 
 
 # ----------------------------------------------------------------- dieu phoi

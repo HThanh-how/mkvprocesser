@@ -51,8 +51,10 @@
       <label class="font-label-xs text-label-xs text-primary-fixed-dim uppercase tracking-widest">Dán link video ngắn — mỗi dòng 1 link (Threads · Reels · TikTok · YouTube Short · .mp4)</label>
       <textarea id="links" rows="3" class="mt-stack-sm w-full input-glow border border-outline-variant rounded-lg bg-surface-container-lowest text-on-surface font-body-md p-gutter focus:ring-0 placeholder-on-surface-variant/40 resize-none" placeholder="https://www.threads.com/...&#10;https://..."></textarea>
       <div class="mt-stack-md flex items-center justify-between flex-wrap gap-stack-sm">
-        <span class="font-label-xs text-label-xs text-on-surface-variant">Chọn 1 trong 2: tải file về máy bạn, hoặc up thẳng lên YouTube dạng Short.</span>
-        <div class="flex items-center gap-stack-sm">
+        <span class="font-label-xs text-label-xs text-on-surface-variant">Liệt kê video để xem & chọn từng clip · hoặc tải/up nhanh clip chính.</span>
+        <div class="flex items-center gap-stack-sm flex-wrap">
+          <button id="btnProbe" class="h-11 px-gutter border border-secondary/50 text-secondary font-label-sm text-label-sm uppercase tracking-wider rounded-lg hover:border-secondary hover:bg-secondary/10 transition-colors flex items-center gap-unit">
+            <span class="ms text-[18px]">format_list_bulleted</span> Liệt kê video</button>
           <button id="btnDownload" class="h-11 px-gutter border border-outline-variant text-on-surface font-label-sm text-label-sm uppercase tracking-wider rounded-lg hover:border-primary-fixed-dim hover:text-primary-fixed-dim transition-colors flex items-center gap-unit">
             <span class="ms text-[18px]">download</span> Tải về máy</button>
           <button id="btnUpload" class="h-11 px-stack-lg bg-primary-fixed-dim text-on-primary-fixed font-label-sm text-label-sm uppercase tracking-wider rounded-lg hover:bg-primary-fixed transition-colors flex items-center gap-unit shadow-[0_0_15px_rgba(0,219,231,.4)]">
@@ -81,13 +83,41 @@ const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',
 const STAT={
   queued:['schedule','#849495','Trong hàng'],
   running:['progress_activity','#00dbe7','Đang xử lý'],
+  ready:['fact_check','#bbc3ff','Chọn video'],
   done:['check_circle','#00e75b','Xong'],
   error:['error','#ffb4ab','Lỗi'],
 };
+const MODE={upload:'YouTube Short',probe:'Liệt kê video',download:'Tải về máy'};
+
+// Luoi cac clip bat duoc (job probe da xong) — moi clip co poster + WxH + nut Tải / Up Short
+function candGrid(j){
+  const cs=j.candidates||[];
+  if(!cs.length) return '<div class="text-on-surface-variant text-sm px-stack-sm pb-stack-sm">Không bắt được video nào.</div>';
+  const cells=cs.map((c,i)=>{
+    const res=(c.width&&c.height)?`${c.width}×${c.height}`:'? × ?';
+    const star=c.primary?`<span class="ms text-[14px] text-warn" title="Đang hiển thị" style="font-variation-settings:'FILL' 1">star</span>`:'';
+    const poster=c.poster?`<img src="${esc(c.poster)}" referrerpolicy="no-referrer" class="w-full h-32 object-cover rounded-t-lg bg-surface-container-lowest" onerror="this.style.display='none'"/>`
+      :`<div class="w-full h-32 rounded-t-lg bg-surface-container-lowest flex items-center justify-center text-outline"><span class="ms text-[32px]">movie</span></div>`;
+    const meta=encodeURIComponent(JSON.stringify({url:c.url,referer:c.referer||'',label:res}));
+    return `<div class="bg-surface-container-high border border-outline-variant/30 rounded-lg overflow-hidden flex flex-col">
+      ${poster}
+      <div class="p-stack-sm flex flex-col gap-stack-sm">
+        <div class="flex items-center justify-between">
+          <span class="font-label-sm text-label-sm text-on-surface">#${i+1} ${star}</span>
+          <span class="font-label-xs text-label-xs px-2 py-0.5 rounded-full bg-surface-variant text-on-surface-variant">${res}</span>
+        </div>
+        <div class="flex gap-stack-sm">
+          <button data-grab="${meta}" data-gmode="download" class="flex-1 h-8 rounded-lg bg-primary-fixed-dim text-on-primary-fixed font-label-xs text-label-xs uppercase flex items-center justify-center gap-unit hover:bg-primary-fixed"><span class="ms text-[14px]">download</span> Tải</button>
+          <button data-grab="${meta}" data-gmode="upload" class="flex-1 h-8 rounded-lg bg-surface-variant text-secondary font-label-xs text-label-xs uppercase flex items-center justify-center gap-unit hover:text-on-surface"><span class="ms text-[14px]">smart_display</span> Short</button>
+        </div>
+      </div></div>`;
+  }).join('');
+  return `<div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-stack-sm px-stack-sm pb-stack-md">${cells}</div>`;
+}
 
 function jobCard(j){
   const [ic,col,lbl]=STAT[j.status]||STAT.queued;
-  const modeLbl = j.mode==='upload' ? 'YouTube Short' : 'Tải về máy';
+  const modeLbl = MODE[j.mode]||'Tải về máy';
   const last = (j.log&&j.log.length)?j.log[j.log.length-1]:'';
   let action='';
   if(j.status==='done' && j.mode==='download')
@@ -96,19 +126,23 @@ function jobCard(j){
     action=`<a href="${esc(j.video_url)}" target="_blank" class="shrink-0 h-9 px-gutter rounded-lg bg-surface-variant text-secondary font-label-sm text-label-sm uppercase flex items-center gap-unit hover:text-on-surface"><span class="ms text-[16px]">open_in_new</span> Mở video</a>`;
   const title = esc(j.name || j.url);
   const sub = j.status==='error' ? `<span class="text-error">${esc(j.error||'lỗi')}</span>` : esc(last||modeLbl);
-  return `<div class="bg-surface-container border border-outline-variant/20 rounded-lg p-stack-md flex items-center justify-between gap-gutter">
-    <div class="flex items-center gap-stack-md min-w-0">
-      <span class="ms text-[22px] ${j.status==='running'?'animate-spin':''}" style="color:${col}">${ic}</span>
-      <div class="flex flex-col min-w-0">
-        <span class="text-on-surface text-sm truncate">${title}</span>
-        <span class="font-label-xs text-label-xs text-on-surface-variant truncate">${esc(modeLbl)} · ${sub}</span>
+  const grid = (j.mode==='probe' && j.status==='ready') ? candGrid(j) : '';
+  return `<div class="bg-surface-container border border-outline-variant/20 rounded-lg overflow-hidden">
+    <div class="p-stack-md flex items-center justify-between gap-gutter">
+      <div class="flex items-center gap-stack-md min-w-0">
+        <span class="ms text-[22px] ${j.status==='running'?'animate-spin':''}" style="color:${col}">${ic}</span>
+        <div class="flex flex-col min-w-0">
+          <span class="text-on-surface text-sm truncate">${title}</span>
+          <span class="font-label-xs text-label-xs text-on-surface-variant truncate">${esc(modeLbl)} · ${sub}</span>
+        </div>
+      </div>
+      <div class="flex items-center gap-stack-sm shrink-0">
+        <span class="font-label-xs text-label-xs px-2 py-1 rounded-full border" style="color:${col};border-color:${col}55">${lbl}</span>
+        ${action}
+        <button data-del="${j.id}" class="w-8 h-8 rounded-lg text-on-surface-variant hover:text-error hover:bg-error-container/10 flex items-center justify-center" title="Xoá"><span class="ms text-[18px]">close</span></button>
       </div>
     </div>
-    <div class="flex items-center gap-stack-sm shrink-0">
-      <span class="font-label-xs text-label-xs px-2 py-1 rounded-full border" style="color:${col};border-color:${col}55">${lbl}</span>
-      ${action}
-      <button data-del="${j.id}" class="w-8 h-8 rounded-lg text-on-surface-variant hover:text-error hover:bg-error-container/10 flex items-center justify-center" title="Xoá"><span class="ms text-[18px]">close</span></button>
-    </div>
+    ${grid}
   </div>`;
 }
 
@@ -117,25 +151,38 @@ async function refresh(){
   $('liveDot').className='w-2.5 h-2.5 rounded-full '+(d.running?'bg-primary-fixed-dim shadow-[0_0_5px_#00dbe7]':'bg-outline-variant');
   const jobs=d.jobs||[];
   $('jobList').innerHTML = jobs.length ? jobs.map(jobCard).join('')
-    : '<div class="text-on-surface-variant text-sm text-center py-stack-lg">Chưa có job nào — dán link phía trên rồi chọn Tải về máy hoặc Up YouTube Short.</div>';
+    : '<div class="text-on-surface-variant text-sm text-center py-stack-lg">Chưa có job nào — dán link rồi bấm Liệt kê video để xem các clip, hoặc Tải/Up nhanh.</div>';
 }
 
 async function enqueue(mode){
   const v=$('links').value.trim(); if(!v) return;
-  $('btnDownload').disabled=true; $('btnUpload').disabled=true;
+  const btns=['btnProbe','btnDownload','btnUpload']; btns.forEach(b=>$(b).disabled=true);
   const f=new FormData(); f.append('url',v); f.append('mode',mode);
   try{ await fetch('/shorts/enqueue',{method:'POST',body:f}); }catch(e){}
-  $('links').value=''; $('btnDownload').disabled=false; $('btnUpload').disabled=false;
+  $('links').value=''; btns.forEach(b=>$(b).disabled=false);
   setTimeout(refresh,300);
 }
+$('btnProbe').addEventListener('click',()=>enqueue('probe'));
 $('btnDownload').addEventListener('click',()=>enqueue('download'));
 $('btnUpload').addEventListener('click',()=>enqueue('upload'));
 
 $('jobList').addEventListener('click',async e=>{
-  const b=e.target.closest('[data-del]'); if(!b) return;
-  const f=new FormData(); f.append('jid',b.dataset.del);
-  try{ await fetch('/shorts/delete',{method:'POST',body:f}); }catch(e){}
-  refresh();
+  const del=e.target.closest('[data-del]');
+  if(del){
+    const f=new FormData(); f.append('jid',del.dataset.del);
+    try{ await fetch('/shorts/delete',{method:'POST',body:f}); }catch(e){}
+    return refresh();
+  }
+  const grab=e.target.closest('[data-grab]');
+  if(grab){
+    let m; try{ m=JSON.parse(decodeURIComponent(grab.dataset.grab)); }catch(e){ return; }
+    grab.disabled=true;
+    const f=new FormData();
+    f.append('media_url',m.url); f.append('referer',m.referer||''); f.append('label',m.label||'');
+    f.append('mode',grab.dataset.gmode||'download');
+    try{ await fetch('/shorts/grab',{method:'POST',body:f}); }catch(e){}
+    setTimeout(refresh,300);
+  }
 });
 
 setInterval(refresh,2000); refresh();
