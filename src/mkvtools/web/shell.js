@@ -3,6 +3,7 @@
   const NAV = [
     { href: '/', icon: 'dashboard', label: 'Hàng đợi', key: 'queue' },
     { href: '/catch', icon: 'ads_click', label: 'Bắt tay', key: 'catch' },
+    { href: '/shorts', icon: 'movie', label: 'Short', key: 'shorts' },
     { href: '/videos', icon: 'video_library', label: 'Video', key: 'videos' },
     { href: '/admin', icon: 'admin_panel_settings', label: 'Quản trị', key: 'admin', admin: true },
     { href: '/settings', icon: 'settings', label: 'Cài đặt', key: 'settings', admin: true },

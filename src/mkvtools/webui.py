@@ -9,7 +9,12 @@ import threading
 import urllib.parse
 
 from fastapi import FastAPI, File, Form, Request, Response, UploadFile
-from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse
+from fastapi.responses import (
+    FileResponse,
+    HTMLResponse,
+    PlainTextResponse,
+    RedirectResponse,
+)
 
 from . import (
     auth,
@@ -22,6 +27,7 @@ from . import (
     jobs,
     pipeline,
     resources,
+    shorts,
 )
 
 _WEBDIR = pathlib.Path(__file__).parent / "web"
@@ -52,6 +58,8 @@ CATCH = catch.CatchSession(cfg.get("catch_cdp", "http://127.0.0.1:9222"))
 VIDEOCACHE = cache.Cache(redis_url=cfg.get("redis_url", ""),
                          file_dir=os.path.join(cfg.get("work_dir", "work"), "cache"),
                          ttl=int(cfg.get("cache_ttl", 86400) or 0))
+# Video ngan (Short): tai ve giu lai cho nguoi dung tai ve may, hoac up YouTube Short.
+SHORTS = shorts.ShortsManager(os.path.join(cfg.get("work_dir", "work"), "shorts"))
 
 
 def _start_drain():
@@ -84,6 +92,63 @@ def _start_drain():
             Q.say(f"LOI worker: {e}")
         finally:
             Q.stop()             # luoi an toan neu thoat bat thuong (binh thuong pop() da tat)
+
+    threading.Thread(target=runner, daemon=True).start()
+
+
+def _start_shorts():
+    """Worker rieng cho video ngan: tai 1 clip -> giu file (download) hoac up Short."""
+    if not SHORTS.try_start():       # da co worker chay -> no se nhat job moi them
+        return
+
+    def runner():
+        yt = None
+        cookies = cfg.get("cookies_file") or None
+        os.makedirs(SHORTS.dest_dir, exist_ok=True)
+        try:
+            while True:
+                job = SHORTS.next_job()
+                if not job:
+                    break
+
+                def log(m, _j=job):
+                    SHORTS.log(_j, m)
+
+                try:
+                    if job["mode"] == "upload":
+                        tmp = os.path.join(SHORTS.dest_dir, "_tmp")
+                        os.makedirs(tmp, exist_ok=True)
+                        log(f"[tai] {job['url']}")
+                        src = fetch.fetch(job["url"], tmp, log=log, cookies=cookies)
+                        job["name"] = os.path.basename(src)
+                        from . import uploader as up
+                        if yt is None:
+                            yt = up.get_service(cfg["client_secret"], cfg["token_file"],
+                                                proxy=cfg.get("proxy", ""))
+                        title = shorts.short_title(src)
+                        log(f"[up] YouTube Short: {title}")
+                        vid = up.upload_video(
+                            yt, src, title, description=shorts.SHORTS_DESC,
+                            tags=shorts.SHORTS_TAGS, privacy=cfg.get("privacy", "private"),
+                            category_id=cfg.get("category_id", 22), log=log)
+                        job["video_url"] = f"https://youtu.be/{vid}"
+                        if os.path.exists(src):
+                            os.remove(src)                # up xong -> khong giu file tam
+                        job["status"] = "done"
+                        log(f"[OK] {job['video_url']}")
+                    else:
+                        log(f"[tai] {job['url']}")
+                        src = fetch.fetch(job["url"], SHORTS.dest_dir, log=log, cookies=cookies)
+                        job["file"] = src
+                        job["name"] = os.path.basename(src)
+                        job["status"] = "done"
+                        log(f"[OK] tai xong {job['name']}")
+                except Exception as e:        # noqa: BLE001 - 1 job loi khong keo sap worker
+                    job["status"] = "error"
+                    job["error"] = str(e)
+                    log(f"[LOI] {e}")
+        finally:
+            SHORTS.stop()
 
     threading.Thread(target=runner, daemon=True).start()
 
@@ -293,6 +358,54 @@ def queue():
     dl = cfg.get("downloads_dir") or cfg.get("inbox_dir", "inbox")
     snap["disk_free_gb"] = round(resources.free_gb(dl), 1)
     return snap
+
+
+@app.get("/shorts", response_class=HTMLResponse)
+def shorts_page(request: Request):
+    return HTMLResponse(_web("shorts.html"))
+
+
+@app.post("/shorts/enqueue")
+def shorts_enqueue(url: str = Form(...), mode: str = Form("download")):
+    """Them link video ngan vao hang doi short. mode: download (giu file) | upload (YouTube Short)."""
+    n = 0
+    for line in (url or "").splitlines():
+        if SHORTS.add(line, mode):
+            n += 1
+    if n:
+        _start_shorts()
+    return {"ok": True, "added": n}
+
+
+@app.get("/shorts/status")
+def shorts_status():
+    return SHORTS.snapshot()
+
+
+@app.get("/shorts/file/{jid}")
+def shorts_file(jid: int):
+    """Tai file clip da-tai ve may nguoi dung (chi job download da xong)."""
+    job = SHORTS.get(jid)
+    if not job or job.get("mode") != "download" or job.get("status") != "done":
+        return PlainTextResponse("file chua san sang", status_code=404)
+    path = job.get("file") or ""
+    if not path or not os.path.isfile(path):
+        return PlainTextResponse("khong tim thay file", status_code=404)
+    return FileResponse(path, filename=os.path.basename(path),
+                        media_type="application/octet-stream")
+
+
+@app.post("/shorts/delete")
+def shorts_delete(jid: int = Form(...)):
+    """Xoa 1 job short khoi danh sach + xoa file da tai (neu co)."""
+    job = SHORTS.get(jid)
+    if job and job.get("mode") == "download" and job.get("file"):
+        try:
+            if os.path.isfile(job["file"]):
+                os.remove(job["file"])
+        except OSError:
+            pass
+    return {"ok": SHORTS.remove(jid)}
 
 
 @app.get("/videos", response_class=HTMLResponse)
