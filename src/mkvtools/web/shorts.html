@@ -140,12 +140,24 @@ function jobCard(j){
   </div>`;
 }
 
+const autoDL=new Set();   // job download da tu-tai-ve-may 1 lan (tranh tai lap)
+function triggerDownload(id){
+  const a=document.createElement('a');
+  a.href='/shorts/file/'+id; a.download=''; document.body.appendChild(a); a.click(); a.remove();
+}
+
 async function refresh(){
   let d; try{ d=await (await fetch('/shorts/status',{cache:'no-store'})).json(); }catch(e){ return; }
   $('liveDot').className='w-2.5 h-2.5 rounded-full '+(d.running?'bg-primary-fixed-dim shadow-[0_0_5px_#00dbe7]':'bg-outline-variant');
   const jobs=d.jobs||[];
   $('jobList').innerHTML = jobs.length ? jobs.map(jobCard).join('')
-    : '<div class="text-on-surface-variant text-sm text-center py-stack-lg">Chưa có job nào — dán link rồi bấm Liệt kê video để xem các clip, hoặc Tải/Up nhanh.</div>';
+    : '<div class="text-on-surface-variant text-sm text-center py-stack-lg">Chưa có job nào — dán link rồi bấm Tìm video để xem các clip.</div>';
+  // Tai xong tren server -> tu tai ve may NGAY (1 lan), khoi bam "Tải xuống" lan hai
+  jobs.forEach(j=>{
+    if(j.mode==='download' && j.status==='done' && j.file && !autoDL.has(j.id)){
+      autoDL.add(j.id); triggerDownload(j.id);
+    }
+  });
 }
 
 async function enqueue(mode){
