@@ -1,9 +1,9 @@
 // Sidebar + topbar dung chung cho moi trang (tru Dang nhap). Goi: MKVShell('catch','Bắt tay')
 (function () {
   const NAV = [
-    { href: '/', icon: 'dashboard', label: 'Hàng đợi', key: 'queue' },
+    { href: '/', icon: 'download', label: 'Tải video', key: 'shorts' },
+    { href: '/queue-ui', icon: 'dashboard', label: 'Xử lý MKV', key: 'queue' },
     { href: '/catch', icon: 'ads_click', label: 'Bắt tay', key: 'catch' },
-    { href: '/shorts', icon: 'movie', label: 'Short', key: 'shorts' },
     { href: '/videos', icon: 'video_library', label: 'Video', key: 'videos' },
     { href: '/admin', icon: 'admin_panel_settings', label: 'Quản trị', key: 'admin', admin: true },
     { href: '/settings', icon: 'settings', label: 'Cài đặt', key: 'settings', admin: true },
@@ -20,16 +20,22 @@
       return `<a href="${n.href}" data-admin="${!!n.admin}" class="${cls}"><span class="ms" style="${fill}">${n.icon}</span><span class="font-label-sm text-label-sm">${n.label}</span></a>`;
     }).join('');
     side.innerHTML = `
-      <div class="px-panel-padding mb-stack-lg">
-        <h1 class="font-headline-md text-headline-md font-bold text-primary-fixed-dim tracking-tight">MKVTOOLS</h1>
-        <p class="font-label-sm text-label-sm text-on-surface-variant mt-unit uppercase tracking-widest">Command Center</p>
+      <div class="px-panel-padding mb-stack-lg flex items-start justify-between gap-stack-sm">
+        <div>
+          <div class="font-headline-md text-headline-md font-bold text-primary-fixed-dim tracking-tight">MKVTOOLS</div>
+          <p class="font-label-sm text-label-sm text-on-surface-variant mt-unit uppercase tracking-widest">Command Center</p>
+        </div>
+        <button id="shell-side-close" type="button" aria-label="Đóng menu" title="Đóng menu"><span class="ms text-[22px]">close</span></button>
       </div>
       <div class="flex-1 flex flex-col gap-unit px-unit">${items}</div>
       <div class="mt-auto px-unit pt-stack-md border-t border-outline-variant/20 mx-gutter">
         <a href="/logout" class="flex items-center gap-stack-md px-gutter py-stack-sm rounded-lg text-on-surface-variant hover:text-error hover:bg-error-container/10 transition-colors"><span class="ms">logout</span><span class="font-label-sm text-label-sm">Đăng xuất</span></a>
       </div>`;
     top.innerHTML = `
-      <div class="font-headline-md text-headline-md text-primary-fixed-dim tracking-tight">${title}</div>
+      <div id="shell-top-left" class="flex items-center gap-stack-sm">
+        <button id="shell-nav-toggle" type="button" aria-label="Mở menu" aria-controls="shell-side" aria-expanded="false" title="Menu"><span class="ms text-[24px]">menu</span></button>
+        <div id="shell-page-title" class="font-headline-md text-headline-md text-primary-fixed-dim tracking-tight">${title}</div>
+      </div>
       <div class="flex items-center gap-stack-md">
         <span id="shell-disk" class="font-label-sm text-label-sm text-on-surface-variant hidden md:flex items-center gap-unit"><span class="ms text-[18px]">storage</span><span id="shell-diskv">—</span></span>
         <div class="relative">
@@ -61,7 +67,42 @@
     }
 
     const $ = id => document.getElementById(id);
+    let backdrop = $('shell-backdrop');
+    if (!backdrop) {
+      backdrop = document.createElement('button');
+      backdrop.id = 'shell-backdrop';
+      backdrop.type = 'button';
+      backdrop.setAttribute('aria-label', 'Đóng menu');
+      document.body.appendChild(backdrop);
+    }
+
     const menu = $('shell-menu'), modal = $('shell-pwmodal');
+    const navToggle = $('shell-nav-toggle'), sideClose = $('shell-side-close');
+    const setNavOpen = (open, restoreFocus) => {
+      document.body.classList.toggle('shell-nav-open', open);
+      navToggle.setAttribute('aria-expanded', String(open));
+      navToggle.setAttribute('aria-label', open ? 'Đóng menu' : 'Mở menu');
+      if (open) sideClose.focus();
+      else if (restoreFocus) navToggle.focus();
+    };
+    navToggle.onclick = () => setNavOpen(!document.body.classList.contains('shell-nav-open'), false);
+    sideClose.onclick = () => setNavOpen(false, true);
+    backdrop.onclick = () => setNavOpen(false, true);
+    side.querySelectorAll('a').forEach(a => a.addEventListener('click', () => setNavOpen(false, false)));
+    document.addEventListener('keydown', e => {
+      if (e.key === 'Escape' && document.body.classList.contains('shell-nav-open')) setNavOpen(false, true);
+      if (e.key === 'Tab' && document.body.classList.contains('shell-nav-open')) {
+        const focusable = [...side.querySelectorAll('a[href], button:not([disabled])')]
+          .filter(el => el.offsetParent !== null);
+        const first = focusable[0], last = focusable[focusable.length - 1];
+        if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+        else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+      }
+    });
+    const desktop = window.matchMedia('(min-width: 768px)');
+    const closeOnDesktop = e => { if (e.matches) setNavOpen(false, false); };
+    if (desktop.addEventListener) desktop.addEventListener('change', closeOnDesktop);
+
     $('shell-acct').onclick = e => { e.stopPropagation(); menu.classList.toggle('hidden'); };
     document.addEventListener('click', () => menu.classList.add('hidden'));
     menu.addEventListener('click', e => e.stopPropagation());

@@ -86,6 +86,85 @@ def safe_name(name: str) -> str:
     return re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", name).strip() or "download"
 
 
+def media_signature(data: bytes) -> str:
+    """Nhan dang nhanh media tu magic bytes, khong tin moi Content-Type cua CDN."""
+    head = bytes(data or b"")[:64]
+    stripped = head.lstrip()
+    if len(head) >= 12 and head[4:8] == b"ftyp":
+        return "mp4"
+    if head.startswith(b"\x1aE\xdf\xa3"):
+        return "webm"
+    if head.startswith(b"FLV"):
+        return "flv"
+    if head.startswith(b"RIFF") and head[8:12] == b"AVI ":
+        return "avi"
+    if head.startswith(b"G"):
+        return "mpegts"
+    if stripped.startswith(b"#EXTM3U"):
+        return "hls"
+    if stripped.startswith((b"<MPD", b"<?xml")) and b"MPD" in head:
+        return "dash"
+    if stripped.upper().startswith((b"WEBVTT", b"<!DOCTYPE", b"<HTML", b"{")):
+        return "text"
+    return ""
+
+
+def verify_media_candidate(candidate: dict, timeout: int = 12) -> tuple[bool, str]:
+    """Doc 64 byte dau de loai subtitle/HTML gia video truoc khi hien cho nguoi dung."""
+    url = candidate.get("url") or ""
+    headers = {"User-Agent": UA, "Range": "bytes=0-63"}
+    if candidate.get("referer"):
+        headers["Referer"] = candidate["referer"]
+    try:
+        with urllib.request.urlopen(urllib.request.Request(url, headers=headers),
+                                    timeout=timeout) as response:  # noqa: S310
+            head = response.read(64)
+            ctype = (response.headers.get("Content-Type") or "").lower()
+            content_range = response.headers.get("Content-Range") or ""
+            match = re.search(r"/(\d+)$", content_range)
+            total = int(match.group(1)) if match else int(response.headers.get("Content-Length") or 0)
+    except Exception as exc:  # noqa: BLE001 - candidate het han/bi CDN chan thi bo qua
+        return False, f"HTTP: {exc}"
+
+    kind = media_signature(head)
+    if kind == "text" or ctype.startswith(("text/", "application/json")):
+        return False, f"noi dung {kind or ctype}"
+    if total and total < 4096 and kind not in ("hls", "dash"):
+        return False, f"file qua nho ({total} byte)"
+    if kind:
+        return True, kind
+    return False, "khong nhan ra dinh dang video"
+
+
+def valid_video_file(path: str) -> bool:
+    """Chi chap nhan file co video stream that; chan VTT/HTML bi dat nham duoi .mp4."""
+    import shutil
+    import subprocess
+
+    try:
+        if os.path.getsize(path) < 4096:
+            return False
+        with open(path, "rb") as stream:
+            if media_signature(stream.read(64)) == "text":
+                return False
+    except OSError:
+        return False
+
+    ffprobe = shutil.which("ffprobe")
+    if not ffprobe:
+        with open(path, "rb") as stream:
+            return media_signature(stream.read(64)) not in ("", "text")
+    try:
+        result = subprocess.run(
+            [ffprobe, "-v", "error", "-select_streams", "v:0",
+             "-show_entries", "stream=codec_type", "-of", "csv=p=0", path],
+            capture_output=True, text=True, timeout=30, check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return result.returncode == 0 and "video" in result.stdout.splitlines()
+
+
 def load_cookies_txt(path: str) -> list:
     """Doc cookies.txt (Netscape) -> list dict cho Playwright. Bo dong rong/comment."""
     out = []
@@ -299,6 +378,7 @@ def browser_sniff(url: str, log=print, cookies: str = None, wait: int = 8,
                 rec = found.get(u) or {"url": u, "type": "video/mp4", "referer": ref["url"]}
                 rec["width"] = v.get("w") or rec.get("width") or 0
                 rec["height"] = v.get("h") or rec.get("height") or 0
+                rec["dom_video"] = True
                 if v.get("poster"):
                     rec["poster"] = v["poster"]
                 if i == 0:                # clip dang hien thi
@@ -330,9 +410,25 @@ def list_video_candidates(url: str, log=print, cookies: str = None) -> list:
         seen.add(u)
         out.append({"url": u, "width": c.get("width") or 0, "height": c.get("height") or 0,
                     "poster": c.get("poster") or "", "primary": bool(c.get("primary")),
-                    "referer": c.get("referer") or url})
+                    "referer": c.get("referer") or url,
+                    "_dom_video": bool(c.get("dom_video"))})
     out.sort(key=lambda c: (c["primary"], c["width"] * c["height"]), reverse=True)
-    return out
+    verified = []
+    for candidate in out:
+        ok, reason = verify_media_candidate(candidate)
+        if ok:
+            verified.append(candidate)
+        else:
+            log(f"  (bo qua) candidate khong phai video: {reason}")
+    # Threads/Instagram thuong prefetch video lien quan va nhieu ban CDN cua cung clip.
+    # Giu TOAN BO video that trong DOM (ke ca bai carousel nhieu video), chi bo cac
+    # request media tai nen khong gan voi video cua bai. Neu DOM khong lo media (mot
+    # so TikTok), fallback ve candidate network da xac minh.
+    dom_verified = [candidate for candidate in verified if candidate.get("_dom_video")]
+    selected = dom_verified or verified
+    for candidate in selected:
+        candidate.pop("_dom_video", None)
+    return selected
 
 
 def download_media_url(url: str, dest_dir: str, log=print, referer: str = None,

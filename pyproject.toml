@@ -78,7 +78,7 @@ where = ["src"]
 include = ["mkvtools*"]
 
 [tool.setuptools.package-data]
-mkvtools = ["web/*.html"]
+mkvtools = ["web/*.html", "web/*.js", "web/*.css"]
 
 [tool.ruff]
 line-length = 100

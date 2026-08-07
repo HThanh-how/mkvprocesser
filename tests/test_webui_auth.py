@@ -11,6 +11,22 @@ from fastapi.testclient import TestClient  # noqa: E402
 from mkvtools import auth, webui  # noqa: E402
 
 
+def test_ensure_runtime_dirs_recreates_missing_paths(tmp_path):
+    paths = {key: str(tmp_path / key) for key in webui._RUNTIME_DIR_KEYS}
+    webui._ensure_runtime_dirs(paths)
+    assert all((tmp_path / key).is_dir() for key in webui._RUNTIME_DIR_KEYS)
+
+
+def test_short_download_name_is_human_readable():
+    job = {
+        "url": "https://www.threads.com/@bear.3391933/post/DXQyMRrEzMn",
+        "name": "716×1272",
+    }
+    assert webui._short_download_name(job, "/tmp/AQO9hash.mp4") == (
+        "threads_bear.3391933_DXQyMRrEzMn_716x1272.mp4"
+    )
+
+
 @pytest.fixture
 def client(tmp_path, monkeypatch):
     # co lap: kho tai khoan rieng trong tmp + phien moi (khong dung secrets/ that)
@@ -52,7 +68,10 @@ def test_good_login_grants_access(client):
                     follow_redirects=False)
     assert r.status_code == 302 and r.headers["location"] == "/"
     home = client.get("/")
-    assert home.status_code == 200 and "MKVTOOLS" in home.text   # dashboard moi (Tailwind)
+    assert home.status_code == 200 and "Threads, Instagram và TikTok" in home.text
+    dashboard = client.get("/queue-ui")
+    assert dashboard.status_code == 200 and "Hàng đợi" in dashboard.text
+    assert client.get("/shorts", follow_redirects=False).headers["location"] == "/"
     q = client.get("/queue").json()
     assert "disk_free_gb" in q and "pending" in q                # dashboard nap du lieu tu day
 

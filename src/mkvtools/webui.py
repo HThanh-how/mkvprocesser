@@ -5,6 +5,7 @@ Chay tac vu o thread nen, log poll qua /status.
 """
 import os
 import pathlib
+import re
 import threading
 import urllib.parse
 
@@ -39,6 +40,17 @@ def _web(name: str) -> str:
 
 cfg = config.load()
 app = FastAPI(title="mkvtools GUI")
+
+_RUNTIME_DIR_KEYS = ("inbox_dir", "work_dir", "done_dir", "downloads_dir")
+
+
+def _ensure_runtime_dirs(config_data=None):
+    """Tao lai cac thu muc runtime neu bi cleanup/xoa sau reboot hoặc migrate storage."""
+    active = cfg if config_data is None else config_data
+    for key in _RUNTIME_DIR_KEYS:
+        path = active.get(key)
+        if path:
+            pathlib.Path(path).mkdir(parents=True, exist_ok=True)
 
 # Dang nhap + phan quyen: tai khoan luu o cfg['users_file'], phien giu trong RAM.
 # Lan dau chua co user -> tao admin (env MKV_ADMIN_USER/PASS hoac sinh ngau nhien).
@@ -114,6 +126,15 @@ def _start_shorts():
                 def log(m, _j=job):
                     SHORTS.log(_j, m)
 
+                def require_video(path):
+                    if fetch.valid_video_file(path):
+                        return path
+                    try:
+                        os.remove(path)
+                    except OSError:
+                        pass
+                    raise RuntimeError("CDN tra ve file khong phai video; hay chon clip khac")
+
                 try:
                     if job["mode"] == "probe":
                         log(f"[tim] {job['url']}")
@@ -130,6 +151,7 @@ def _start_shorts():
                                                            referer=job.get("referer"), cookies=cookies)
                         else:
                             src = fetch.fetch(job["url"], tmp, log=log, cookies=cookies)
+                        src = require_video(src)
                         from . import uploader as up
                         if yt is None:
                             yt = up.get_service(cfg["client_secret"], cfg["token_file"],
@@ -153,6 +175,7 @@ def _start_shorts():
                                                            cookies=cookies)
                         else:
                             src = fetch.fetch(job["url"], SHORTS.dest_dir, log=log, cookies=cookies)
+                        src = require_video(src)
                         job["file"] = src
                         if not job.get("name"):
                             job["name"] = os.path.basename(src)
@@ -229,7 +252,14 @@ def page(body):
 
 @app.get("/", response_class=HTMLResponse)
 def home(request: Request):
-    return HTMLResponse(_web("dashboard.html"))      # giao dien moi (Tailwind), nap du lieu qua /queue
+    """Trang mac dinh: tai video ngan tu Threads, Instagram va TikTok."""
+    return HTMLResponse(_web("shorts.html"))
+
+
+@app.get("/queue-ui", response_class=HTMLResponse)
+def queue_page(request: Request):
+    """Dashboard pipeline MKV cu, tach khoi landing tai video ngan."""
+    return HTMLResponse(_web("dashboard.html"))
 
 
 @app.get("/classic", response_class=HTMLResponse)
@@ -370,6 +400,7 @@ async def enqueue_torrent(files: list[UploadFile] = File(...)):
 @app.get("/queue")
 def queue():
     snap = Q.snapshot()
+    _ensure_runtime_dirs()
     dl = cfg.get("downloads_dir") or cfg.get("inbox_dir", "inbox")
     snap["disk_free_gb"] = round(resources.free_gb(dl), 1)
     return snap
@@ -377,7 +408,8 @@ def queue():
 
 @app.get("/shorts", response_class=HTMLResponse)
 def shorts_page(request: Request):
-    return HTMLResponse(_web("shorts.html"))
+    # Giu URL cu cho bookmark, nhung chi co mot URL canonical cho giao dien tai video.
+    return RedirectResponse("/", status_code=302)
 
 
 @app.post("/shorts/enqueue")
@@ -448,6 +480,29 @@ def shorts_status():
     return SHORTS.snapshot()
 
 
+def _short_download_name(job: dict, path: str) -> str:
+    """Ten de doc cho file CDN: platform_user_postcode_resolution.ext."""
+    parsed = urllib.parse.urlparse(job.get("url") or "")
+    host = (parsed.hostname or "").lower()
+    platform = next((p for p in ("threads", "instagram", "tiktok") if p in host), "video")
+    segments = [urllib.parse.unquote(s) for s in parsed.path.split("/") if s]
+    account = next((s.lstrip("@") for s in segments if s.startswith("@")), "")
+    code = ""
+    for marker in ("post", "reel", "video"):
+        if marker in segments and segments.index(marker) + 1 < len(segments):
+            code = segments[segments.index(marker) + 1]
+            break
+    label = str(job.get("name") or "").replace("×", "x")
+    if not re.fullmatch(r"\d+x\d+", label):
+        label = ""
+    ext = os.path.splitext(path)[1].lower()
+    if ext not in fetch.VIDEO_EXTS:
+        ext = ".mp4"
+    parts = [p for p in (platform, account, code, label) if p]
+    stem = re.sub(r"[^A-Za-z0-9._-]+", "-", "_".join(parts)).strip("-_.") or "video"
+    return fetch.safe_name(stem[:180] + ext)
+
+
 @app.get("/shorts/file/{jid}")
 def shorts_file(jid: int):
     """Tai file clip da-tai ve may nguoi dung (chi job download da xong)."""
@@ -457,8 +512,10 @@ def shorts_file(jid: int):
     path = job.get("file") or ""
     if not path or not os.path.isfile(path):
         return PlainTextResponse("khong tim thay file", status_code=404)
-    return FileResponse(path, filename=os.path.basename(path),
-                        media_type="application/octet-stream")
+    import mimetypes
+    filename = _short_download_name(job, path)
+    return FileResponse(path, filename=filename,
+                        media_type=mimetypes.guess_type(filename)[0] or "application/octet-stream")
 
 
 @app.post("/shorts/delete")
@@ -741,6 +798,7 @@ def catch_enqueue(url: str = Form(...), referer: str = Form("")):
 
 def main():
     import uvicorn
+    _ensure_runtime_dirs()
     if not ffmpeg_helper.available():
         raise SystemExit("Khong tim thay ffmpeg/ffprobe.")
     auth.bootstrap_admin(USERS)          # lan dau: tao admin (env hoac mat khau ngau nhien in ra)

@@ -36,6 +36,67 @@ def test_is_media_url():
     assert not F.is_media_url("https://c/x/page.html", "text/html")
 
 
+def test_media_signature_distinguishes_video_from_fake_mp4():
+    assert F.media_signature(b"\x00\x00\x00\x1cftypisom\x00\x00\x02\x00") == "mp4"
+    assert F.media_signature(b"WEBVTT\n\n00:00:00.000 --> 00:00:01.000") == "text"
+    assert F.media_signature(b"<HTML><HEAD><TITLE>Access Denied") == "text"
+
+
+def test_valid_video_file_rejects_tiny_vtt_with_mp4_suffix(tmp_path):
+    fake = tmp_path / "video.mp4"
+    fake.write_bytes(b"WEBVTT\n\n00:00:00.000 --> 00:00:01.000\nhello")
+    assert not F.valid_video_file(str(fake))
+
+
+def test_verify_candidate_rejects_vtt_even_when_cdn_says_mp4(monkeypatch):
+    class FakeResponse:
+        headers = {"Content-Type": "video/mp4", "Content-Range": "bytes 0-63/138"}
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def read(self, _size):
+            return b"WEBVTT\n\n00:00:00.840 --> 00:00:02.000"
+
+    monkeypatch.setattr(F.urllib.request, "urlopen", lambda *_args, **_kwargs: FakeResponse())
+    ok, reason = F.verify_media_candidate({"url": "https://cdn.example/video/"})
+    assert not ok
+    assert "text" in reason
+
+
+def test_candidate_list_keeps_all_dom_videos_and_drops_network_prefetch(monkeypatch):
+    monkeypatch.setattr(F, "browser_sniff", lambda *_args, **_kwargs: [
+        {"url": "https://cdn/related.mp4", "referer": "https://threads/post/1"},
+        {"url": "https://cdn/carousel-1.mp4", "referer": "https://threads/post/1",
+         "dom_video": True, "primary": True, "width": 720, "height": 1280},
+        {"url": "https://cdn/carousel-2.mp4", "referer": "https://threads/post/1",
+         "dom_video": True, "width": 720, "height": 1280},
+    ])
+    monkeypatch.setattr(F, "verify_media_candidate", lambda _candidate: (True, "mp4"))
+    candidates = F.list_video_candidates("https://threads/post/1")
+    assert [candidate["url"] for candidate in candidates] == [
+        "https://cdn/carousel-1.mp4",
+        "https://cdn/carousel-2.mp4",
+    ]
+    assert all("_dom_video" not in candidate for candidate in candidates)
+
+
+def test_candidate_list_falls_back_when_dom_video_is_invalid(monkeypatch):
+    monkeypatch.setattr(F, "browser_sniff", lambda *_args, **_kwargs: [
+        {"url": "https://cdn/video.mp4"},
+        {"url": "https://cdn/subtitle.mp4", "dom_video": True},
+    ])
+    monkeypatch.setattr(
+        F, "verify_media_candidate",
+        lambda candidate: (candidate["url"].endswith("video.mp4"), "checked"),
+    )
+    candidates = F.list_video_candidates("https://threads/post/1", log=lambda _msg: None)
+    assert [candidate["url"] for candidate in candidates] == ["https://cdn/video.mp4"]
+
+
 def test_rank_media_prefers_manifest_then_mp4():
     cands = [{"url": "https://c/v.mp4"}, {"url": "https://c/master.m3u8"}, {"url": "https://c/s.ts"}]
     assert F.rank_media(cands)["url"].endswith(".m3u8")
