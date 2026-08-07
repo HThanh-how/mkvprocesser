@@ -30,6 +30,8 @@ PLAY_SELECTORS = (
     "button:has-text('Download')", "a:has-text('Download')", "a:has-text('Tai')",
 )
 
+THREADS_HOSTS = ("threads.com", "www.threads.com", "threads.net", "www.threads.net")
+
 
 # ----------------------------------------------------------------- pure helpers
 def guess_name(url: str) -> str:
@@ -84,6 +86,33 @@ def rank_media(cands: list):
 def safe_name(name: str) -> str:
     """Bo ky tu cam tren ten file (Windows + POSIX)."""
     return re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", name).strip() or "download"
+
+
+def threads_profile_target(url: str):
+    """Tra ``(username, /media URL)`` neu day la link profile Threads, khong phai post."""
+    parsed = urllib.parse.urlparse((url or "").strip())
+    if parsed.hostname not in THREADS_HOSTS:
+        return None
+    parts = [part for part in parsed.path.split("/") if part]
+    if not parts or not parts[0].startswith("@"):
+        return None
+    if len(parts) > 1 and parts[1] != "media":
+        return None
+    username = parts[0][1:]
+    if not username:
+        return None
+    origin = f"{parsed.scheme or 'https'}://{parsed.netloc or 'www.threads.com'}"
+    return username, f"{origin}/@{username}/media"
+
+
+def normalize_threads_post_url(href: str, username: str) -> str:
+    """Chuan hoa /post/CODE/media hay URL co query ve mot URL post duy nhat."""
+    parsed = urllib.parse.urlparse(href or "")
+    parts = [part for part in parsed.path.split("/") if part]
+    if (len(parts) < 3 or parts[0] != f"@{username}" or parts[1] != "post"
+            or not parsed.scheme or not parsed.netloc):
+        return ""
+    return f"{parsed.scheme}://{parsed.netloc}/{parts[0]}/post/{parts[2]}"
 
 
 def media_signature(data: bytes) -> str:
@@ -391,14 +420,101 @@ def browser_sniff(url: str, log=print, cookies: str = None, wait: int = 8,
     return list(found.values())
 
 
-def list_video_candidates(url: str, log=print, cookies: str = None) -> list:
+def list_threads_post_urls(url: str, log=print, cookies: str = None,
+                           max_posts: int = 40, max_scrolls: int = 30) -> list:
+    """Cuon tab Media cua profile Threads va gom link post, toi da ``max_posts``.
+
+    Threads chi cho khach chua dang nhap xem mot phan feed. Neu ``cookies.txt`` co
+    phien Threads/Instagram hop le, trang co the cuon va gom them bai.
+    """
+    target = threads_profile_target(url)
+    if not target:
+        return []
+    username, media_url = target
+    from playwright.sync_api import sync_playwright  # extra [browser]
+
+    posts, seen = [], set()
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True,
+                                    args=["--no-sandbox", "--disable-dev-shm-usage"])
+        ctx = browser.new_context(user_agent=UA, ignore_https_errors=True)
+        if cookies and os.path.exists(cookies):
+            try:
+                ctx.add_cookies(load_cookies_txt(cookies))
+            except Exception as exc:  # noqa: BLE001
+                log(f"  (profile) cookie loi: {exc}")
+        page = ctx.new_page()
+        try:
+            page.goto(media_url, wait_until="domcontentloaded", timeout=60000)
+            stable_rounds = 0
+            for _ in range(max_scrolls):
+                hrefs = page.eval_on_selector_all(
+                    "a[href*='/post/']", "els => els.map(e => e.href)")
+                before = len(posts)
+                marker = f"/@{username}/post/"
+                for href in hrefs:
+                    clean = (href or "").split("?", 1)[0]
+                    if marker not in clean:
+                        continue
+                    clean = normalize_threads_post_url(clean, username)
+                    if clean in seen:
+                        continue
+                    if not clean:
+                        continue
+                    seen.add(clean)
+                    posts.append(clean)
+                    if len(posts) >= max_posts:
+                        break
+                if len(posts) >= max_posts:
+                    break
+                stable_rounds = stable_rounds + 1 if len(posts) == before else 0
+                if stable_rounds >= 3:
+                    break
+                page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+                page.wait_for_timeout(1500)
+        except Exception as exc:  # noqa: BLE001
+            log(f"  (profile) {exc}")
+        finally:
+            browser.close()
+    log(f"  (profile) tim thay {len(posts)} bai media cua @{username}")
+    return posts
+
+
+def list_threads_profile_candidates(url: str, log=print, cookies: str = None,
+                                    max_posts: int = 40) -> list:
+    """Gom video that tu cac bai media cua mot profile Threads."""
+    posts = list_threads_post_urls(url, log=log, cookies=cookies, max_posts=max_posts)
+    out, seen = [], set()
+    for index, post_url in enumerate(posts, 1):
+        log(f"  (profile) quet bai {index}/{len(posts)}")
+        try:
+            candidates = list_video_candidates(
+                post_url, log=log, cookies=cookies, sniff_wait=4)
+        except Exception as exc:  # noqa: BLE001 - mot bai loi khong lam hong ca kenh
+            log(f"  (profile) bo qua bai loi: {exc}")
+            continue
+        for candidate in candidates:
+            media_url = candidate.get("url") or ""
+            if not media_url or media_url in seen:
+                continue
+            seen.add(media_url)
+            candidate["referer"] = post_url
+            out.append(candidate)
+    log(f"  (profile) tong cong {len(out)} video")
+    return out
+
+
+def list_video_candidates(url: str, log=print, cookies: str = None,
+                          sniff_wait: int = 8) -> list:
     """Liet ke MOI clip bat duoc tu trang (cho UI hien ra de nguoi dung chon).
 
     Tra ve list dict: {url, width, height, poster, primary, referer}. Clip dang hien
     thi (primary) + do phan giai cao len truoc. Rong neu khong bat duoc / chua co Playwright.
     """
+    if threads_profile_target(url):
+        return list_threads_profile_candidates(url, log=log, cookies=cookies)
     try:
-        cands = browser_sniff(url, log=log, cookies=cookies)
+        cands = browser_sniff(url, log=log, cookies=cookies, wait=sniff_wait)
     except ImportError:
         log("  (!) chua cai Playwright -> khong liet ke duoc")
         return []

@@ -46,6 +46,15 @@ def test_add_probe_and_media_url():
     assert g["name"] == "720x1280"
 
 
+def test_add_batch_keeps_media_items():
+    m = shorts.ShortsManager("work/shorts")
+    items = [{"url": "https://cdn/1.mp4", "referer": "https://threads/@u/post/1"}]
+    job = m.add("https://threads/@u", "batch", label="threads_u_videos.zip",
+                media_items=items)
+    assert job["mode"] == "batch"
+    assert job["media_items"] == items
+
+
 def test_worker_lifecycle_try_start_next_stop():
     m = shorts.ShortsManager("work/shorts")
     m.add("https://a", "download")

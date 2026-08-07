@@ -49,7 +49,7 @@
   <section class="shorts-hero mb-stack-lg">
     <p class="font-label-xs text-label-xs text-primary-fixed-dim uppercase tracking-[0.2em] mb-stack-sm">Social video downloader</p>
     <h1 class="font-headline-lg text-headline-lg text-on-surface">Tải video từ Threads, Instagram và TikTok</h1>
-    <p class="shorts-lead mt-stack-sm text-on-surface-variant max-w-3xl">Dán link bài đăng, chọn đúng clip rồi tải thẳng về máy. Hệ thống cũng hỗ trợ Reels, YouTube Shorts và link MP4 trực tiếp.</p>
+    <p class="shorts-lead mt-stack-sm text-on-surface-variant max-w-3xl">Dán link bài đăng để chọn clip, hoặc dán link profile Threads để quét video hàng loạt và tải chung thành một file ZIP.</p>
     <div class="shorts-platforms flex flex-wrap gap-stack-sm mt-stack-md" aria-label="Nền tảng được ưu tiên">
       <button type="button" data-platform="threads" aria-pressed="false" class="platform-chip h-11 px-gutter rounded-full border border-outline-variant/60 bg-surface-container text-on-surface flex items-center gap-stack-sm hover:border-primary-fixed-dim transition-colors">
         <span class="font-headline-md text-base font-bold">@</span><span class="font-label-sm text-label-sm">Threads</span>
@@ -71,10 +71,10 @@
         <label for="links" class="font-label-xs text-label-xs text-primary-fixed-dim uppercase tracking-widest">Dán link video — mỗi dòng một link</label>
         <span id="sourceHint" class="font-label-xs text-label-xs text-on-surface-variant">Threads · Instagram · TikTok</span>
       </div>
-      <textarea id="links" rows="3" autocomplete="off" spellcheck="false" aria-describedby="links-help links-error" class="mt-stack-sm w-full input-glow border border-outline-variant rounded-lg bg-surface-container-lowest text-on-surface font-body-md p-gutter focus:ring-0 placeholder-on-surface-variant/40 resize-none" placeholder="https://threads.net/...&#10;https://instagram.com/reel/...&#10;https://tiktok.com/video/..."></textarea>
+      <textarea id="links" rows="3" autocomplete="off" spellcheck="false" aria-describedby="links-help links-error" class="mt-stack-sm w-full input-glow border border-outline-variant rounded-lg bg-surface-container-lowest text-on-surface font-body-md p-gutter focus:ring-0 placeholder-on-surface-variant/40 resize-none" placeholder="https://threads.com/@tenkenh (tải hàng loạt)&#10;https://threads.com/@tenkenh/post/...&#10;https://instagram.com/reel/..."></textarea>
       <div id="links-error" class="hidden mt-stack-sm text-sm text-error" role="alert"></div>
       <div class="shorts-submit-row mt-stack-md flex items-center justify-between flex-wrap gap-stack-sm">
-        <span id="links-help" class="font-label-xs text-label-xs text-on-surface-variant">Hệ thống tìm các clip trong bài để bạn xem trước và chọn bản cần tải.</span>
+        <span id="links-help" class="font-label-xs text-label-xs text-on-surface-variant">Link profile Threads sẽ quét tab Media; link bài đăng vẫn liệt kê từng clip.</span>
         <button id="btnProbe" class="h-11 px-stack-lg bg-primary-fixed-dim text-on-primary-fixed font-label-sm text-label-sm uppercase tracking-wider rounded-lg hover:bg-primary-fixed transition-colors flex items-center gap-unit shadow-[0_0_15px_rgba(0,219,231,.4)]">
           <span id="probeIcon" class="ms text-[18px]" style="font-variation-settings:'FILL' 1" aria-hidden="true">search</span><span id="probeLabel">Tìm video để tải</span></button>
       </div>
@@ -161,7 +161,7 @@ const STAT={
   done:['check_circle','#00e75b','Xong'],
   error:['error','#ffb4ab','Lỗi'],
 };
-const MODE={upload:'YouTube Short',probe:'Liệt kê video',download:'Tải về máy'};
+const MODE={upload:'YouTube Short',probe:'Liệt kê video',download:'Tải về máy',batch:'Tải hàng loạt ZIP'};
 
 // Luoi cac clip bat duoc (job probe da xong) — moi clip co poster + WxH + nut Tải / Up Short
 function candGrid(j){
@@ -188,7 +188,11 @@ function candGrid(j){
         </div>
       </div></div>`;
   }).join('');
-  return `<div class="candidate-grid grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-stack-sm px-stack-sm pb-stack-md">${cells}</div>`;
+  const bulk=cs.length>1?`<div class="px-stack-sm pb-stack-sm flex items-center justify-between gap-stack-sm">
+    <span class="text-sm text-on-surface-variant">Đã tìm thấy ${cs.length} video</span>
+    <button data-grab-all="${j.id}" class="h-11 px-gutter rounded-lg bg-primary-fixed-dim text-on-primary-fixed font-label-sm text-label-sm uppercase flex items-center gap-unit hover:bg-primary-fixed"><span class="ms text-[17px]">folder_zip</span> Tải tất cả (.zip)</button>
+  </div>`:'';
+  return `${bulk}<div class="candidate-grid grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-stack-sm px-stack-sm pb-stack-md">${cells}</div>`;
 }
 
 function jobCard(j){
@@ -196,8 +200,8 @@ function jobCard(j){
   const modeLbl = MODE[j.mode]||'Tải về máy';
   const last = (j.log&&j.log.length)?j.log[j.log.length-1]:'';
   let action='';
-  if(j.status==='done' && j.mode==='download')
-    action=`<a href="/shorts/file/${j.id}" class="shrink-0 h-11 px-gutter rounded-lg bg-primary-fixed-dim text-on-primary-fixed font-label-sm text-label-sm uppercase flex items-center gap-unit hover:bg-primary-fixed"><span class="ms text-[16px]">download</span> Tải xuống</a>`;
+  if(j.status==='done' && (j.mode==='download'||j.mode==='batch'))
+    action=`<a href="/shorts/file/${j.id}" class="shrink-0 h-11 px-gutter rounded-lg bg-primary-fixed-dim text-on-primary-fixed font-label-sm text-label-sm uppercase flex items-center gap-unit hover:bg-primary-fixed"><span class="ms text-[16px]">download</span> ${j.mode==='batch'?'Tải ZIP':'Tải xuống'}</a>`;
   else if(j.status==='done' && j.mode==='upload' && j.video_url)
     action=`<a href="${esc(j.video_url)}" target="_blank" class="shrink-0 h-11 px-gutter rounded-lg bg-surface-variant text-secondary font-label-sm text-label-sm uppercase flex items-center gap-unit hover:text-on-surface"><span class="ms text-[16px]">open_in_new</span> Mở video</a>`;
   const title = esc(j.name || j.url);
@@ -223,6 +227,7 @@ function jobCard(j){
 }
 
 const autoDL=new Set();   // job download da tu-tai-ve-may 1 lan (tranh tai lap)
+const jobCache=new Map();
 function triggerDownload(id){
   const a=document.createElement('a');
   a.href='/shorts/file/'+id; a.download=''; document.body.appendChild(a); a.click(); a.remove();
@@ -238,11 +243,12 @@ async function refresh(){
   $('liveLabel').textContent=d.running?'Đang xử lý':'Sẵn sàng';
   $('liveDot').setAttribute('aria-label',d.running?'Đang xử lý tác vụ':'Không có tác vụ đang chạy');
   const jobs=d.jobs||[];
+  jobCache.clear(); jobs.forEach(j=>jobCache.set(String(j.id),j));
   $('jobList').innerHTML = jobs.length ? jobs.map(jobCard).join('')
     : '<div class="text-on-surface-variant text-sm text-center py-stack-lg">Chưa có job nào — dán link rồi bấm Tìm video để xem các clip.</div>';
   // Tai xong tren server -> tu tai ve may NGAY (1 lan), khoi bam "Tải xuống" lan hai
   jobs.forEach(j=>{
-    if(j.mode==='download' && j.status==='done' && j.file && !autoDL.has(j.id)){
+    if((j.mode==='download'||j.mode==='batch') && j.status==='done' && j.file && !autoDL.has(j.id)){
       autoDL.add(j.id); triggerDownload(j.id);
     }
   });
@@ -278,6 +284,22 @@ async function grab(m,mode){
   setTimeout(refresh,300);
 }
 
+async function grabAll(jid){
+  const job=jobCache.get(String(jid));
+  if(!job||!(job.candidates||[]).length) return;
+  const items=job.candidates.map(c=>({
+    url:c.url,referer:c.referer||job.url,
+    label:(c.width&&c.height)?`${c.width}×${c.height}`:''
+  }));
+  const f=new FormData();
+  f.append('source_url',job.url); f.append('items',JSON.stringify(items));
+  try{
+    const res=await apiFetch('/shorts/grab-batch',{method:'POST',body:f});
+    if(!res.ok) throw new Error('HTTP '+res.status);
+  }catch(e){ return; }
+  setTimeout(refresh,300);
+}
+
 // Modal xem truoc — phat qua proxy /shorts/preview (kem referer) roi tai/up neu ung
 let viewMeta=null;
 const vmodal=$('vmodal'), vmVideo=$('vmVideo');
@@ -300,6 +322,8 @@ $('jobList').addEventListener('click',async e=>{
     try{ await apiFetch('/shorts/delete',{method:'POST',body:f}); }catch(e){}
     return refresh();
   }
+  const all=e.target.closest('[data-grab-all]');
+  if(all){ all.disabled=true; return grabAll(all.dataset.grabAll); }
   const view=e.target.closest('[data-view]');
   if(view){
     let m; try{ m=JSON.parse(decodeURIComponent(view.dataset.view)); }catch(e){ return; }

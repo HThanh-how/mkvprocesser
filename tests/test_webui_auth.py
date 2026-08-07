@@ -8,7 +8,7 @@ pytest.importorskip("fastapi")        # can extra [web]
 pytest.importorskip("httpx")          # TestClient dung httpx
 from fastapi.testclient import TestClient  # noqa: E402
 
-from mkvtools import auth, webui  # noqa: E402
+from mkvtools import auth, shorts, webui  # noqa: E402
 
 
 def test_ensure_runtime_dirs_recreates_missing_paths(tmp_path):
@@ -74,6 +74,34 @@ def test_good_login_grants_access(client):
     assert client.get("/shorts", follow_redirects=False).headers["location"] == "/"
     q = client.get("/queue").json()
     assert "disk_free_gb" in q and "pending" in q                # dashboard nap du lieu tu day
+
+
+def test_batch_grab_creates_one_zip_job(client, tmp_path, monkeypatch):
+    manager = shorts.ShortsManager(str(tmp_path / "shorts"))
+    monkeypatch.setattr(webui, "SHORTS", manager)
+    monkeypatch.setattr(webui, "_start_shorts", lambda: None)
+    client.post("/login", data={"username": "admin", "password": "adminpass"})
+    items = [{
+        "url": "https://cdn.example/one.mp4",
+        "referer": "https://www.threads.com/@bear.3391933/post/one",
+        "label": "720×1280",
+    }]
+    r = client.post("/shorts/grab-batch", data={
+        "source_url": "https://www.threads.com/@bear.3391933",
+        "items": __import__("json").dumps(items),
+    })
+    assert r.status_code == 200 and r.json()["count"] == 1
+    job = manager.snapshot()["jobs"][0]
+    assert job["mode"] == "batch"
+    assert job["name"] == "threads_bear.3391933_videos.zip"
+    assert job["media_items"] == items
+
+
+def test_batch_grab_rejects_empty_list(client):
+    client.post("/login", data={"username": "admin", "password": "adminpass"})
+    r = client.post("/shorts/grab-batch", data={"source_url": "https://threads.com/@u",
+                                                 "items": "[]"})
+    assert r.status_code == 400
 
 
 def test_admin_page_is_admin_only(client):

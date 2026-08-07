@@ -42,6 +42,16 @@ def test_media_signature_distinguishes_video_from_fake_mp4():
     assert F.media_signature(b"<HTML><HEAD><TITLE>Access Denied") == "text"
 
 
+def test_threads_profile_target_distinguishes_profile_from_post():
+    assert F.threads_profile_target("https://www.threads.com/@bear.3391933") == (
+        "bear.3391933", "https://www.threads.com/@bear.3391933/media")
+    assert F.threads_profile_target("https://threads.net/@bear.3391933/media") == (
+        "bear.3391933", "https://threads.net/@bear.3391933/media")
+    assert F.threads_profile_target(
+        "https://www.threads.com/@bear.3391933/post/DXQyMRrEzMn") is None
+    assert F.threads_profile_target("https://instagram.com/bear.3391933") is None
+
+
 def test_valid_video_file_rejects_tiny_vtt_with_mp4_suffix(tmp_path):
     fake = tmp_path / "video.mp4"
     fake.write_bytes(b"WEBVTT\n\n00:00:00.000 --> 00:00:01.000\nhello")
@@ -95,6 +105,27 @@ def test_candidate_list_falls_back_when_dom_video_is_invalid(monkeypatch):
     )
     candidates = F.list_video_candidates("https://threads/post/1", log=lambda _msg: None)
     assert [candidate["url"] for candidate in candidates] == ["https://cdn/video.mp4"]
+
+
+def test_profile_candidates_keep_videos_from_all_posts(monkeypatch):
+    posts = ["https://threads.com/@u/post/1", "https://threads.com/@u/post/2"]
+    monkeypatch.setattr(F, "list_threads_post_urls", lambda *_args, **_kwargs: posts)
+
+    def fake_list(url, **_kwargs):
+        return [{"url": f"https://cdn/{url.rsplit('/', 1)[-1]}.mp4", "referer": url}]
+
+    monkeypatch.setattr(F, "list_video_candidates", fake_list)
+    candidates = F.list_threads_profile_candidates("https://threads.com/@u")
+    assert [candidate["url"] for candidate in candidates] == [
+        "https://cdn/1.mp4", "https://cdn/2.mp4"]
+    assert [candidate["referer"] for candidate in candidates] == posts
+
+
+def test_profile_post_normalization_shape():
+    assert F.normalize_threads_post_url(
+        "https://threads.com/@u/post/ABC/media?x=1", "u") == (
+        "https://threads.com/@u/post/ABC")
+    assert F.normalize_threads_post_url("https://threads.com/@other/post/ABC", "u") == ""
 
 
 def test_rank_media_prefers_manifest_then_mp4():

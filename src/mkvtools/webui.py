@@ -3,13 +3,14 @@ GUI web local (fallback khi muon lam tay). Chay:  python -m mkvtools.webui
 Mo http://127.0.0.1:8800 . Liet ke file trong inbox/, phan tich, tach + (tuy chon) upload.
 Chay tac vu o thread nen, log poll qua /status.
 """
+import json
 import os
 import pathlib
 import re
 import threading
 import urllib.parse
 
-from fastapi import FastAPI, File, Form, Request, Response, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Request, Response, UploadFile
 from fastapi.responses import (
     FileResponse,
     HTMLResponse,
@@ -142,6 +143,50 @@ def _start_shorts():
                         job["candidates"] = cands
                         job["status"] = "ready"
                         log(f"[OK] tim thay {len(cands)} video")
+                    elif job["mode"] == "batch":
+                        import shutil
+                        import zipfile
+
+                        items = job.get("media_items") or []
+                        if not items:
+                            raise RuntimeError("Khong co video nao de tai hang loat")
+                        tmp_root = os.path.join(SHORTS.dest_dir, f"_batch_{job['id']}")
+                        os.makedirs(tmp_root, exist_ok=True)
+                        zip_path = os.path.join(
+                            SHORTS.dest_dir, f"batch_{job['id']}_{fetch.safe_name(job['name'])}")
+                        used_names = set()
+                        try:
+                            # MP4 da nen san; ZIP_STORED dong goi nhanh va khong ton CPU vo ich.
+                            with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_STORED) as archive:
+                                for index, item in enumerate(items, 1):
+                                    log(f"[tai {index}/{len(items)}] {item.get('referer') or item['url']}")
+                                    item_dir = os.path.join(tmp_root, str(index))
+                                    os.makedirs(item_dir, exist_ok=True)
+                                    src = fetch.download_media_url(
+                                        item["url"], item_dir, log=log,
+                                        referer=item.get("referer"), cookies=cookies)
+                                    src = require_video(src)
+                                    entry = _short_download_name(
+                                        {"url": item.get("referer") or job["url"],
+                                         "name": item.get("label") or ""}, src)
+                                    base, ext = os.path.splitext(entry)
+                                    suffix = 2
+                                    while entry.lower() in used_names:
+                                        entry = f"{base}_{suffix}{ext}"
+                                        suffix += 1
+                                    used_names.add(entry.lower())
+                                    archive.write(src, arcname=entry)
+                        except Exception:
+                            try:
+                                os.remove(zip_path)
+                            except OSError:
+                                pass
+                            raise
+                        finally:
+                            shutil.rmtree(tmp_root, ignore_errors=True)
+                        job["file"] = zip_path
+                        job["status"] = "done"
+                        log(f"[OK] da dong goi {len(items)} video thanh ZIP")
                     elif job["mode"] == "upload":
                         log(f"[tai] {job.get('media_url') or job['url']}")
                         tmp = os.path.join(SHORTS.dest_dir, "_tmp")
@@ -437,6 +482,33 @@ def shorts_grab(media_url: str = Form(...), referer: str = Form(""), mode: str =
     return {"ok": bool(job), "id": job["id"] if job else None}
 
 
+@app.post("/shorts/grab-batch")
+def shorts_grab_batch(source_url: str = Form(...), items: str = Form(...)):
+    """Tai cac candidate da tim thay va dong goi thanh mot ZIP duy nhat."""
+    try:
+        raw_items = json.loads(items)
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail="Danh sach video khong hop le") from exc
+    if not isinstance(raw_items, list) or not raw_items or len(raw_items) > 100:
+        raise HTTPException(status_code=400, detail="Chi ho tro 1-100 video moi lan")
+    clean_items = []
+    for item in raw_items:
+        if not isinstance(item, dict) or not str(item.get("url") or "").startswith(("http://", "https://")):
+            raise HTTPException(status_code=400, detail="Link video khong hop le")
+        clean_items.append({
+            "url": str(item["url"]),
+            "referer": str(item.get("referer") or source_url),
+            "label": str(item.get("label") or "")[:30],
+        })
+    profile = fetch.threads_profile_target(source_url)
+    account = profile[0] if profile else "videos"
+    filename = fetch.safe_name(f"threads_{account}_videos.zip")
+    job = SHORTS.add(source_url, "batch", label=filename, media_items=clean_items)
+    if job:
+        _start_shorts()
+    return {"ok": bool(job), "id": job["id"] if job else None, "count": len(clean_items)}
+
+
 @app.get("/shorts/preview")
 def shorts_preview(request: Request, url: str, referer: str = ""):
     """Phat thu 1 clip trong UI: proxy stream tu CDN (kem UA/referer) -> tranh CORS/chan
@@ -507,13 +579,14 @@ def _short_download_name(job: dict, path: str) -> str:
 def shorts_file(jid: int):
     """Tai file clip da-tai ve may nguoi dung (chi job download da xong)."""
     job = SHORTS.get(jid)
-    if not job or job.get("mode") != "download" or job.get("status") != "done":
+    if not job or job.get("mode") not in ("download", "batch") or job.get("status") != "done":
         return PlainTextResponse("file chua san sang", status_code=404)
     path = job.get("file") or ""
     if not path or not os.path.isfile(path):
         return PlainTextResponse("khong tim thay file", status_code=404)
     import mimetypes
-    filename = _short_download_name(job, path)
+    filename = (fetch.safe_name(job.get("name") or "videos.zip")
+                if job.get("mode") == "batch" else _short_download_name(job, path))
     return FileResponse(path, filename=filename,
                         media_type=mimetypes.guess_type(filename)[0] or "application/octet-stream")
 
@@ -522,7 +595,7 @@ def shorts_file(jid: int):
 def shorts_delete(jid: int = Form(...)):
     """Xoa 1 job short khoi danh sach + xoa file da tai (neu co)."""
     job = SHORTS.get(jid)
-    if job and job.get("mode") == "download" and job.get("file"):
+    if job and job.get("mode") in ("download", "batch") and job.get("file"):
         try:
             if os.path.isfile(job["file"]):
                 os.remove(job["file"])
