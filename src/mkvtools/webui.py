@@ -587,8 +587,13 @@ def shorts_file(jid: int):
     import mimetypes
     filename = (fetch.safe_name(job.get("name") or "videos.zip")
                 if job.get("mode") == "batch" else _short_download_name(job, path))
-    return FileResponse(path, filename=filename,
-                        media_type=mimetypes.guess_type(filename)[0] or "application/octet-stream")
+    # iOS/in-app browser se mo player neu nhan video/mp4, du Content-Disposition la
+    # attachment. Ep video ve binary download + nosniff de nut "Luu vao Tep" tai file.
+    media_type = (mimetypes.guess_type(filename)[0] or "application/zip"
+                  if job.get("mode") == "batch" else "application/octet-stream")
+    return FileResponse(path, filename=filename, media_type=media_type,
+                        headers={"X-Content-Type-Options": "nosniff",
+                                 "Cache-Control": "private, no-store"})
 
 
 @app.post("/shorts/delete")

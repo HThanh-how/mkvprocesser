@@ -71,6 +71,7 @@ def test_good_login_grants_access(client):
     assert home.status_code == 200 and "Threads, Instagram và TikTok" in home.text
     dashboard = client.get("/queue-ui")
     assert dashboard.status_code == 200 and "Hàng đợi" in dashboard.text
+    assert "IS_IOS" in home.text and "Lưu vào Tệp" in home.text
     assert client.get("/shorts", follow_redirects=False).headers["location"] == "/"
     q = client.get("/queue").json()
     assert "disk_free_gb" in q and "pending" in q                # dashboard nap du lieu tu day
@@ -102,6 +103,25 @@ def test_batch_grab_rejects_empty_list(client):
     r = client.post("/shorts/grab-batch", data={"source_url": "https://threads.com/@u",
                                                  "items": "[]"})
     assert r.status_code == 400
+
+
+def test_video_file_forces_binary_attachment_for_ios(client, tmp_path, monkeypatch):
+    manager = shorts.ShortsManager(str(tmp_path / "shorts"))
+    monkeypatch.setattr(webui, "SHORTS", manager)
+    video = tmp_path / "cdn-name.mp4"
+    video.write_bytes(b"\x00\x00\x00\x1cftypisom" + b"0" * 128)
+    job = manager.add(
+        "https://www.threads.com/@bear.3391933/post/CODE", "download",
+        label="720×1280")
+    job["status"] = "done"
+    job["file"] = str(video)
+    client.post("/login", data={"username": "admin", "password": "adminpass"})
+    r = client.get(f"/shorts/file/{job['id']}")
+    assert r.status_code == 200
+    assert r.headers["content-type"] == "application/octet-stream"
+    assert r.headers["x-content-type-options"] == "nosniff"
+    assert "attachment" in r.headers["content-disposition"]
+    assert "threads_bear.3391933_CODE_720x1280.mp4" in r.headers["content-disposition"]
 
 
 def test_admin_page_is_admin_only(client):

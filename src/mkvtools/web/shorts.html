@@ -162,6 +162,8 @@ const STAT={
   error:['error','#ffb4ab','Lỗi'],
 };
 const MODE={upload:'YouTube Short',probe:'Liệt kê video',download:'Tải về máy',batch:'Tải hàng loạt ZIP'};
+const IS_IOS=/iPad|iPhone|iPod/.test(navigator.userAgent)||
+  (navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
 
 // Luoi cac clip bat duoc (job probe da xong) — moi clip co poster + WxH + nut Tải / Up Short
 function candGrid(j){
@@ -201,7 +203,7 @@ function jobCard(j){
   const last = (j.log&&j.log.length)?j.log[j.log.length-1]:'';
   let action='';
   if(j.status==='done' && (j.mode==='download'||j.mode==='batch'))
-    action=`<a href="/shorts/file/${j.id}" class="shrink-0 h-11 px-gutter rounded-lg bg-primary-fixed-dim text-on-primary-fixed font-label-sm text-label-sm uppercase flex items-center gap-unit hover:bg-primary-fixed"><span class="ms text-[16px]">download</span> ${j.mode==='batch'?'Tải ZIP':'Tải xuống'}</a>`;
+    action=`<a href="/shorts/file/${j.id}" download class="shrink-0 h-11 px-gutter rounded-lg bg-primary-fixed-dim text-on-primary-fixed font-label-sm text-label-sm uppercase flex items-center gap-unit hover:bg-primary-fixed"><span class="ms text-[16px]">download</span> ${j.mode==='batch'?'Tải ZIP':(IS_IOS?'Lưu vào Tệp':'Tải xuống')}</a>`;
   else if(j.status==='done' && j.mode==='upload' && j.video_url)
     action=`<a href="${esc(j.video_url)}" target="_blank" class="shrink-0 h-11 px-gutter rounded-lg bg-surface-variant text-secondary font-label-sm text-label-sm uppercase flex items-center gap-unit hover:text-on-surface"><span class="ms text-[16px]">open_in_new</span> Mở video</a>`;
   const title = esc(j.name || j.url);
@@ -246,9 +248,10 @@ async function refresh(){
   jobCache.clear(); jobs.forEach(j=>jobCache.set(String(j.id),j));
   $('jobList').innerHTML = jobs.length ? jobs.map(jobCard).join('')
     : '<div class="text-on-surface-variant text-sm text-center py-stack-lg">Chưa có job nào — dán link rồi bấm Tìm video để xem các clip.</div>';
-  // Tai xong tren server -> tu tai ve may NGAY (1 lan), khoi bam "Tải xuống" lan hai
+  // iOS chi cho tai tep on dinh khi nguoi dung TU cham nut. Tu kich sau khi poll xong
+  // bi webview hieu thanh dieu huong va mo trinh phat video den nhu mot trang moi.
   jobs.forEach(j=>{
-    if((j.mode==='download'||j.mode==='batch') && j.status==='done' && j.file && !autoDL.has(j.id)){
+    if(!IS_IOS && (j.mode==='download'||j.mode==='batch') && j.status==='done' && j.file && !autoDL.has(j.id)){
       autoDL.add(j.id); triggerDownload(j.id);
     }
   });
