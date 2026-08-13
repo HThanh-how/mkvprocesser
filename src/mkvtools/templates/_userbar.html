@@ -1,0 +1,10 @@
+{# Thanh danh tinh + dieu huong. `user` la dict {username, role} hoac rong. #}
+<p class=muted style="text-align:right;margin:-6px 0 6px">
+{{ user.username | default('?', true) }} ({{ user.role | default('?', true) }})
+&middot; <a href="/">Trang chinh</a>
+&middot; <a href="/catch">Bat tay</a>
+{% if user.role == 'admin' %}
+&middot; <a href="/admin">Quan tri</a>
+{% endif %}
+&middot; <a href="/logout">Dang xuat</a>
+</p>

@@ -32,7 +32,9 @@ from . import (
     jobs,
     pipeline,
     resources,
+    security,
     shorts,
+    templating,
 )
 
 _WEBDIR = pathlib.Path(__file__).parent / "web"
@@ -61,7 +63,9 @@ def _ensure_runtime_dirs(config_data=None):
 USERS = auth.UserStore(cfg.get("users_file", "secrets/users.json"))
 SESS = auth.Sessions()
 THROTTLE = auth.LoginThrottle()     # chong do mat khau (theo IP)
-_PUBLIC = {"/login"}        # duong dan khong can dang nhap (bootstrap admin o main())
+# Duong dan khong can dang nhap (bootstrap admin o main()). /web/csrf.js phai
+# mo vi chinh trang dang nhap can no de gan token vao form.
+_PUBLIC = {"/login", "/web/csrf.js", "/healthz"}
 
 _job = {"running": False, "log": [], "file": None}
 _lock = threading.Lock()
@@ -279,19 +283,69 @@ def _current_user(request):
     return USERS.get(uname) if uname else None
 
 
+async def _sent_csrf(request):
+    """Token client gui len: uu tien header (fetch), roi den field form."""
+    header = request.headers.get(security.CSRF_HEADER)
+    if header:
+        return header
+    ctype = (request.headers.get("content-type") or "").split(";")[0].strip().lower()
+    if ctype in ("application/x-www-form-urlencoded", "multipart/form-data"):
+        # Phai goi body() TRUOC form(): Starlette parse form qua stream(), va
+        # neu stream bi tieu thu ma _body chua duoc cache thi middleware base se
+        # day body RONG xuong route (route se 422). Goi body() truoc lam _body
+        # duoc cache, sau do stream() phat lai duoc cho ca ta lan route.
+        try:
+            await request.body()
+            form = await request.form()
+        except Exception:        # noqa: BLE001 - body hong thi coi nhu thieu token
+            return None
+        return form.get(security.CSRF_FIELD)
+    return None
+
+
+def _finish(request, response, csrf_token, need_cookie):
+    """Gan cookie CSRF (neu chua co) + header bao mat cho moi response."""
+    if need_cookie:
+        response.set_cookie(security.CSRF_COOKIE, csrf_token, httponly=False,
+                            samesite="lax", secure=request.url.scheme == "https",
+                            path="/")
+    security.apply_security_headers(response.headers,
+                                    https=request.url.scheme == "https")
+    return response
+
+
 @app.middleware("http")
-async def _auth(request: Request, call_next):
+async def _guard(request: Request, call_next):
+    # API bang giao may-may: xac thuc bang token rieng trong header, khong dung
+    # cookie -> trinh duyet khong the tu dong gui ho, nen khong can CSRF.
     if request.url.path.startswith("/api/handoff/"):
         expected = str(cfg.get("handoff_token") or "")
         supplied = request.headers.get("x-mkv-handoff-token", "")
         if not expected or not hmac.compare_digest(expected, supplied):
             return PlainTextResponse("handoff token khong hop le", status_code=401)
-        return await call_next(request)
+        resp = await call_next(request)
+        security.apply_security_headers(resp.headers,
+                                        https=request.url.scheme == "https")
+        return resp
+
+    cookie_token = request.cookies.get(security.CSRF_COOKIE)
+    csrf_token = cookie_token or security.new_csrf_token()
+    request.state.csrf_token = csrf_token     # template doc de dien vao form
+
     user = _current_user(request)
     request.state.user = user            # route doc qua request.state.user
     if request.url.path not in _PUBLIC and user is None:
-        return RedirectResponse("/login", status_code=302)
-    return await call_next(request)
+        return _finish(request, RedirectResponse("/login", status_code=302),
+                       csrf_token, not cookie_token)
+
+    if request.method not in security.SAFE_METHODS and not security.csrf_ok(
+            cookie_token, await _sent_csrf(request)):
+        return _finish(request, PlainTextResponse(
+            "CSRF token thieu hoac khong khop; tai lai trang roi thu lai.",
+            status_code=403), csrf_token, not cookie_token)
+
+    resp = await call_next(request)
+    return _finish(request, resp, csrf_token, not cookie_token)
 
 
 def _require_admin(request):
@@ -300,15 +354,6 @@ def _require_admin(request):
     if not u or u.get("role") != "admin":
         return PlainTextResponse("Chi admin moi vao duoc trang nay.", status_code=403)
     return None
-
-
-def _userbar(request):
-    u = getattr(request.state, "user", None) or {}
-    admin_link = " &middot; <a href=/admin>Quan tri</a>" if u.get("role") == "admin" else ""
-    return (f"<p class=muted style='text-align:right;margin:-6px 0 6px'>"
-            f"{u.get('username', '?')} ({u.get('role', '?')}) "
-            f"&middot; <a href=/>Trang chinh</a> &middot; <a href=/catch>Bat tay</a>{admin_link} "
-            f"&middot; <a href=/logout>Dang xuat</a></p>")
 
 
 def _log(msg):
@@ -324,18 +369,12 @@ def _inbox_files():
     return sorted(f for f in os.listdir(d) if f.lower().endswith(exts))
 
 
-STYLE = """<style>
-body{font:15px system-ui,sans-serif;background:#0f1115;color:#e8eaed;max-width:820px;
-margin:24px auto;padding:0 16px}h1{font-size:20px}a{color:#7ab4ff}
-.card{background:#1a1d24;border:1px solid #2a2f3a;border-radius:12px;padding:18px;margin:14px 0}
-button{background:#3b82f6;color:#fff;border:0;border-radius:8px;padding:9px 16px;cursor:pointer;font-size:14px}
-select,label{font-size:14px}pre{background:#0b0d11;border:1px solid #2a2f3a;border-radius:8px;
-padding:12px;white-space:pre-wrap;max-height:340px;overflow:auto}.muted{color:#9aa0aa}
-.t{padding:4px 0;border-bottom:1px solid #20242c}</style>"""
-
-
-def page(body):
-    return f"<!doctype html><meta charset=utf-8><title>mkvtools</title>{STYLE}<h1>mkvtools — GUI</h1>{body}"
+def _message(message, link_href="/", link_text="« ve", status_code=200):
+    """Trang thong bao 1 the. Noi dung duoc Jinja escape -> an toan voi loi tu ffmpeg."""
+    return HTMLResponse(
+        templating.render("message.html", message=message,
+                          link_href=link_href, link_text=link_text),
+        status_code=status_code)
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -353,48 +392,24 @@ def queue_page(request: Request):
 @app.get("/classic", response_class=HTMLResponse)
 def home_classic(request: Request):
     files = _inbox_files()
-    opts = "".join(f"<option>{f}</option>" for f in files) or "<option disabled>(inbox trong)</option>"
-    up_checked = "checked" if cfg.get("upload", True) else ""
     running = _job["running"]
     snap = Q.snapshot()
     pend = snap["pending"]
-    pend_html = "".join(f"<div class=t>&bull; {u}</div>" for u in pend) or "<span class=muted>(trong)</span>"
-    hist_html = "".join(
-        f"<div class=t>{'&check;' if h['status'] == 'done' else '&cross;'} "
-        f"{h.get('name') or h['url']}{(' &mdash; ' + h['error']) if h.get('error') else ''}</div>"
-        for h in reversed(snap["history"])) or "<span class=muted>(chua co)</span>"
-    poll = str(running or snap["running"] or bool(pend)).lower()
-    return page(f"""{_userbar(request)}
-<div class=card>
-<b>Dan link &rarr; tu tai &rarr; tach &rarr; upload &rarr; xoay vong dia</b>
-<form method=post action=/enqueue style=margin-top:8px>
-  <textarea name=links rows=4 style="width:100%;box-sizing:border-box;background:#0b0d11;color:#e8eaed;border:1px solid #2a2f3a;border-radius:8px;padding:10px" placeholder="Moi dong 1 link (YouTube / trang stream / file-host / link .mkv .mp4 truc tiep)"></textarea>
-  <div style=margin-top:8px><button>Them vao hang doi</button>
-  <span class=muted>upload: {'bat' if cfg.get('upload', True) else 'tat'} &middot; xoa nguon sau upload (rotation)</span></div>
-</form>
-<p class=muted style=margin-top:10px>Dang chay: <b>{snap['current'] or '(khong)'}</b> &middot; cho: {len(pend)} link</p>
-<div style="display:flex;gap:14px;flex-wrap:wrap">
-  <div style="flex:1;min-width:240px"><b>Hang cho</b>{pend_html}</div>
-  <div style="flex:1;min-width:240px"><b>Lich su</b>{hist_html}</div>
-</div>
-<pre id=qlog>{chr(10).join(snap['log'][-120:]) or '(chua co log)'}</pre>
-</div>
-
-<div class=card>
-<p class=muted>Hoac xu ly file co san trong inbox: <code>{cfg['inbox_dir']}</code> &mdash; {len(files)} file</p>
-<form method=post action=/analyze>
-  <select name=file>{opts}</select>
-  <button {'disabled' if running else ''}>Phan tich</button>
-</form>
-<form method=post action=/run style=margin-top:10px>
-  <select name=file>{opts}</select>
-  <label><input type=checkbox name=upload {up_checked}> upload YouTube</label>
-  <button {'disabled' if running else ''}>Chay</button>
-</form>
-<pre id=log>{chr(10).join(_job['log'][-120:]) or '(chua co)'}</pre>
-</div>
-<script>if({poll})setTimeout(()=>location.reload(),2500)</script>
-""")
+    return HTMLResponse(templating.render(
+        "classic.html",
+        user=getattr(request.state, "user", None) or {},
+        csrf_token=getattr(request.state, "csrf_token", ""),
+        files=files,
+        inbox_dir=cfg["inbox_dir"],
+        upload_on=cfg.get("upload", True),
+        running=running,
+        current=snap["current"],
+        pending=pend,
+        history=list(reversed(snap["history"])),
+        queue_log=snap["log"][-120:],
+        job_log=_job["log"][-120:],
+        poll=bool(running or snap["running"] or pend),
+    ))
 
 
 @app.post("/analyze", response_class=HTMLResponse)
@@ -402,15 +417,16 @@ def analyze(file: str = Form(...)):
     src = os.path.join(cfg["inbox_dir"], file)
     try:
         p = pipeline.analyze_file(src, cfg)
-    except Exception as e:
-        return page(f"<div class=card>Loi: {e} <p><a href=/>&laquo; ve</a></div>")
-    rows = "".join(
-        f"<div class=t>{o['lang'] or '?'} ({o['ch']}ch) &rarr; "
-        f"{os.path.basename(o['out'])} | {'sub: ' + os.path.basename(o['srt']) if o['srt'] else 'khong sub'}</div>"
-        for o in p["outputs"])
-    return page(f"""<div class=card><b>{p['base']}</b> [{p['res']}{(' ' + p['year']) if p['year'] else ''}]
-<p>{len(p['outputs'])} ban audio:</p>{rows}
-<p><a href=/>&laquo; ve</a></div>""")
+    except Exception as e:        # noqa: BLE001 - loi ffmpeg/parse hien thi cho nguoi dung
+        return _message(f"Loi: {e}")
+    return HTMLResponse(templating.render(
+        "analyze.html",
+        base=p["base"], res=p["res"], year=p["year"],
+        outputs=[{"lang": o["lang"], "ch": o["ch"],
+                  "out_name": os.path.basename(o["out"]),
+                  "srt_name": os.path.basename(o["srt"]) if o["srt"] else ""}
+                 for o in p["outputs"]],
+    ))
 
 
 def _worker(src, do_upload):
@@ -434,11 +450,11 @@ def _worker(src, do_upload):
 def run(file: str = Form(...), upload: str = Form(None)):
     with _lock:
         if _job["running"]:
-            return page("<div class=card>Dang co tac vu chay. <a href=/>ve</a></div>")
+            return _message("Dang co tac vu chay.", link_text="ve")
         _job.update(running=True, log=[], file=file)
     src = os.path.join(cfg["inbox_dir"], file)
     threading.Thread(target=_worker, args=(src, upload is not None), daemon=True).start()
-    return page("<div class=card>Da bat dau. <a href=/>Theo doi tien trinh &raquo;</a></div>")
+    return _message("Da bat dau.", link_text="Theo doi tien trinh »")
 
 
 @app.get("/status")
@@ -451,8 +467,8 @@ def enqueue(links: str = Form(...)):
     n = Q.add_many(links)
     if n:
         _start_drain()
-    return page(f"<div class=card>Da them <b>{n}</b> link vao hang doi. "
-                f"<a href=/>Theo doi tien trinh &raquo;</a></div>")
+    return _message(f"Da them {n} link vao hang doi.",
+                    link_text="Theo doi tien trinh »")
 
 
 @app.post("/enqueue-torrent")
@@ -584,8 +600,13 @@ def shorts_preview(request: Request, url: str, referer: str = ""):
     import urllib.request
 
     from fastapi.responses import StreamingResponse
-    if not url.startswith(("http://", "https://")):
-        return PlainTextResponse("url khong hop le", status_code=400)
+    # Server tu di tai roi tra noi dung ve trinh duyet -> day la SSRF neu khong
+    # chan: mot tai khoan `user` co the doc 127.0.0.1:9222 (Chrome CDP, dieu
+    # khien duoc ca trinh duyet), metadata cloud, hay dich vu bat ky trong LAN.
+    try:
+        security.assert_public_http_url(url)
+    except security.UnsafeURL as e:
+        return PlainTextResponse(f"url khong hop le: {e}", status_code=400)
     headers = {"User-Agent": fetch.UA}
     if referer:
         headers["Referer"] = referer

@@ -33,10 +33,12 @@ upload = [
   "google-auth-httplib2>=0.2.0",
 ]
 # Web GUI (FastAPI) — required by the `mkvtools-gui` entry point.
+# jinja2: render HTML server-side voi autoescape (xem mkvtools/templating.py).
 web = [
   "fastapi>=0.110",
   "uvicorn[standard]>=0.29",
   "python-multipart>=0.0.9",
+  "jinja2>=3.1",
 ]
 # Tai tu link (yt-dlp): YouTube / trang stream / file-host / link truc tiep.
 # Lazy-imported, chi can khi dung `mkvtools fetch` hoac hang doi link tren GUI.
@@ -78,7 +80,7 @@ where = ["src"]
 include = ["mkvtools*"]
 
 [tool.setuptools.package-data]
-mkvtools = ["web/*.html", "web/*.js", "web/*.css"]
+mkvtools = ["web/*.html", "web/*.js", "web/*.css", "templates/*.html"]
 
 [tool.ruff]
 line-length = 100
@@ -87,8 +89,16 @@ src = ["src"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
-# webui builds HTML via f-strings; long lines there are acceptable.
+# Long lines are tolerated in HTML/template-adjacent code.
 ignore = ["E501"]
+
+[tool.ruff.lint.flake8-bugbear]
+# FastAPI khai bao tham so bang Form()/File()/Depends() trong default — do la
+# idiom cua framework, khong phai loi "mutable default" ma B008 muon bat.
+extend-immutable-calls = [
+  "fastapi.Body", "fastapi.Depends", "fastapi.File", "fastapi.Form",
+  "fastapi.Header", "fastapi.Path", "fastapi.Query",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

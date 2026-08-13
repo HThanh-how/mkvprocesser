@@ -8,7 +8,7 @@ pytest.importorskip("fastapi")        # can extra [web]
 pytest.importorskip("httpx")          # TestClient dung httpx
 from fastapi.testclient import TestClient  # noqa: E402
 
-from mkvtools import auth, shorts, webui  # noqa: E402
+from mkvtools import auth, security, shorts, webui  # noqa: E402
 
 
 def test_ensure_runtime_dirs_recreates_missing_paths(tmp_path):
@@ -35,7 +35,12 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setattr(webui, "THROTTLE", auth.LoginThrottle())   # co lap throttle moi test
     webui.USERS.add("admin", "adminpass", role="admin")
     webui.USERS.add("bob", "bobpass", role="user")
-    return TestClient(webui.app)
+    c = TestClient(webui.app)
+    # Mo mot trang de nhan cookie CSRF, roi gui kem token o header cho moi
+    # request sau — dung nhu web/csrf.js lam trong trinh duyet that.
+    c.get("/login")
+    c.headers.update({security.CSRF_HEADER: c.cookies.get(security.CSRF_COOKIE)})
+    return c
 
 
 def test_root_requires_login(client):

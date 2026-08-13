@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block userbar %}{% include "_userbar.html" %}{% endblock %}
+{% block content %}
+<div class=card>
+<b>Dan link &rarr; tu tai &rarr; tach &rarr; upload &rarr; xoay vong dia</b>
+<form method=post action="/enqueue" style="margin-top:8px">
+  <input type=hidden name=csrf_token value="{{ csrf_token }}">
+  <textarea name=links rows=4 style="width:100%;box-sizing:border-box;background:#0b0d11;color:#e8eaed;border:1px solid #2a2f3a;border-radius:8px;padding:10px" placeholder="Moi dong 1 link (YouTube / trang stream / file-host / link .mkv .mp4 truc tiep)"></textarea>
+  <div style="margin-top:8px"><button>Them vao hang doi</button>
+  <span class=muted>upload: {{ 'bat' if upload_on else 'tat' }} &middot; xoa nguon sau upload (rotation)</span></div>
+</form>
+<p class=muted style="margin-top:10px">Dang chay: <b>{{ current or '(khong)' }}</b> &middot; cho: {{ pending | length }} link</p>
+<div style="display:flex;gap:14px;flex-wrap:wrap">
+  <div style="flex:1;min-width:240px"><b>Hang cho</b>
+    {% for u in pending %}
+    <div class=t>&bull; {{ u }}</div>
+    {% else %}
+    <span class=muted>(trong)</span>
+    {% endfor %}
+  </div>
+  <div style="flex:1;min-width:240px"><b>Lich su</b>
+    {% for h in history %}
+    <div class=t>{{ '✓' if h.status == 'done' else '✗' }}
+      {{ h.name or h.url }}{% if h.error %} — {{ h.error }}{% endif %}</div>
+    {% else %}
+    <span class=muted>(chua co)</span>
+    {% endfor %}
+  </div>
+</div>
+<pre id=qlog>{{ queue_log | join('\n') or '(chua co log)' }}</pre>
+</div>
+
+<div class=card>
+<p class=muted>Hoac xu ly file co san trong inbox: <code>{{ inbox_dir }}</code> &mdash; {{ files | length }} file</p>
+<form method=post action="/analyze">
+  <input type=hidden name=csrf_token value="{{ csrf_token }}">
+  <select name=file>
+    {% for f in files %}
+    <option>{{ f }}</option>
+    {% else %}
+    <option disabled>(inbox trong)</option>
+    {% endfor %}
+  </select>
+  <button {{ 'disabled' if running }}>Phan tich</button>
+</form>
+<form method=post action="/run" style="margin-top:10px">
+  <input type=hidden name=csrf_token value="{{ csrf_token }}">
+  <select name=file>
+    {% for f in files %}
+    <option>{{ f }}</option>
+    {% else %}
+    <option disabled>(inbox trong)</option>
+    {% endfor %}
+  </select>
+  <label><input type=checkbox name=upload {{ 'checked' if upload_on }}> upload YouTube</label>
+  <button {{ 'disabled' if running }}>Chay</button>
+</form>
+<pre id=log>{{ job_log | join('\n') or '(chua co)' }}</pre>
+</div>
+{% if poll %}
+<script>setTimeout(()=>location.reload(),2500)</script>
+{% endif %}
+{% endblock %}

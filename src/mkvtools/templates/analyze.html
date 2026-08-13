@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block content %}
+<div class=card>
+<b>{{ base }}</b> [{{ res }}{% if year %} {{ year }}{% endif %}]
+<p>{{ outputs | length }} ban audio:</p>
+{% for o in outputs %}
+<div class=t>{{ o.lang or '?' }} ({{ o.ch }}ch) &rarr; {{ o.out_name }} |
+  {% if o.srt_name %}sub: {{ o.srt_name }}{% else %}khong sub{% endif %}</div>
+{% endfor %}
+<p><a href="/">« ve</a></p>
+</div>
+{% endblock %}
