@@ -1,0 +1,11 @@
+[Unit]
+Description=Stop mkvtools LXC at 19:15 before host shutdown
+
+[Timer]
+OnCalendar=*-*-* 19:15:00
+Persistent=true
+AccuracySec=1s
+
+[Install]
+WantedBy=timers.target
+

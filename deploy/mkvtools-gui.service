@@ -1,0 +1,17 @@
+[Unit]
+Description=mkvtools web GUI and scheduled queue worker
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+WorkingDirectory=/opt/mkvprocesser
+EnvironmentFile=/etc/mkvtools.env
+ExecStart=/opt/mkvprocesser/.venv/bin/mkvtools-gui
+ExecStartPost=/bin/sh -c 'echo ready > /data/work/service-ready'
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=300
+KillSignal=SIGINT
+
+[Install]
+WantedBy=multi-user.target

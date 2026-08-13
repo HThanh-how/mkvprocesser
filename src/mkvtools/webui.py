@@ -3,12 +3,15 @@ GUI web local (fallback khi muon lam tay). Chay:  python -m mkvtools.webui
 Mo http://127.0.0.1:8800 . Liet ke file trong inbox/, phan tich, tach + (tuy chon) upload.
 Chay tac vu o thread nen, log poll qua /status.
 """
+import hmac
 import json
 import os
 import pathlib
 import re
 import threading
+import time
 import urllib.parse
+from datetime import datetime
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, Response, UploadFile
 from fastapi.responses import (
@@ -64,7 +67,11 @@ _job = {"running": False, "log": [], "file": None}
 _lock = threading.Lock()
 
 # Hang doi link: dan URL -> tu tai -> tach -> upload -> xoay vong dia (xoa nguon).
-Q = jobs.JobQueue(history_file=os.path.join(cfg.get("work_dir", "work"), "queue_history.json"))
+Q = jobs.JobQueue(
+    history_file=os.path.join(cfg.get("work_dir", "work"), "queue_history.json"),
+    queue_file=os.path.join(cfg.get("work_dir", "work"), "queue.json"),
+    node_id=cfg.get("node_id", "local"),
+)
 # Che do "Bat tay": gan vao Chromium dieu khien-tay (noVNC) + sniff media qua CDP.
 CATCH = catch.CatchSession(cfg.get("catch_cdp", "http://127.0.0.1:9222"))
 # Cache YouTube (tiet kiem quota): lay 1 lan/ngay roi doc cache.
@@ -75,8 +82,26 @@ VIDEOCACHE = cache.Cache(redis_url=cfg.get("redis_url", ""),
 SHORTS = shorts.ShortsManager(os.path.join(cfg.get("work_dir", "work"), "shorts"))
 
 
+def _worker_allowed(now=None):
+    """Node chi claim job trong ca cua no; job dang chay duoc phep ket thuc sach."""
+    if not cfg.get("worker_enabled", True):
+        return False
+    if cfg.get("upload", True) and not os.path.exists(cfg.get("token_file", "") or ""):
+        return False
+    hour = (now or datetime.now()).hour
+    start = int(cfg.get("worker_start_hour", 0))
+    stop = int(cfg.get("worker_stop_hour", 24))
+    if start == stop or (start == 0 and stop == 24):
+        return True
+    if start < stop:
+        return start <= hour < stop
+    return hour >= start or hour < stop
+
+
 def _start_drain():
     """Khoi dong worker rut hang doi neu dang ranh (1 luong, xu ly tuan tu)."""
+    if not _worker_allowed():
+        return
     if not Q.try_start():        # da co worker chay -> no se tu nhat link moi them
         return
 
@@ -100,13 +125,25 @@ def _start_drain():
                 return fetch.fetch(u, d, log=log, cookies=cookies or default_cookies,
                                    referer=referer)
 
-            jobs.drain(Q, rcfg, fetch_fn=fetch_fn, process_fn=process_fn)
+            jobs.drain(Q, rcfg, fetch_fn=fetch_fn, process_fn=process_fn,
+                       should_continue_fn=_worker_allowed)
         except Exception as e:                          # noqa: BLE001
             Q.say(f"LOI worker: {e}")
         finally:
             Q.stop()             # luoi an toan neu thoat bat thuong (binh thuong pop() da tat)
 
     threading.Thread(target=runner, daemon=True).start()
+
+
+def _queue_scheduler():
+    """Danh thuc worker khi den ca, ke ca job duoc import hoac khoi phuc sau reboot."""
+    while True:
+        try:
+            if Q.snapshot()["pending"]:
+                _start_drain()
+        except Exception as e:  # noqa: BLE001 - scheduler phai song qua loi tam thoi
+            Q.say(f"(!) scheduler: {e}")
+        time.sleep(10)
 
 
 def _start_shorts():
@@ -244,6 +281,12 @@ def _current_user(request):
 
 @app.middleware("http")
 async def _auth(request: Request, call_next):
+    if request.url.path.startswith("/api/handoff/"):
+        expected = str(cfg.get("handoff_token") or "")
+        supplied = request.headers.get("x-mkv-handoff-token", "")
+        if not expected or not hmac.compare_digest(expected, supplied):
+            return PlainTextResponse("handoff token khong hop le", status_code=401)
+        return await call_next(request)
     user = _current_user(request)
     request.state.user = user            # route doc qua request.state.user
     if request.url.path not in _PUBLIC and user is None:
@@ -448,7 +491,32 @@ def queue():
     _ensure_runtime_dirs()
     dl = cfg.get("downloads_dir") or cfg.get("inbox_dir", "inbox")
     snap["disk_free_gb"] = round(resources.free_gb(dl), 1)
+    snap["node"] = cfg.get("node_id", "local")
+    snap["worker_allowed"] = _worker_allowed()
     return snap
+
+
+@app.get("/api/handoff/export")
+def handoff_export():
+    """Bundle chi gom URL/magnet; khong day video lon hay cookie local qua Tailscale."""
+    return {"version": 1, "source": cfg.get("node_id", "local"),
+            "jobs": Q.export_pending()}
+
+
+@app.post("/api/handoff/import")
+async def handoff_import(request: Request):
+    data = await request.json()
+    ids = Q.import_jobs((data or {}).get("jobs") or [])
+    if ids:
+        _start_drain()
+    return {"ok": True, "accepted": ids, "node": cfg.get("node_id", "local")}
+
+
+@app.post("/api/handoff/ack")
+async def handoff_ack(request: Request):
+    data = await request.json()
+    removed = Q.acknowledge((data or {}).get("ids") or [])
+    return {"ok": True, "removed": removed}
 
 
 @app.get("/shorts", response_class=HTMLResponse)
@@ -514,6 +582,7 @@ def shorts_preview(request: Request, url: str, referer: str = ""):
     """Phat thu 1 clip trong UI: proxy stream tu CDN (kem UA/referer) -> tranh CORS/chan
     referer khi nhung <video> truc tiep. Ho tro Range de tua. Sau khi xem moi tai."""
     import urllib.request
+
     from fastapi.responses import StreamingResponse
     if not url.startswith(("http://", "https://")):
         return PlainTextResponse("url khong hop le", status_code=400)
@@ -880,6 +949,7 @@ def main():
     if not ffmpeg_helper.available():
         raise SystemExit("Khong tim thay ffmpeg/ffprobe.")
     auth.bootstrap_admin(USERS)          # lan dau: tao admin (env hoac mat khau ngau nhien in ra)
+    threading.Thread(target=_queue_scheduler, daemon=True).start()
     uvicorn.run(app, host=os.environ.get("MKV_GUI_HOST", "127.0.0.1"),
                 port=int(os.environ.get("MKV_GUI_PORT", "8800")))
 

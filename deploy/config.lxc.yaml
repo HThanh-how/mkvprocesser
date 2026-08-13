@@ -33,6 +33,13 @@ organize_budget: 2000         # quota toi da moi lan timer organize (de danh upl
 cache_ttl: 86400              # lay YouTube 1 lan/ngay, con lai doc cache
 redis_url: ""                # redis://127.0.0.1:6379/0 neu Redis chay; rong = cache file
 
+# Active/passive: vnpt dung 06:00-18:00; Mac doi node_id=mac, start=18, stop=6.
+node_id: vnpt
+worker_enabled: true
+worker_start_hour: 6
+worker_stop_hour: 18
+handoff_token: ""            # deploy dat qua env MKV_HANDOFF_TOKEN, khong commit secret
+
 # Bat tay (dieu khien browser server qua noVNC + sniff CDP)
 catch_cdp: "http://127.0.0.1:9222"
 catch_novnc_port: 6080

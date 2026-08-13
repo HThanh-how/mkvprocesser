@@ -1,0 +1,9 @@
+[Unit]
+Description=Handoff mkvtools URL queue to passive node
+After=network-online.target mkvtools-gui.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/mkvtools-handoff.env
+ExecStart=/usr/bin/python3 /opt/mkvprocesser/deploy/handoff.py --source ${MKV_HANDOFF_SOURCE} --dest ${MKV_HANDOFF_DEST} --token-file /etc/mkvtools-handoff.token --start-hour ${MKV_HANDOFF_START_HOUR} --stop-hour ${MKV_HANDOFF_STOP_HOUR}

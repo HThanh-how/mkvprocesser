@@ -1,0 +1,12 @@
+[Unit]
+Description=Retry mkvtools active/passive handoff every 5 minutes
+
+[Timer]
+# vnpt ban giao sau 18:00 va tiep tuc retry cho toi truoc gio tat 19:25.
+OnCalendar=*-*-* 18:00/5:00
+OnCalendar=*-*-* 19:00/5:00
+Persistent=true
+RandomizedDelaySec=15
+
+[Install]
+WantedBy=timers.target

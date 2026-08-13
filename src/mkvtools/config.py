@@ -48,6 +48,12 @@ _DEFAULTS = {
     # --- Cache (tiet kiem quota YouTube): lay 1 lan/ngay roi doc cache ---
     "redis_url": "",            # redis://host:6379/0 (rong = cache file tren dia)
     "cache_ttl": 86400,         # TTL cache giay (86400 = lay YouTube 1 lan/ngay)
+    # --- Active/passive worker + bang giao queue metadata ---
+    "node_id": "local",
+    "worker_enabled": True,
+    "worker_start_hour": 0,     # gio local, inclusive
+    "worker_stop_hour": 24,     # gio local, exclusive; start > stop = ca qua dem
+    "handoff_token": "",       # bat buoc cho /api/handoff/*
     # --- Tu tim sub (OpenSubtitles) cho phim KHONG co sub nhung ---
     "auto_fetch_subs": False,   # bat: phim khong co sub chu -> tu tim vi/en va up caption
     "sub_langs": "vi,en",       # ngon ngu uu tien khi tu tim sub
@@ -107,6 +113,13 @@ def validate(cfg: dict) -> dict:
         raise ValueError(f"config: poll_seconds={ps!r} khong phai so") from None
     if ps_int <= 0:
         raise ValueError("config: poll_seconds phai > 0")
+    for key in ("worker_start_hour", "worker_stop_hour"):
+        try:
+            hour = int(cfg.get(key, 0))
+        except (TypeError, ValueError):
+            raise ValueError(f"config: {key} phai la so gio") from None
+        if not 0 <= hour <= 24:
+            raise ValueError(f"config: {key} phai trong 0..24")
     return cfg
 
 

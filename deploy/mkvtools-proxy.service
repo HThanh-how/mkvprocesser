@@ -1,0 +1,7 @@
+[Unit]
+Description=Proxy vnpt:8800 to isolated mkvtools LXC
+Requires=mkvtools-proxy.socket
+After=network.target pve-container@101.service
+
+[Service]
+ExecStart=/usr/lib/systemd/systemd-socket-proxyd 10.77.100.11:8800

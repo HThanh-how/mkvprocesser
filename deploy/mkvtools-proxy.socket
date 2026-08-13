@@ -1,0 +1,10 @@
+[Unit]
+Description=Expose isolated mkvtools LXC through vnpt host
+
+[Socket]
+ListenStream=0.0.0.0:8800
+Accept=no
+
+[Install]
+WantedBy=sockets.target
+

@@ -13,10 +13,15 @@ set -e
 INSTALL_DIR=${INSTALL_DIR:-/opt/mkvprocesser}
 DATA_DIR=${DATA_DIR:-/data}
 GUI_PORT=${GUI_PORT:-8800}
+NODE_ID=${NODE_ID:-$(hostname)}
+WORKER_START_HOUR=${WORKER_START_HOUR:-0}
+WORKER_STOP_HOUR=${WORKER_STOP_HOUR:-24}
+HANDOFF_DEST=${HANDOFF_DEST:-}
 export DEBIAN_FRONTEND=noninteractive
 _rand() { head -c12 /dev/urandom | base64 | tr -dc 'a-zA-Z0-9' | head -c12; }
 ADMINPASS=${ADMINPASS:-$(_rand)}
 VNCPASS=${VNCPASS:-$(_rand)}
+HANDOFF_TOKEN=${HANDOFF_TOKEN:-$(_rand)$(_rand)}
 
 echo "== [1/7] apt deps =="
 apt-get update -qq
@@ -48,8 +53,14 @@ MKV_GUI_PORT=$GUI_PORT
 MKV_ADMIN_USER=admin
 MKV_ADMIN_PASS=$ADMINPASS
 MKV_VNC_PASSWORD=$VNCPASS
+MKV_NODE_ID=$NODE_ID
+MKV_WORKER_START_HOUR=$WORKER_START_HOUR
+MKV_WORKER_STOP_HOUR=$WORKER_STOP_HOUR
+MKV_HANDOFF_TOKEN=$HANDOFF_TOKEN
 EOF
 chmod 600 /etc/mkvtools.env
+printf '%s\n' "$HANDOFF_TOKEN" > /etc/mkvtools-handoff.token
+chmod 600 /etc/mkvtools-handoff.token
 
 echo "== [5/7] systemd units =="
 cat > /etc/systemd/system/mkv-xvfb.service <<EOF
@@ -129,10 +140,20 @@ RandomizedDelaySec=600
 [Install]
 WantedBy=timers.target
 EOF
+if [ -n "$HANDOFF_DEST" ]; then
+  install -m 0644 "$INSTALL_DIR/deploy/mkvtools-handoff.service" \
+    /etc/systemd/system/mkvtools-handoff.service
+  install -m 0644 "$INSTALL_DIR/deploy/mkvtools-handoff.timer" \
+    /etc/systemd/system/mkvtools-handoff.timer
+  printf 'MKV_HANDOFF_SOURCE=http://127.0.0.1:%s\nMKV_HANDOFF_DEST=%s\n' \
+    "$GUI_PORT" "$HANDOFF_DEST" > /etc/mkvtools-handoff.env
+  chmod 600 /etc/mkvtools-handoff.env
+fi
 
 echo "== [6/7] bat dich vu =="
 systemctl daemon-reload
 systemctl enable --now mkv-xvfb mkv-chromium mkv-x11vnc mkv-novnc mkvtools-gui mkv-organize.timer
+[ -z "$HANDOFF_DEST" ] || systemctl enable --now mkvtools-handoff.timer
 
 echo "== [7/7] XONG =="
 IP=$(hostname -I | awk '{print $1}')

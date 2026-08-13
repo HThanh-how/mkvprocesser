@@ -1,0 +1,6 @@
+[Unit]
+Description=Cleanly stop mkvtools LXC before company power cutoff
+
+[Service]
+Type=oneshot
+ExecStart=-/usr/sbin/pct shutdown 101 --timeout 240

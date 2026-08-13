@@ -22,6 +22,40 @@ def test_queue_add_pop_and_filters():
     assert q.pop() is None
 
 
+def test_pending_queue_persists_and_current_is_recovered(tmp_path):
+    qf = str(tmp_path / "queue.json")
+    q = jobs.JobQueue(queue_file=qf, node_id="vnpt")
+    assert q.add("https://host/a.mkv")
+    assert q.add("https://host/b.mkv")
+    assert q.pop() == "https://host/a.mkv"  # mo phong mat dien dang xu ly
+
+    q2 = jobs.JobQueue(queue_file=qf, node_id="vnpt")
+    assert q2.snapshot()["pending"] == ["https://host/a.mkv", "https://host/b.mkv"]
+
+
+def test_queue_deduplicates_and_handoff_is_idempotent(tmp_path):
+    source = jobs.JobQueue(queue_file=str(tmp_path / "source.json"), node_id="vnpt")
+    dest = jobs.JobQueue(queue_file=str(tmp_path / "dest.json"), node_id="mac")
+    assert source.add("https://host/movie.mkv")
+    assert source.add("https://host/movie.mkv") is False
+
+    bundle = source.export_pending()
+    first = dest.import_jobs(bundle)
+    second = dest.import_jobs(bundle)
+    assert first == second
+    assert dest.snapshot()["pending"] == ["https://host/movie.mkv"]
+    assert source.acknowledge(first) == 1
+    assert source.snapshot()["pending"] == []
+
+
+def test_handoff_does_not_export_local_files_or_cookie_paths():
+    q = jobs.JobQueue()
+    q.add("C:/video/movie.mkv")
+    q.add("https://host/private", cookies="C:/cookies.txt")
+    q.add("magnet:?xt=urn:btih:abc")
+    assert [x["url"] for x in q.export_pending()] == ["magnet:?xt=urn:btih:abc"]
+
+
 def test_try_start_exclusive_until_drained():
     q = jobs.JobQueue()
     q.add("u1")

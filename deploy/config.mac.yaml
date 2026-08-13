@@ -1,0 +1,28 @@
+client_secret: /Users/Shared/mkvtools/secrets/client_secret.json
+token_file: /Users/Shared/mkvtools/secrets/token.json
+users_file: /Users/Shared/mkvtools/secrets/users.json
+
+inbox_dir: /Users/Shared/mkvtools/inbox
+work_dir: /Users/Shared/mkvtools/work
+done_dir: /Users/Shared/mkvtools/done
+downloads_dir: /Users/Shared/mkvtools/downloads
+state_file: /Users/Shared/mkvtools/work/processed.json
+
+upload: true
+privacy: private
+audio_per_lang: best
+captions: all
+container: mp4
+make_playlist: true
+master_playlist: "MKVTOOLS - Tat ca"
+delete_source: true
+min_free_gb: 80
+dedup_by_title: true
+on_title_match: skip
+upgrade_on_higher_res: true
+
+node_id: mac
+worker_enabled: true
+worker_start_hour: 18
+worker_stop_hour: 6
+handoff_token: ""
