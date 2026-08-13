@@ -4,63 +4,48 @@ Main script for MKV video processing.
 This module handles video file processing, metadata extraction, subtitle extraction,
 and file organization with support for Vietnamese audio/subtitle detection.
 """
-import os
-import sys
+import datetime
 import json
 import logging
-import subprocess
+import os
 import platform
-import re
-import datetime
-import tempfile
-import io
 import shutil
-import zipfile
-import time
+import subprocess
+import sys
+import tempfile
 from pathlib import Path
-from typing import Optional, List, Dict, Any, Union, Tuple
+from typing import Any, Dict, Optional
 
-import requests
-from .config_manager import load_user_config, get_config_dir
-from .github_sync import build_auto_push_config, RemoteSyncManager
-from .i18n import set_language, t, get_language
+from .config_manager import load_user_config
+from .github_sync import RemoteSyncManager, build_auto_push_config
+from .i18n import set_language, t
 from .log_manager import (
+    convert_legacy_log_file,
     log_processed_file,
     read_processed_files,
-    convert_legacy_log_file,
-    write_run_log_snapshot,
     set_remote_sync,
-)
-from .utils.git_utils import (
-    run_git_command,
-    find_git_executable,
-    download_git_portable,
-    ensure_git_available,
-    check_git_available,
-)
-from .utils.file_utils import (
-    sanitize_filename,
-    get_file_size_gb,
-    get_file_size_mb,
-    get_file_signature,
-    create_folder,
-)
-from .utils.metadata_utils import (
-    get_video_resolution_label,
-    get_movie_year,
-    get_language_abbreviation,
-    get_subtitle_info,
-)
-from .utils.system_utils import check_ffmpeg_available, check_available_ram
-from .utils.temp_utils import temp_directory_in_memory
-from .video_processor import (
-    rename_simple,
-    rename_file,
-    process_video,
-    extract_video_with_audio,
+    write_run_log_snapshot,
 )
 from .subtitle_extractor import extract_subtitle
-from .utils.ffmpeg_runner import run_ffmpeg_command
+from .utils.file_utils import (
+    create_folder,
+    get_file_signature,
+    get_file_size_gb,
+    get_file_size_mb,
+)
+from .utils.git_utils import (
+    find_git_executable,
+    run_git_command,
+)
+from .utils.metadata_utils import (
+    get_language_abbreviation,
+)
+from .utils.system_utils import check_available_ram, check_ffmpeg_available
+from .video_processor import (
+    extract_video_with_audio,
+    rename_simple,
+)
+
 
 # Configure logging - only add StreamHandler if stdout is valid
 def setup_logging():
@@ -139,10 +124,8 @@ except ImportError:
 
 # Kiểm tra và hướng dẫn cài đặt các package cần thiết
 # Import các thư viện cần thiết
-import ffmpeg  # type: ignore
-import psutil  # type: ignore
 
-from contextlib import contextmanager
+import ffmpeg  # type: ignore  # noqa: E402 - sau khoi kiem tra dependency
 
 # Git functions moved to utils/git_utils.py - these are legacy wrappers
 
@@ -176,9 +159,9 @@ def auto_commit_subtitles(subtitle_folder, settings: Optional[Dict[str, Any]] = 
             return False
         
         # Copy subtitle files to directory (if no git, will copy to current directory)
-        logger.info(f"[AUTO-COMMIT] Checking subtitle files...")
+        logger.info("[AUTO-COMMIT] Checking subtitle files...")
         subtitle_files = []
-        for root, dirs, files in os.walk(subtitle_path):
+        for root, _dirs, files in os.walk(subtitle_path):
             for file in files:
                 if file.endswith('.srt'):
                     subtitle_files.append(Path(root) / file)
@@ -210,7 +193,7 @@ def auto_commit_subtitles(subtitle_folder, settings: Optional[Dict[str, Any]] = 
             # Check if directory already exists
             if work_dir.exists():
                 # Directory exists -> init git and pull (DON'T clone as it will error)
-                logger.info(f"[AUTO-COMMIT] Directory already exists. Initializing git and pulling...")
+                logger.info("[AUTO-COMMIT] Directory already exists. Initializing git and pulling...")
                 try:
                     # Init git repo
                     run_git_command(git_cmd, ['init'], cwd=str(work_dir), check=True)
@@ -234,7 +217,7 @@ def auto_commit_subtitles(subtitle_folder, settings: Optional[Dict[str, Any]] = 
                     run_git_command(git_cmd, ['checkout', '-b', branch, f'origin/{branch}'], cwd=str(work_dir), check=False)
                     run_git_command(git_cmd, ['pull', 'origin', branch], cwd=str(work_dir), check=False, timeout=60)
                     
-                    logger.info(f"[AUTO-COMMIT] Successfully initialized git and pulled.")
+                    logger.info("[AUTO-COMMIT] Successfully initialized git and pulled.")
                     
                 except Exception as init_err:
                     logger.error(f"[AUTO-COMMIT] Error initializing git: {init_err}")
@@ -266,14 +249,14 @@ def auto_commit_subtitles(subtitle_folder, settings: Optional[Dict[str, Any]] = 
                     # Sparse checkout only logs/ and processed_files.log (old log)
                     run_git_command(git_cmd, ['sparse-checkout', 'set', 'logs', 'processed_files.log'], cwd=str(work_dir), check=True)
                     
-                    logger.info(f"[AUTO-COMMIT] Successfully cloned repo.")
+                    logger.info("[AUTO-COMMIT] Successfully cloned repo.")
                     
                 except Exception as clone_err:
                     logger.error(f"[AUTO-COMMIT] Cannot clone repo: {clone_err}")
                     return False
         else:
             # Already a git repo, pull to update logs/ and processed_files.log
-            logger.info(f"[AUTO-COMMIT] Already a git repo. Pulling (only logs/ and processed_files.log)...")
+            logger.info("[AUTO-COMMIT] Already a git repo. Pulling (only logs/ and processed_files.log)...")
             try:
                 run_git_command(git_cmd, ['pull'], cwd=str(work_dir), check=True, timeout=60)
             except Exception:
@@ -342,7 +325,7 @@ def auto_commit_subtitles(subtitle_folder, settings: Optional[Dict[str, Any]] = 
             logger.info("[AUTO-COMMIT] No files to commit.")
             return True
         
-        logger.info(f"\n=== AUTO-COMMIT SUBTITLES & LOGS ===")
+        logger.info("\n=== AUTO-COMMIT SUBTITLES & LOGS ===")
         logger.info(f"Will commit {len(subtitle_files_to_commit)} subtitle(s) and {len(log_files)} log file(s):")
         for file_path, movie_name in subtitle_files_to_commit:
             logger.info(f"  - {file_path} ({movie_name})")
@@ -486,7 +469,7 @@ def auto_commit_subtitles(subtitle_folder, settings: Optional[Dict[str, Any]] = 
                 except Exception as push_err:
                     logger.error(f"⚠️ Error pushing: {push_err}")
                     if attempt < max_retries - 1:
-                        logger.info(f"[AUTO-COMMIT] Retrying...")
+                        logger.info("[AUTO-COMMIT] Retrying...")
                         return
                     return False
             
@@ -551,7 +534,6 @@ def _do_process_file(file_path, video_file, file_idx, total_files, input_folder,
         rename_enabled = file_opts.get("rename_enabled", False)
         custom_output_name = file_opts.get("custom_output_name", None)
         selected_audio_indices = file_opts.get("selected_audio_indices", [])
-        force_rename = file_opts.get("force_process", False) or rename_enabled
         export_subtitles = file_opts.get("export_subtitles", True)  # Default True
         export_subtitle_indices = file_opts.get("export_subtitle_indices", [])
         
@@ -806,7 +788,7 @@ def _do_process_file(file_path, video_file, file_idx, total_files, input_folder,
                 
         # If file was processed (has VIE audio) OR we just skipped video to do rename only
         if (processed or skip_video) and should_rename:
-            logger.info(f"\nFile processed. Renaming original file as requested...")
+            logger.info("\nFile processed. Renaming original file as requested...")
             try:
                 new_path = rename_simple(file_path, custom_name=custom_output_name)
                 log_processed_file(
@@ -831,7 +813,7 @@ def _do_process_file(file_path, video_file, file_idx, total_files, input_folder,
                 logger.error(f"Cannot rename: {rename_err}")
         # If only extract SRT (no VIE audio) and should_rename = True, rename video file
         elif not processed and has_vie_subtitle and not has_vie_audio and should_rename:
-            logger.info(f"\nExtracted subtitle. Renaming video file as requested...")
+            logger.info("\nExtracted subtitle. Renaming video file as requested...")
             try:
                 new_path = rename_simple(file_path, custom_name=custom_output_name)
                 log_processed_file(
@@ -858,7 +840,7 @@ def _do_process_file(file_path, video_file, file_idx, total_files, input_folder,
         # Only rename if should_rename = True
         elif (not has_vie_subtitle and not has_vie_audio) or (not processed and not should_rename):
             if not has_vie_subtitle and not has_vie_audio and should_rename:
-                logger.info(f"\nNo Vietnamese subtitle or audio found. Only renaming file...")
+                logger.info("\nNo Vietnamese subtitle or audio found. Only renaming file...")
                 try:
                     new_path = rename_simple(file_path, custom_name=custom_output_name)
                     log_processed_file(
@@ -947,8 +929,8 @@ def main(input_folder=None, force_reprocess: Optional[bool] = None, dry_run: boo
         used_gb = disk_usage.used / (1024**3)
         percent_free = (free_gb / total_gb) * 100
         
-        logger.info(f"=== SYSTEM INFORMATION ===")
-        logger.info(f"Disk:")
+        logger.info("=== SYSTEM INFORMATION ===")
+        logger.info("Disk:")
         logger.info(f"  Total capacity: {total_gb:.2f} GB")
         logger.info(f"  Used: {used_gb:.2f} GB")
         logger.info(f"  Free: {free_gb:.2f} GB ({percent_free:.1f}%)")
@@ -973,12 +955,12 @@ def main(input_folder=None, force_reprocess: Optional[bool] = None, dry_run: boo
             logger.error(f"Cannot check /dev/shm: {e}")
     
     # Display processing strategy information
-    logger.info(f"\n=== PROCESSING STRATEGY ===")
-    logger.info(f"1. Prioritize RAM processing for optimal speed")
-    logger.info(f"2. If sufficient RAM (200% of file size), will process in RAM")
-    logger.info(f"3. If RAM processing fails, will automatically switch to disk processing")
-    logger.info(f"4. Extract subtitles directly to destination folder")
-    logger.info(f"======================\n")
+    logger.info("\n=== PROCESSING STRATEGY ===")
+    logger.info("1. Prioritize RAM processing for optimal speed")
+    logger.info("2. If sufficient RAM (200% of file size), will process in RAM")
+    logger.info("3. If RAM processing fails, will automatically switch to disk processing")
+    logger.info("4. Extract subtitles directly to destination folder")
+    logger.info("======================\n")
 
     # Read list of processed files
     if force_reprocess:
@@ -1021,7 +1003,6 @@ def main(input_folder=None, force_reprocess: Optional[bool] = None, dry_run: boo
         logger.info("SSD Caching DISABLED.")
 
     # Initialize GitHub sync if configured
-    from .log_manager import set_remote_sync
     remote_entries = []
     auto_config = build_auto_push_config(settings)
     if auto_config:

@@ -3,11 +3,11 @@ Helper module to find and use FFmpeg - prioritizes local bundled FFmpeg.
 """
 import logging
 import os
-import subprocess
 import platform
+import subprocess
 import sys
 from pathlib import Path
-from typing import Optional, Union, List
+from typing import List, Optional, Union
 
 logger = logging.getLogger(__name__)
 
@@ -63,10 +63,8 @@ def find_ffmpeg_binary() -> Optional[str]:
     # FFmpeg filename by OS
     if system == "Windows":
         ffmpeg_name = "ffmpeg.exe"
-        ffprobe_name = "ffprobe.exe"
     else:
         ffmpeg_name = "ffmpeg"
-        ffprobe_name = "ffprobe"
     
     # 1. Search in bundle/ffmpeg_bin directory
     local_ffmpeg = bundle_dir / "ffmpeg_bin" / ffmpeg_name
@@ -86,7 +84,7 @@ def find_ffmpeg_binary() -> Optional[str]:
     
     # 3. Search in PATH (system FFmpeg)
     try:
-        result = subprocess.run(
+        subprocess.run(
             ['ffmpeg', '-version'],
             capture_output=True,
             check=True,
@@ -138,7 +136,7 @@ def find_ffprobe_binary() -> Optional[str]:
     
     # 3. Search in PATH
     try:
-        result = subprocess.run(
+        subprocess.run(
             ['ffprobe', '-version'],
             capture_output=True,
             check=True,
@@ -245,11 +243,12 @@ def probe_file(file_path: str) -> dict:
                 timeout=5,
                 creationflags=SUBPROCESS_FLAGS
             )
-        except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired):
+        except (subprocess.CalledProcessError, FileNotFoundError,
+                subprocess.TimeoutExpired) as e:
             raise RuntimeError(
                 "ffprobe không được tìm thấy. "
                 "Vui lòng đảm bảo ffprobe.exe có trong thư mục ffmpeg_bin hoặc trong PATH."
-            )
+            ) from e
     
     cmd = [
         ffprobe_path,
@@ -291,6 +290,6 @@ def probe_file(file_path: str) -> dict:
     except FileNotFoundError as e:
         logger.error(f"ffprobe not found: {e}")
         raise RuntimeError(
-            f"ffprobe không được tìm thấy. "
-            f"Vui lòng đảm bảo ffprobe.exe có trong thư mục ffmpeg_bin hoặc trong PATH."
+            "ffprobe không được tìm thấy. "
+            "Vui lòng đảm bảo ffprobe.exe có trong thư mục ffmpeg_bin hoặc trong PATH."
         ) from e

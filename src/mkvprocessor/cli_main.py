@@ -10,12 +10,10 @@ import argparse
 import platform
 import shutil
 import subprocess
-import sys
-from pathlib import Path
 from typing import List
 
-from .processing_core import main
 from .ffmpeg_helper import find_ffmpeg_binary
+from .processing_core import main
 
 
 def _ensure_python_dependencies() -> List[str]:

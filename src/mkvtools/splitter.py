@@ -121,7 +121,7 @@ def pick_best_per_lang(jobs: list) -> list:
     return [j for j in jobs if not (j.get("lang") or "") or best.get(j["lang"]) is j]
 
 
-def plan(src, outdir, sub_mode="caption", container="mp4", audio_per_lang="all") -> tuple:
+def plan(src, outdir, sub_mode="caption", container="mp4", audio_per_lang="all") -> dict:
     base = os.path.splitext(os.path.basename(src))[0]
     info = ffmpeg_helper.probe(src)
     a = analyze(info)

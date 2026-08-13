@@ -6,23 +6,21 @@ Handles video file processing, audio extraction, and file renaming.
 import logging
 import os
 import shutil
-import tempfile
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Union
 
 import ffmpeg  # type: ignore
 
-from .utils.file_utils import create_folder, get_file_size_gb, sanitize_filename
+from .log_manager import log_processed_file
+from .utils.ffmpeg_runner import run_ffmpeg_command
+from .utils.file_utils import get_file_size_gb, sanitize_filename
 from .utils.metadata_utils import (
     get_language_abbreviation,
     get_movie_year,
     get_video_resolution_label,
 )
-from .utils.system_utils import check_available_ram, ResourceMonitor
-from .log_manager import log_processed_file
-from .ffmpeg_helper import get_ffmpeg_command
+from .utils.system_utils import ResourceMonitor
 from .utils.temp_utils import temp_directory_in_memory
-from .utils.ffmpeg_runner import run_ffmpeg_command
 
 logger = logging.getLogger(__name__)
 
@@ -127,9 +125,11 @@ def process_video(
     rename_enabled: bool = False,
     temp_work_dir: Optional[str] = None,
     custom_output_name: Optional[str] = None,
+    mux_subtitles: bool = True,
+    mux_subtitle_indices: Optional[List[int]] = None,
 ) -> bool:
     """Process video with selected audio track and extract subtitles.
-    
+
     Args:
         file_path: Path to input video file
         output_folder: Output directory
@@ -140,10 +140,18 @@ def process_video(
         rename_enabled: Whether to rename output files
         temp_work_dir: Optional temporary working directory (e.g. on SSD) for faster processing
         custom_output_name: Exact output name to use (must include extension)
-    
+        mux_subtitles: Whether to mux subtitle streams into the output video
+        mux_subtitle_indices: Subtitle stream indices to mux
+
     Returns:
         True if processing succeeded, False otherwise
     """
+    # These two were used in the body but missing from the signature, while all
+    # three call sites in extract_video_with_audio() already passed them as
+    # keywords -> every call raised TypeError, swallowed by the broad
+    # `except Exception` there and reported as a generic "Exception while
+    # processing" line. Subtitle muxing therefore never ran.
+    mux_subtitle_indices = mux_subtitle_indices or []
     try:
         original_filename = os.path.basename(file_path)
         
@@ -208,7 +216,7 @@ def process_video(
                 logger.info(f"Free disk space: {free_space_gb:.2f} GB")
                 
                 if free_space_gb < 2:  # Need at least 2GB free space for safety
-                    logger.warning(f"WARNING: Too little free disk space. Need at least 2GB")
+                    logger.warning("WARNING: Too little free disk space. Need at least 2GB")
                     return False
             except Exception as disk_err:
                 logger.error(f"Error checking disk space: {disk_err}")
@@ -287,7 +295,7 @@ def process_video(
                 else:
                     logger.warning("RAM processing failed. Switching to disk processing...")
             else:
-                logger.info(f"Insufficient RAM. Processing directly on disk.")
+                logger.info("Insufficient RAM. Processing directly on disk.")
             
             # Process directly to destination (or temp work dir if provided)
             target_output_path = final_output_path

@@ -4,7 +4,7 @@ Metadata extraction utilities for MKV Processor.
 Handles video metadata extraction: resolution, year, language, etc.
 """
 import logging
-from typing import Optional, Tuple
+from typing import Tuple
 
 import ffmpeg  # type: ignore
 
@@ -165,7 +165,7 @@ def get_subtitle_info(file_path: str) -> list[Tuple[int, str, str, str]]:
                 
                 subtitle_tracks.append((index, language, title, codec))
         return subtitle_tracks
-    except (OSError, IOError, KeyError, ValueError) as e:
+    except (OSError, KeyError, ValueError) as e:
         logger.error(f"Error getting subtitle info from {file_path}: {e}")
         return []
 

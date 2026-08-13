@@ -7,16 +7,12 @@ isn't collected properly.
 """
 from __future__ import annotations
 
-import json
 import os
 import platform
-import re
 import shutil
 import subprocess
 import sys
 import tempfile
-import urllib.request
-import zipfile
 from pathlib import Path
 from typing import Optional, Tuple
 
@@ -362,23 +358,23 @@ class UpdateManager:
                 f.write("REM Try to copy update file\n")
                 f.write(f'if exist "{update_file_path}" (\n')
                 f.write(f'    copy /Y "{update_file_path}" "{exe_path}" >nul 2>&1\n')
-                f.write(f'    if !ERRORLEVEL! EQU 0 (\n')
-                f.write(f'        REM Delete batch script first\n')
+                f.write('    if !ERRORLEVEL! EQU 0 (\n')
+                f.write('        REM Delete batch script first\n')
                 f.write(f'        del "{batch_script}" >nul 2>&1\n')
-                f.write(f'        REM Start application with correct working directory\n')
+                f.write('        REM Start application with correct working directory\n')
                 f.write(f'        cd /d "{exe_dir}"\n')
                 f.write(f'        start "" /D "{exe_dir}" "{exe_path}"\n')
-                f.write(f'        exit /b 0\n')
-                f.write(f'    ) else (\n')
-                f.write(f'        echo Update installation failed: Copy error\n')
-                f.write(f'        pause\n')
-                f.write(f'        exit /b 1\n')
-                f.write(f'    )\n')
-                f.write(f') else (\n')
+                f.write('        exit /b 0\n')
+                f.write('    ) else (\n')
+                f.write('        echo Update installation failed: Copy error\n')
+                f.write('        pause\n')
+                f.write('        exit /b 1\n')
+                f.write('    )\n')
+                f.write(') else (\n')
                 f.write(f'    echo Update file not found: {update_file_path}\n')
-                f.write(f'    pause\n')
-                f.write(f'    exit /b 1\n')
-                f.write(f')\n')
+                f.write('    pause\n')
+                f.write('    exit /b 1\n')
+                f.write(')\n')
             
             # Run batch script in background with DETACHED_PROCESS to avoid holding _MEIPASS
             # This ensures the batch script runs independently and doesn't block PyInstaller cleanup

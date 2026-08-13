@@ -8,10 +8,8 @@ import importlib
 import json
 import os
 import sys
-from datetime import datetime
 from pathlib import Path
 
-import requests
 from PySide6 import QtCore, QtGui, QtWidgets
 
 # Add src to sys.path to import mkvprocessor
@@ -19,9 +17,7 @@ src_path = Path(__file__).parent.parent.parent
 if str(src_path) not in sys.path:
     sys.path.insert(0, str(src_path))
 
-from mkvprocessor.config_manager import (
-    get_config_path,
-    load_raw_user_config,
+from mkvprocessor.config_manager import (  # noqa: E402 - phai sau khi chinh sys.path o tren
     load_user_config,
     save_user_config,
 )
@@ -29,27 +25,27 @@ from mkvprocessor.config_manager import (
 # Hỗ trợ import khi chạy như package module hoặc chạy trực tiếp file
 try:
     from .file_options import FileOptions
-    from .theme import DARK_THEME, get_status_color
-    from .worker import Worker
     from .metadata_loader import MetadataLoader
+    from .theme import DARK_THEME
+    from .worker import Worker
 except ImportError:
     from file_options import FileOptions  # type: ignore
-    from theme import DARK_THEME, get_status_color  # type: ignore
-    from worker import Worker  # type: ignore
     from metadata_loader import MetadataLoader  # type: ignore
+    from theme import DARK_THEME  # type: ignore
+    from worker import Worker  # type: ignore
 
 try:
+    from .components.log_tab import LogTab
     from .components.processing_tab import ProcessingTab
     from .components.settings_tab import SettingsTab
-    from .components.log_tab import LogTab
 except ImportError:
     # When running outside package context, add gui_pyside_app dir to sys.path
     _gui_app_dir = str(Path(__file__).parent)
     if _gui_app_dir not in sys.path:
         sys.path.insert(0, _gui_app_dir)
+    from components.log_tab import LogTab  # type: ignore
     from components.processing_tab import ProcessingTab  # type: ignore
     from components.settings_tab import SettingsTab  # type: ignore
-    from components.log_tab import LogTab  # type: ignore
 
 
 
@@ -219,7 +215,7 @@ class MainWindow(QtWidgets.QMainWindow):
             try:
                 # Check if requests is available first
                 try:
-                    import requests
+                    import requests  # noqa: F401 - chi tham do xem da cai chua
                 except ImportError:
                     error_msg = "[WARNING] Thư viện 'requests' chưa được cài đặt. Cài đặt bằng: pip install requests"
                     print(error_msg)
@@ -254,7 +250,8 @@ class MainWindow(QtWidgets.QMainWindow):
                     base_zip = meipass_path / "base_library.zip"
                     if base_zip.exists():
                         try:
-                            import zipfile, tempfile
+                            import tempfile
+                            import zipfile
                             with zipfile.ZipFile(base_zip, "r") as zf:
                                 for candidate in [
                                     "mkvprocessor/update_manager.py",
@@ -353,7 +350,7 @@ class MainWindow(QtWidgets.QMainWindow):
                     print(debug_info)
                     if self.log_view:
                         self.log_view.appendPlainText(debug_info)
-                    raise ImportError(f"Cannot import UpdateManager")
+                    raise ImportError("Cannot import UpdateManager")
                 
                 self.update_manager = UpdateManager()
                 success_msg = "[INFO] UpdateManager đã được khởi tạo thành công"
@@ -926,7 +923,6 @@ class MainWindow(QtWidgets.QMainWindow):
         
         # Cập nhật file count label để hiển thị đang refresh
         if hasattr(self, 'file_count_label'):
-            old_text = self.file_count_label.text()
             self.file_count_label.setText("Đang tải...")
             # Force update UI ngay lập tức
             QtWidgets.QApplication.processEvents()
@@ -980,7 +976,7 @@ class MainWindow(QtWidgets.QMainWindow):
             log_file = os.path.join(folder, "Subtitles", "processed_files.log")
             if os.path.exists(log_file):
                 try:
-                    with open(log_file, "r", encoding="utf-8") as f:
+                    with open(log_file, encoding="utf-8") as f:
                         for line in f:
                             parts = line.strip().split("|")
                             if len(parts) >= 2:
@@ -1000,7 +996,7 @@ class MainWindow(QtWidgets.QMainWindow):
             if logs_dir.exists():
                 for json_file in logs_dir.glob("*.json"):
                     try:
-                        with open(json_file, "r", encoding="utf-8") as f:
+                        with open(json_file, encoding="utf-8") as f:
                             entries = json.load(f)
                             if isinstance(entries, list):
                                 for entry in entries:
@@ -1013,7 +1009,7 @@ class MainWindow(QtWidgets.QMainWindow):
                                     if new_name:
                                         processed_new_names.add(new_name)
                                         processed_info[new_name] = {"new": new_name, "time": timestamp}
-                    except (json.JSONDecodeError, IOError) as e:
+                    except (OSError, json.JSONDecodeError) as e:
                         print(f"[WARNING] Không thể đọc {json_file}: {e}")
 
             # Đọc danh sách file video từ thư mục
@@ -1822,7 +1818,7 @@ class MainWindow(QtWidgets.QMainWindow):
         # Tìm filepath từ filename (có thể có nhiều file cùng tên, lấy file đầu tiên match)
         # Ưu tiên file đang trong processing_files_map
         matched_filepath = None
-        for normalized_path, original_path in self.processing_files_map.items():
+        for _normalized_path, original_path in self.processing_files_map.items():
             try:
                 if os.path.basename(original_path) == filename:
                     matched_filepath = original_path
@@ -2082,7 +2078,7 @@ class MainWindow(QtWidgets.QMainWindow):
             log_file = os.path.join(folder, "Subtitles", "processed_files.log")
             if os.path.exists(log_file):
                 try:
-                    with open(log_file, "r", encoding="utf-8") as f:
+                    with open(log_file, encoding="utf-8") as f:
                         for line in f:
                             parts = line.strip().split("|")
                             if len(parts) >= 2:
@@ -2100,7 +2096,7 @@ class MainWindow(QtWidgets.QMainWindow):
             if logs_dir.exists():
                 for json_file in logs_dir.glob("*.json"):
                     try:
-                        with open(json_file, "r", encoding="utf-8") as f:
+                        with open(json_file, encoding="utf-8") as f:
                             data = json.load(f)
                             if isinstance(data, list):
                                 for entry in data:
@@ -2172,7 +2168,7 @@ class MainWindow(QtWidgets.QMainWindow):
         if show and not self._has_update_badge:
             current_text = self.tabs.tabText(tab_index)
             if "●" not in current_text:
-                self.tabs.setTabText(tab_index, f"Settings ●")
+                self.tabs.setTabText(tab_index, "Settings ●")
                 self.tabs.tabBar().setTabTextColor(tab_index, QtGui.QColor("#ef4444"))
                 self._has_update_badge = True
         elif not show and self._has_update_badge:

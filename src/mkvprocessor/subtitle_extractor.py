@@ -10,11 +10,11 @@ import tempfile
 from pathlib import Path
 from typing import Optional, Tuple, Union
 
-from .utils.file_utils import create_folder, sanitize_filename
-from .utils.system_utils import check_available_ram, ResourceMonitor
-from .utils.temp_utils import temp_directory_in_memory
-from .utils.ffmpeg_runner import run_ffmpeg_command
 from .log_manager import log_processed_file
+from .utils.ffmpeg_runner import run_ffmpeg_command
+from .utils.file_utils import create_folder, sanitize_filename
+from .utils.system_utils import ResourceMonitor
+from .utils.temp_utils import temp_directory_in_memory
 
 logger = logging.getLogger(__name__)
 
@@ -86,7 +86,7 @@ def extract_subtitle(
         try_ram_first = rm.reserve_ram(ram_required)
         
         if try_ram_first:
-            logger.info(f"Trying to extract subtitle in RAM...")
+            logger.info("Trying to extract subtitle in RAM...")
             
             # Process in RAM
             ram_success = False
@@ -139,7 +139,7 @@ def extract_subtitle(
             else:
                 logger.warning("RAM processing failed. Switching to direct disk processing...")
         else:
-            logger.info(f"Insufficient RAM. Processing directly on disk.")
+            logger.info("Insufficient RAM. Processing directly on disk.")
         
         # Process directly to destination if cannot process in RAM
         logger.info(f"Extracting subtitle directly to: {final_output_path}")

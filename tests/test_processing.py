@@ -1,9 +1,10 @@
 """
 Unit tests for ResourceMonitor and parallel processing utilities.
 """
-import pytest
 import threading
+
 from mkvprocessor.utils.system_utils import ResourceMonitor
+
 
 def test_resource_monitor_singleton():
     """Verify that ResourceMonitor is a singleton."""

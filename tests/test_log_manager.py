@@ -1,4 +1,3 @@
-from pathlib import Path
 
 from mkvprocessor import log_manager
 

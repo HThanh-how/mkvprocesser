@@ -2,15 +2,27 @@ repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v4.5.0
     hooks:
+      # 1.7GB file .iso tung lot vao object store cua git qua mot ref checkpoint.
+      # Nguong 2MB chan tu goc; file to that su thi dung release asset.
       - id: check-added-large-files
+        args: [--maxkb=2048]
       - id: check-json
       - id: check-yaml
+      - id: check-merge-conflict
+      - id: detect-private-key
       - id: end-of-file-fixer
       - id: trailing-whitespace
 
-  - repo: https://github.com/psf/black
-    rev: 23.11.0
+  # Truoc day hook nay chay black trong khi CI kiem bang ruff (line-length 100).
+  # Hai cong cu danh nhau: commit "sach" theo black van do CI. Nay dung dung
+  # mot cong cu, cung cau hinh trong pyproject.toml, cung lenh voi CI.
+  #
+  # CO Y khong bat `ruff-format`: CI chi kiem `ruff check`, nen bat formatter o
+  # day se lam pre-commit va CI lech nhau lan nua — dung cai loi vua sua. Ngoai
+  # ra no se dinh dang lai ca repo ngay lan cham file dau tien, tao diff khong
+  # lien quan. Muon co formatter thi bat o CA HAI cho trong mot commit rieng.
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.6.9
     hooks:
-      - id: black
-        language_version: python3
-
+      - id: ruff
+        args: [--fix]

@@ -3,14 +3,11 @@ SettingsTab component for MKV Processor GUI.
 Handles configuration, GitHub integration, and updates.
 """
 from __future__ import annotations
-from PySide6 import QtWidgets, QtCore, QtGui
-import os
-import sys
-import json
-from pathlib import Path
-import importlib
 
-from mkvprocessor.config_manager import save_user_config, get_config_path, load_raw_user_config
+from PySide6 import QtCore, QtWidgets
+
+from mkvprocessor.config_manager import save_user_config
+
 try:
     from ..theme import DARK_THEME, get_status_color
 except ImportError:

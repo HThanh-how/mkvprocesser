@@ -1,58 +1,169 @@
 name: CI
 
+# Gop tu hai workflow cu:
+#  - ci.yml cu chi `python -c "import ..."` roi in "OK" — do la placeholder, khong
+#    phai test; no khong the that bai tru khi import vo.
+#  - mkvtools.yml cu co paths-filter chi chay khi dong toi src/mkvtools/**, nen sua
+#    src/mkvprocessor hay src/gui la KHONG CO CI NAO CHAY.
+# Nay mot workflow, khong loc duong dan, va moi buoc deu co the that bai that.
+
 on:
   push:
-    branches: [ main, develop ]
+    branches: [main, develop, "feat/**", "fix/**", "chore/**"]
   pull_request:
-    branches: [ main, develop ]
+    branches: [main, develop]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
+  lint:
+    name: ruff (toan bo src + tests)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - run: pip install "ruff>=0.4"
+      - run: ruff check src tests
+
+  typecheck:
+    name: pyright (danh sach module da sach)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - run: pip install -e ".[all]"
+      # Banh coc: chi kiem module da sach 100%, va danh sach nay chi duoc DAI
+      # ra. Kiem ca cay se hong ngay (73 loi ton dong o webui/fetch/pipeline/
+      # uploader), ma mot job "duoc phep do" thi khong con la cong kiem soat.
+      # Don sach them module nao thi them ten vao day.
+      - name: pyright
+        run: |
+          npx --yes pyright@1.1.406 \
+            src/mkvtools/auth.py \
+            src/mkvtools/cache.py \
+            src/mkvtools/config.py \
+            src/mkvtools/idempotency.py \
+            src/mkvtools/jobs.py \
+            src/mkvtools/logging_setup.py \
+            src/mkvtools/metadata.py \
+            src/mkvtools/netutil.py \
+            src/mkvtools/observability.py \
+            src/mkvtools/resources.py \
+            src/mkvtools/security.py \
+            src/mkvtools/seriesgaps.py \
+            src/mkvtools/shorts.py \
+            src/mkvtools/splitter.py \
+            src/mkvtools/subrepo.py \
+            src/mkvtools/templating.py \
+            src/mkvtools/titlematch.py
+
   test:
+    name: test (${{ matrix.os }} · py${{ matrix.python-version }})
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 20
+    timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
-        python-version: ['3.11']
-    
+        python-version: ['3.9', '3.12']
     steps:
-    - uses: actions/checkout@v4
-    
-    - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v5
-      with:
-        python-version: ${{ matrix.python-version }}
-        cache: 'pip'
-    
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install -r requirements.txt
-      shell: bash
-    
-    - name: Install FFmpeg (Linux)
-      if: runner.os == 'Linux'
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y ffmpeg
-    
-    - name: Install FFmpeg (macOS)
-      if: runner.os == 'macOS'
-      run: |
-        brew install ffmpeg
-    
-    - name: Install FFmpeg (Windows)
-      if: runner.os == 'Windows'
-      run: |
-        choco install ffmpeg -y
-      shell: pwsh
-    
-    - name: Test imports
-      env:
-        PYTHONUTF8: "1"          # Windows runner: stdout cp1252 khong encode duoc emoji
-      run: |
-        python -c "import sys; sys.path.insert(0, 'src'); from mkvprocessor import processing_core; print('Core imports OK')"
-        python -c "import sys; sys.path.insert(0, 'src'); from mkvprocessor.update_manager import UpdateManager; print('Update manager imports OK')"
-      shell: bash
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
 
+      - name: Cai ffmpeg (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - name: Cai ffmpeg (macOS)
+        if: runner.os == 'macOS'
+        run: brew install ffmpeg
+      - name: Cai ffmpeg (Windows)
+        if: runner.os == 'Windows'
+        run: choco install ffmpeg -y
+        shell: pwsh
+
+      - name: Core phai cai duoc mot minh (khong keo google/fastapi)
+        run: python -m pip install --upgrade pip && pip install -e .
+        shell: bash
+      - name: ... va chay duoc khi chi co core
+        run: |
+          python -c "import mkvtools, mkvtools.cli, mkvtools.pipeline, mkvtools.splitter, mkvtools.config; print('core OK', mkvtools.__version__)"
+          mkvtools --help
+        shell: bash
+
+      - name: Cai day du (tat ca extra + dev)
+        run: pip install -e ".[all,dev]"
+        shell: bash
+      - name: Import day du (upload + web resolve duoc tren moi nen tang)
+        run: python -c "import mkvtools.uploader, mkvtools.webui; print('full OK')"
+
+      - name: Desktop legacy van import duoc
+        env:
+          PYTHONUTF8: "1"        # runner Windows: stdout cp1252 khong encode duoc emoji
+        run: |
+          pip install -e ".[desktop]"
+          python -c "import sys; sys.path.insert(0,'src'); from mkvprocessor import processing_core, video_processor; print('legacy OK')"
+        shell: bash
+
+      - name: Test
+        run: pytest tests -q
+        shell: bash
+
+  coverage:
+    name: coverage (nguong 58%)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - run: pip install -e ".[all,dev]" pytest-cov
+      # 58% la muc hien tai lam san (60%) tru bien dao dong giua cac nen tang.
+      # Day la banh coc chong tut lui, khong phai muc tieu — keo len khi phu
+      # them cho cli.py va uploader.py (dang 0%).
+      - run: pytest tests --cov=src/mkvtools --cov-report=term-missing --cov-fail-under=58
+
+  audit:
+    name: pip-audit + kiem lockfile con khop
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'      # dung phien ban ma lockfile duoc sinh cho
+          cache: pip
+      - run: pip install pip-audit uv
+
+      - name: Quet CVE trong cay phu thuoc
+        run: pip-audit --strict --requirement deploy/requirements.lock
+
+      - name: Lockfile phai con khop pyproject
+        # Sua dependency ma quen sinh lai lock -> may deploy cai ra bo thu vien
+        # khac han thu CI vua test. Buoc nay bat truong hop do.
+        run: |
+          uv pip compile pyproject.toml --extra all \
+            --python-platform x86_64-unknown-linux-gnu --python-version 3.11 \
+            --generate-hashes --quiet --output-file /tmp/fresh.lock
+          if ! diff <(grep -v '^#' deploy/requirements.lock) <(grep -v '^#' /tmp/fresh.lock); then
+            echo "::error::deploy/requirements.lock da cu. Sinh lai bang lenh trong header cua file do."
+            exit 1
+          fi

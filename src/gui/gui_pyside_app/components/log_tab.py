@@ -2,11 +2,13 @@
 LogTab component for MKV Processor GUI.
 """
 from __future__ import annotations
-from PySide6 import QtWidgets, QtCore, QtGui
-import os
+
 import json
+import os
 from pathlib import Path
-from mkvprocessor.i18n import t
+
+from PySide6 import QtCore, QtGui, QtWidgets
+
 
 class LogTab(QtWidgets.QWidget):
     """Log tab with sub-tabs for session, history, errors, and SRT logs."""
@@ -179,7 +181,7 @@ class LogTab(QtWidgets.QWidget):
                 history_file = Path("history.json")
                 if not history_file.exists():
                     return
-                with open(history_file, 'r', encoding='utf-8') as f:
+                with open(history_file, encoding='utf-8') as f:
                     history_data = json.load(f)
                 history_list = history_data if isinstance(history_data, list) else history_data.get("history", [])
                 self.history_table.setRowCount(0)

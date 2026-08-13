@@ -10,6 +10,7 @@ Manager thuan trang thai (khong import mang/google) -> de test; webui tiem fetch
 import os
 import re
 import threading
+from typing import Optional
 
 # Mo ta + tag gan vao Short khi up (YouTube tu phan loai Short neu clip doc & <= 3 phut).
 SHORTS_DESC = "#Shorts"
@@ -44,8 +45,9 @@ class ShortsManager:
         self._running = False
         self._seq = 0
 
-    def add(self, url: str, mode: str, media_url: str = None, referer: str = None,
-            label: str = "", media_items: list = None):
+    def add(self, url: str, mode: str, media_url: Optional[str] = None,
+            referer: Optional[str] = None, label: str = "",
+            media_items: Optional[list] = None):
         """Them job. mode: download | upload | probe | batch.
 
         media_url: neu co (vd clip da chon tu danh sach) -> tai THANG url nay,

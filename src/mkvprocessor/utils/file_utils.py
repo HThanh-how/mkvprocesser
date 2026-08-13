@@ -59,7 +59,7 @@ def get_file_size_gb(file_path: Union[str, Path]) -> float:
         file_size = os.path.getsize(file_path)
         file_size_gb = file_size / (1024 ** 3)  # Convert to GB
         return file_size_gb
-    except (OSError, IOError) as e:
+    except OSError as e:
         logger.error(f"Error getting file size: {e}")
         return 0.0
 
@@ -77,7 +77,7 @@ def get_file_size_mb(file_path: Union[str, Path]) -> float:
         file_size = os.path.getsize(file_path)
         file_size_mb = file_size / (1024 ** 2)  # Convert to MB
         return file_size_mb
-    except (OSError, IOError) as e:
+    except OSError as e:
         logger.error(f"Error getting file size: {e}")
         return 0.0
 
@@ -119,11 +119,11 @@ def get_file_signature(file_path: Union[str, Path], include_hash: bool = False) 
                     first_mb = f.read(1024 * 1024)  # 1MB
                     hash_str = hashlib.md5(first_mb).hexdigest()[:8]
                     signature += f"_{hash_str}"
-            except (IOError, OSError):
+            except OSError:
                 pass
         
         return signature
-    except (OSError, IOError, KeyError, ValueError) as e:
+    except (OSError, KeyError, ValueError) as e:
         logger.error(f"Error getting file signature: {e}")
         return None
 

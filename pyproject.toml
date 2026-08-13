@@ -86,11 +86,25 @@ mkvtools = ["web/*.html", "web/*.js", "web/*.css", "templates/*.html"]
 line-length = 100
 target-version = "py39"
 src = ["src"]
+extend-exclude = ["build", "dist", ".venv"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
 # Long lines are tolerated in HTML/template-adjacent code.
 ignore = ["E501"]
+
+[tool.ruff.lint.per-file-ignores]
+# --- Hai cay legacy (src/mkvprocessor, src/gui) ---------------------------
+# Cac rule DUNG SAI (F = pyflakes, B = bugbear, E4 = import) duoc BAT day du o
+# day — chinh chung tim ra loi TypeError lam hong muxing phu de trong ban
+# desktop. Chi tat nhom hien dai hoa type hint (Dict->dict, Optional[X]->X|None):
+# ~115 cho, khong doi hanh vi, va hai cay nay se bi xoa khi migration sang
+# mkvtools xong (xem ROADMAP). Sua chung bay gio la dau tu vao code sap bo.
+"src/mkvprocessor/**" = ["UP006", "UP007", "UP035", "UP045"]
+"src/gui/**" = ["UP006", "UP007", "UP035", "UP045"]
+# resolution/year duoc parse roi vut di — khiem khuyet that, da danh dau FIXME
+# ngay tai cho. Giu bien lam bang chung thay vi xoa di cho "sach lint".
+"src/gui/gui_pyside_app/metadata_loader.py" = ["UP006", "UP007", "UP035", "UP045", "F841"]
 
 [tool.ruff.lint.flake8-bugbear]
 # FastAPI khai bao tham so bang Form()/File()/Depends() trong default — do la

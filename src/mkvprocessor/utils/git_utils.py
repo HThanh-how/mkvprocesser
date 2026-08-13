@@ -174,7 +174,7 @@ def download_git_portable() -> Optional[str]:
 
         logger.error("[AUTO-COMMIT] git.exe not found after extraction.")
         return None
-    except (requests.RequestException, IOError, zipfile.BadZipFile) as exc:
+    except (OSError, requests.RequestException, zipfile.BadZipFile) as exc:
         logger.error(f"[AUTO-COMMIT] Failed to download Git portable: {exc}")
         return None
 

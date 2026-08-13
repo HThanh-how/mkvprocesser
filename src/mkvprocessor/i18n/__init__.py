@@ -7,7 +7,7 @@ import json
 import logging
 import sys
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Dict
 
 logger = logging.getLogger(__name__)
 
@@ -99,11 +99,11 @@ def load_translations(language: str = DEFAULT_LANGUAGE) -> Dict[str, str]:
     # Try to load from file
     if translation_file.exists():
         try:
-            with open(translation_file, "r", encoding="utf-8") as f:
+            with open(translation_file, encoding="utf-8") as f:
                 translations = json.load(f)
             _translations[language] = translations
             return translations
-        except (IOError, json.JSONDecodeError) as e:
+        except (OSError, json.JSONDecodeError) as e:
             logger.error(f"Failed to load translations for {language} from {translation_file}: {e}")
     else:
         logger.warning(f"Translation file not found: {translation_file}")
@@ -116,7 +116,7 @@ def load_translations(language: str = DEFAULT_LANGUAGE) -> Dict[str, str]:
     
     # If language not in fallback, try English
     if DEFAULT_LANGUAGE in FALLBACK_TRANSLATIONS:
-        logger.info(f"Using fallback English translations")
+        logger.info("Using fallback English translations")
         _translations[DEFAULT_LANGUAGE] = FALLBACK_TRANSLATIONS[DEFAULT_LANGUAGE]
         return FALLBACK_TRANSLATIONS[DEFAULT_LANGUAGE]
     

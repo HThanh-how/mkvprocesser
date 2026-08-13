@@ -37,7 +37,16 @@ echo "== [2/7] venv + mkvtools[all] =="
 cd "$INSTALL_DIR"
 python3 -m venv .venv
 .venv/bin/pip install -q -U pip
-.venv/bin/pip install -q -e ".[all]"
+# Mac dinh cai theo deploy/requirements.lock (pin + hash) de hai lan cai cach
+# nhau vai thang ra dung mot bo thu vien. LOCKED=0 de cai theo khoang trong
+# pyproject (vd khi thu thu vien moi, hoac lock chua kip cap nhat).
+if [ "${LOCKED:-1}" = "1" ] && [ -f deploy/requirements.lock ]; then
+  .venv/bin/pip install -q --require-hashes -r deploy/requirements.lock
+  .venv/bin/pip install -q -e . --no-deps        # deps da khoa o tren
+else
+  echo "   (LOCKED=0 — cai theo khoang trong pyproject, khong tai lap duoc)"
+  .venv/bin/pip install -q -e ".[all]"
+fi
 .venv/bin/playwright install chromium 2>/dev/null \
   || .venv/bin/playwright install --with-deps chromium || true
 

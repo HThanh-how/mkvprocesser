@@ -1,0 +1,34 @@
+name: CodeQL
+
+# Quet tinh tim lo hong (injection, path traversal, deserialize khong an toan...).
+# Chay theo lich chu khong chi theo push: mot luat moi cua CodeQL co the phat
+# hien loi trong code da nam yen tu lau.
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+  schedule:
+    - cron: "0 20 * * 1"      # 03:00 thu Ba gio VN
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      security-events: write     # can de day ket qua len tab Security
+      actions: read
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: github/codeql-action/init@v3
+        with:
+          languages: python
+          queries: security-and-quality
+      - uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:python"

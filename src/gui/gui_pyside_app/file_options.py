@@ -52,7 +52,7 @@ class FileOptions:
         }
 
     @classmethod
-    def from_dict(cls, data: dict) -> "FileOptions":
+    def from_dict(cls, data: dict) -> FileOptions:
         options = cls(data.get("file_path", ""))
         options.force_process = data.get("force_process", False)
         options.process_enabled = data.get("process_enabled", True)

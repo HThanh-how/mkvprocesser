@@ -54,7 +54,7 @@ class HistoryManager:
         # 1. Load from JSONL file
         if self.history_file.exists():
             try:
-                with open(self.history_file, "r", encoding="utf-8") as f:
+                with open(self.history_file, encoding="utf-8") as f:
                     for line in f:
                         line = line.strip()
                         if not line:
@@ -72,13 +72,13 @@ class HistoryManager:
                                     self._by_name[new_name] = sig
                         except json.JSONDecodeError:
                             continue
-            except (IOError, OSError) as e:
+            except OSError as e:
                 logger.error(f"Failed to load history file: {e}")
         
         # 2. Load from index file (if exists, for fast lookup)
         if self.index_file.exists():
             try:
-                with open(self.index_file, "r", encoding="utf-8") as f:
+                with open(self.index_file, encoding="utf-8") as f:
                     index = json.load(f)
                     # Merge with data from JSONL
                     for sig, entry in index.get("by_signature", {}).items():
@@ -87,7 +87,7 @@ class HistoryManager:
                     for name, sig in index.get("by_name", {}).items():
                         if name not in self._by_name:
                             self._by_name[name] = sig
-            except (IOError, OSError, json.JSONDecodeError) as e:
+            except (OSError, json.JSONDecodeError) as e:
                 logger.error(f"Failed to load index file: {e}")
         
         self._loaded = True
@@ -103,7 +103,7 @@ class HistoryManager:
         try:
             with open(self.index_file, "w", encoding="utf-8") as f:
                 json.dump(index, f, ensure_ascii=False, indent=2)
-        except (IOError, OSError) as e:
+        except OSError as e:
             logger.error(f"Failed to save index: {e}")
     
     def add_entry(
@@ -142,7 +142,7 @@ class HistoryManager:
         try:
             with open(self.history_file, "a", encoding="utf-8") as f:
                 f.write(json.dumps(entry, ensure_ascii=False) + "\n")
-        except (IOError, OSError) as e:
+        except OSError as e:
             logger.error(f"[HISTORY] Error writing history: {e}")
         
         # Update index
@@ -245,7 +245,7 @@ class HistoryManager:
         
         count = 0
         try:
-            with open(log_path, "r", encoding="utf-8") as f:
+            with open(log_path, encoding="utf-8") as f:
                 for line in f:
                     parts = line.strip().split("|")
                     if len(parts) >= 2:
@@ -274,7 +274,7 @@ class HistoryManager:
                                 original_timestamp=timestamp
                             )
                             count += 1
-        except (IOError, OSError) as e:
+        except OSError as e:
             logger.error(f"[HISTORY] Error importing legacy log: {e}")
         
         if count > 0:
@@ -299,7 +299,7 @@ class HistoryManager:
         count = 0
         for json_file in logs_path.glob("*.json"):
             try:
-                with open(json_file, "r", encoding="utf-8") as f:
+                with open(json_file, encoding="utf-8") as f:
                     data = json.load(f)
                     if isinstance(data, list):
                         for entry in data:
@@ -314,7 +314,7 @@ class HistoryManager:
                                     category=entry.get("category", "video")
                                 )
                                 count += 1
-            except (IOError, OSError, json.JSONDecodeError):
+            except (OSError, json.JSONDecodeError):
                 continue
         
         if count > 0:
@@ -342,7 +342,7 @@ def merge_history_files(files: List[str], output_file: str) -> int:
         if not os.path.exists(file_path):
             continue
         try:
-            with open(file_path, "r", encoding="utf-8") as f:
+            with open(file_path, encoding="utf-8") as f:
                 for line in f:
                     line = line.strip()
                     if not line:
@@ -355,7 +355,7 @@ def merge_history_files(files: List[str], output_file: str) -> int:
                             entries.append(entry)
                     except json.JSONDecodeError:
                         continue
-        except (IOError, OSError):
+        except OSError:
             continue
     
     # Sort by timestamp
@@ -366,7 +366,7 @@ def merge_history_files(files: List[str], output_file: str) -> int:
         with open(output_file, "w", encoding="utf-8") as f:
             for entry in entries:
                 f.write(json.dumps(entry, ensure_ascii=False) + "\n")
-    except (IOError, OSError) as e:
+    except OSError as e:
         logger.error(f"[HISTORY] Error merging: {e}")
         return 0
     

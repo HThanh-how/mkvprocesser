@@ -2,10 +2,11 @@
 ProcessingTab component for MKV Processor GUI.
 """
 from __future__ import annotations
-from PySide6 import QtWidgets, QtCore, QtGui
+
 import os
-from mkvprocessor.i18n import t
-from .preview_dialog import PreviewDialog
+
+from PySide6 import QtCore, QtGui, QtWidgets
+
 
 class ProcessingTab(QtWidgets.QWidget):
     """Main processing tab with file list and controls."""
@@ -28,7 +29,7 @@ class ProcessingTab(QtWidgets.QWidget):
             from ..theme import get_status_color
         except ImportError:
             from theme import get_status_color  # type: ignore
-        from mkvprocessor.config_manager import get_config_path, load_user_config
+        from mkvprocessor.config_manager import load_user_config
         
         # Lazy load script module
         try:

@@ -10,7 +10,6 @@ import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
-from .config_manager import get_config_dir
 from .github_sync import RemoteSyncManager
 
 logger = logging.getLogger(__name__)
@@ -69,7 +68,7 @@ def log_processed_file(
     try:
         with open(log_file, "a", encoding='utf-8') as f:
             f.write(f"{old_name}|{new_name}|{current_time}|{fallback_signature}\n")
-    except (IOError, OSError) as e:
+    except OSError as e:
         logger.error(f"Failed to write to log file: {e}")
         return
 
@@ -77,7 +76,9 @@ def log_processed_file(
     remote_entry = {
         "old_name": old_name,
         "new_name": new_name,
-        "timestamp": datetime.datetime.utcnow().isoformat(),
+        # utcnow() bi deprecate (se bo o Python tuong lai) va tra datetime KHONG
+        # co tzinfo, nen chuoi sinh ra khong ghi mui gio -> doc lai la doan mo.
+        "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
         "signature": signature or fallback_signature,
         "category": metadata.get("category", "video"),
         "output_path": metadata.get("output_path"),
@@ -107,7 +108,7 @@ def read_processed_files(log_file: Union[str, Path]) -> Tuple[Dict[str, Dict[str
     processed_signatures: Dict[str, Dict[str, str]] = {}
     if os.path.exists(log_file):
         try:
-            with open(log_file, "r", encoding='utf-8') as f:
+            with open(log_file, encoding='utf-8') as f:
                 for line in f:
                     parts = line.strip().split('|')
                     if len(parts) >= 2:
@@ -121,7 +122,7 @@ def read_processed_files(log_file: Union[str, Path]) -> Tuple[Dict[str, Dict[str
                         processed_files[new_name] = info
                         if signature:
                             processed_signatures[signature] = info
-        except (IOError, OSError) as e:
+        except OSError as e:
             logger.error(f"Failed to read log file: {e}")
     return processed_files, processed_signatures
 
@@ -141,7 +142,7 @@ def convert_legacy_log_file(log_path: Path, logs_dir: Path) -> Optional[Path]:
 
     try:
         lines = log_path.read_text(encoding="utf-8").splitlines()
-    except (IOError, OSError) as exc:
+    except OSError as exc:
         logger.error(f"[LOG] Failed to read {log_path}: {exc}")
         return None
 

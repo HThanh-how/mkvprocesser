@@ -10,7 +10,6 @@ import json
 import logging
 import os
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import requests
@@ -349,7 +348,7 @@ class RemoteSyncManager:
                 message=f"Upload {file_name}",
             )
             logger.info(f"[AUTO PUSH] Uploaded file {file_name} to {remote_path}")
-        except (IOError, OSError, RuntimeError, requests.RequestException) as exc:
+        except (OSError, RuntimeError, requests.RequestException) as exc:
             logger.error(f"[AUTO PUSH] Failed to upload {local_path}: {exc}")
         return remote_path
 

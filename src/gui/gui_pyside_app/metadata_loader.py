@@ -4,6 +4,7 @@ MetadataLoader - QThread để load metadata của MKV files trong background.
 from __future__ import annotations
 
 import os
+
 from PySide6 import QtCore
 
 
@@ -61,6 +62,11 @@ class MetadataLoader(QtCore.QThread):
                             order,
                         ))
                 
+                # FIXME: resolution/year duoi day duoc parse roi VUT DI —
+                # signal chi mang (file_path, True). Muc dich khai bao la
+                # "parse san o thread nen de giam tai main thread", nhung
+                # main_window van phai tu doc lai. Muon dung thi phai doi
+                # chu ky metadata_loaded_signal de mang theo hai gia tri nay.
                 # Parse resolution
                 video_stream = next((s for s in probe["streams"] if s["codec_type"] == "video"), None)
                 resolution = "?"

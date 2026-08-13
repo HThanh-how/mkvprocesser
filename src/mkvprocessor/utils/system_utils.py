@@ -6,7 +6,6 @@ Handles system checks: RAM, disk space, FFmpeg availability, etc.
 import logging
 import subprocess
 import threading
-from typing import Optional
 
 import psutil  # type: ignore
 

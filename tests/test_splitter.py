@@ -1,7 +1,9 @@
-import sys, os
+import os
+import sys
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
-from mkvtools import splitter as S
 from mkvtools import metadata as M
+from mkvtools import splitter as S
 
 
 def test_analyze_and_pair_by_language():
