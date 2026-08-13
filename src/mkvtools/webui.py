@@ -61,7 +61,9 @@ def _ensure_runtime_dirs(config_data=None):
 # Dang nhap + phan quyen: tai khoan luu o cfg['users_file'], phien giu trong RAM.
 # Lan dau chua co user -> tao admin (env MKV_ADMIN_USER/PASS hoac sinh ngau nhien).
 USERS = auth.UserStore(cfg.get("users_file", "secrets/users.json"))
-SESS = auth.Sessions()
+# Phien ghi xuong dia: may bi tat theo lich (vd 19:25 hang ngay) ma khong bat
+# moi nguoi dang nhap lai sang hom sau. File chi chua hash cua token.
+SESS = auth.Sessions(path=os.path.join(cfg.get("work_dir", "work"), "sessions.json"))
 THROTTLE = auth.LoginThrottle()     # chong do mat khau (theo IP)
 # Duong dan khong can dang nhap (bootstrap admin o main()). /web/csrf.js phai
 # mo vi chinh trang dang nhap can no de gan token vao form.
@@ -280,7 +282,13 @@ def _start_shorts():
 def _current_user(request):
     """{username, role} tu cookie phien, hoac None neu chua/het dang nhap."""
     uname = SESS.get(request.cookies.get("mkv_sess"))
-    return USERS.get(uname) if uname else None
+    u = USERS.get(uname) if uname else None
+    # UserStore.get() van tra ve dict cho tai khoan bi khoa (chi verify() moi
+    # chan dang nhap moi). Neu khong loc o day thi "khoa tai khoan" khong duoi
+    # duoc phien dang mo — nguoi bi khoa van dung tiep den khi phien het han.
+    if u and u.get("disabled"):
+        return None
+    return u
 
 
 async def _sent_csrf(request):
@@ -879,22 +887,27 @@ def admin_action(request: Request, username: str = Form(...), action: str = Form
     try:
         if action in ("disable", "delete", "role") and username == me:
             raise ValueError("khong tu thao tac len chinh minh (tranh tu khoa)")
+        # Moi hanh dong thu hoi quyen deu phai HUY PHIEN dang mo, neu khong
+        # nguoi bi khoa/xoa/doi mat khau van dung tiep bang cookie cu.
         if action == "disable":
             USERS.set_disabled(username, True)
-            msg = f"Da khoa {username}"
+            msg = f"Da khoa {username} ({SESS.destroy_all(username)} phien bi dong)"
         elif action == "enable":
             USERS.set_disabled(username, False)
             msg = f"Da mo khoa {username}"
         elif action == "role":
             USERS.set_role(username, value)
+            SESS.destroy_all(username)      # doi quyen -> bat dang nhap lai
             msg = f"{username} -> {value}"
         elif action == "delete":
             USERS.remove(username)
+            SESS.destroy_all(username)
             msg = f"Da xoa {username}"
         elif action == "reset":
             if not value:
                 raise ValueError("mat khau moi rong")
             USERS.change_password(username, value)
+            SESS.destroy_all(username)
             msg = f"Da doi mat khau cho {username}"
         else:
             raise ValueError(f"action khong ro: {action}")

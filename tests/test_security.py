@@ -169,6 +169,47 @@ def test_ssrf_guard_blocks_non_http_schemes(url):
         security.assert_public_http_url(url, resolver=lambda h: ["93.184.216.34"])
 
 
+# -------------------------------------------------------------- thu hoi quyen
+def test_disabled_user_loses_access_immediately(client, monkeypatch):
+    """Hoi quy: khoa tai khoan phai dong duoc phien DANG mo, khong doi het han."""
+    webui.USERS.add("bob", "bobpass", role="user")
+    bob = TestClient(webui.app)
+    bob.get("/login")
+    bob.headers.update({security.CSRF_HEADER: bob.cookies.get(security.CSRF_COOKIE)})
+    bob.post("/login", data={"username": "bob", "password": "bobpass"})
+    assert bob.get("/", follow_redirects=False).status_code == 200
+
+    webui.USERS.set_disabled("bob", True)
+    assert bob.get("/", follow_redirects=False).status_code == 302   # bi day ra ngay
+
+
+def test_admin_disable_closes_open_session(client):
+    webui.USERS.add("bob", "bobpass", role="user")
+    bob = TestClient(webui.app)
+    bob.get("/login")
+    bob.headers.update({security.CSRF_HEADER: bob.cookies.get(security.CSRF_COOKIE)})
+    bob.post("/login", data={"username": "bob", "password": "bobpass"})
+    assert bob.get("/", follow_redirects=False).status_code == 200
+
+    _login(client)                                   # admin khoa bob
+    client.post("/admin/action", data={"username": "bob", "action": "disable"},
+                follow_redirects=False)
+    assert bob.get("/", follow_redirects=False).status_code == 302
+
+
+def test_password_reset_revokes_sessions(client):
+    webui.USERS.add("bob", "bobpass", role="user")
+    bob = TestClient(webui.app)
+    bob.get("/login")
+    bob.headers.update({security.CSRF_HEADER: bob.cookies.get(security.CSRF_COOKIE)})
+    bob.post("/login", data={"username": "bob", "password": "bobpass"})
+
+    _login(client)
+    client.post("/admin/action", data={"username": "bob", "action": "reset",
+                                       "value": "matkhaumoi"}, follow_redirects=False)
+    assert bob.get("/", follow_redirects=False).status_code == 302
+
+
 def test_shorts_preview_rejects_loopback_url(client):
     _login(client)
     r = client.get("/shorts/preview", params={"url": "http://127.0.0.1:9222/json"})

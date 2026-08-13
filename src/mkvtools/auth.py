@@ -130,37 +130,107 @@ class UserStore:
         return len(self.users)
 
 
-class Sessions:
-    """Phien dang nhap trong RAM: token ngau nhien -> (username, han)."""
+def _token_key(token: str) -> str:
+    """Khoa luu tren dia = SHA-256 cua token.
 
-    def __init__(self, ttl: float = 7 * 24 * 3600, now=time.time):
+    Khong luu token goc: file phien bi doc trom cung khong dung lai duoc de mao
+    danh, giong nguyen tac khong luu mat khau dang ro.
+    """
+    return hashlib.sha256((token or "").encode("utf-8")).hexdigest()
+
+
+class Sessions:
+    """Phien dang nhap. Co `path` -> ghi xuong dia de restart khong dang xuat.
+
+    Truoc day phien chi nam trong RAM, nen may vnpt tat sach luc 19:25 moi ngay
+    la sang hom sau ai cung phai dang nhap lai. Voi `path`, phien song qua
+    restart; khong truyen `path` (vd trong test) thi van la RAM thuan.
+
+    Tren dia luu {hash(token): [username, han]} — xem _token_key().
+    """
+
+    def __init__(self, ttl: float = 7 * 24 * 3600, now=time.time, path: str | None = None):
         self._d: dict = {}
         self._lock = threading.Lock()
         self.ttl = ttl
         self._now = now
+        self.path = path
+        self._load()
 
+    # -- dia -----------------------------------------------------------------
+    def _load(self):
+        if not self.path or not os.path.exists(self.path):
+            return
+        try:
+            with open(self.path, encoding="utf-8") as f:
+                raw = (json.load(f) or {}).get("sessions", {})
+        except (OSError, ValueError):
+            return                      # file hong -> coi nhu chua co phien nao
+        now = self._now()
+        self._d = {k: (v[0], v[1]) for k, v in raw.items()
+                   if isinstance(v, list) and len(v) == 2 and v[1] > now}
+
+    def _save_locked(self):
+        if not self.path:
+            return
+        try:
+            os.makedirs(os.path.dirname(self.path) or ".", exist_ok=True)
+            tmp = self.path + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump({"sessions": {k: [u, e] for k, (u, e) in self._d.items()}}, f)
+            os.replace(tmp, self.path)
+            os.chmod(self.path, 0o600)
+        except OSError:
+            pass          # mat tinh ben vung thi dang nhap lai, khong the sap service
+
+    # -- API -----------------------------------------------------------------
     def create(self, username: str) -> str:
         tok = secrets.token_urlsafe(32)
         with self._lock:
-            self._d[tok] = (username, self._now() + self.ttl)
+            self._d[_token_key(tok)] = (username, self._now() + self.ttl)
+            self._prune_locked()
+            self._save_locked()
         return tok
 
     def get(self, token):
         if not token:
             return None
+        key = _token_key(token)
         with self._lock:
-            v = self._d.get(token)
+            v = self._d.get(key)
             if not v:
                 return None
             username, exp = v
             if self._now() > exp:
-                del self._d[token]
+                del self._d[key]
+                self._save_locked()
                 return None
             return username
 
     def destroy(self, token):
+        if not token:
+            return
         with self._lock:
-            self._d.pop(token, None)
+            if self._d.pop(_token_key(token), None) is not None:
+                self._save_locked()
+
+    def destroy_all(self, username: str) -> int:
+        """Dang xuat moi phien cua mot tai khoan (dung khi khoa/doi mat khau)."""
+        with self._lock:
+            gone = [k for k, (u, _e) in self._d.items() if u == username]
+            for k in gone:
+                del self._d[k]
+            if gone:
+                self._save_locked()
+            return len(gone)
+
+    def _prune_locked(self):
+        now = self._now()
+        for k in [k for k, (_u, e) in self._d.items() if e <= now]:
+            del self._d[k]
+
+    def __len__(self):
+        return len(self._d)
 
 
 class LoginThrottle:
