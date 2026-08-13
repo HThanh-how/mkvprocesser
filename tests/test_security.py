@@ -214,3 +214,40 @@ def test_shorts_preview_rejects_loopback_url(client):
     _login(client)
     r = client.get("/shorts/preview", params={"url": "http://127.0.0.1:9222/json"})
     assert r.status_code == 400 and "noi bo" in r.text
+
+
+# --------------------------------------------------------- healthz / metrics
+def test_healthz_is_public_and_minimal(client):
+    """Uptime-check goi duoc ma khong dang nhap, va khong lo chi tiet van hanh."""
+    r = client.get("/healthz", follow_redirects=False)
+    assert r.status_code in (200, 503)
+    body = r.json()
+    assert body["status"] in ("ok", "degraded") and "version" in body
+    assert "checks" not in body and "pending" not in r.text
+
+
+def test_metrics_requires_auth(client):
+    assert client.get("/metrics", follow_redirects=False).status_code == 302
+
+
+def test_metrics_accessible_with_session(client):
+    _login(client)
+    r = client.get("/metrics")
+    assert r.status_code == 200 and "mkvtools_build_info" in r.text
+    assert r.headers["content-type"].startswith("text/plain")
+
+
+def test_metrics_accessible_with_handoff_token(client, monkeypatch):
+    monkeypatch.setitem(webui.cfg, "handoff_token", "bi-mat")
+    r = client.get("/metrics", headers={"x-mkv-handoff-token": "bi-mat"},
+                   follow_redirects=False)
+    assert r.status_code == 200 and "mkvtools_queue_pending" in r.text
+    bad = client.get("/metrics", headers={"x-mkv-handoff-token": "sai"},
+                     follow_redirects=False)
+    assert bad.status_code == 302          # token sai -> quay ve dang nhap
+
+
+def test_request_id_header_is_returned(client):
+    assert client.get("/healthz").headers.get("x-request-id")
+    echoed = client.get("/healthz", headers={"x-request-id": "theo-dau-vet"})
+    assert echoed.headers["x-request-id"] == "theo-dau-vet"

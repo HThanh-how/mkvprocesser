@@ -78,6 +78,31 @@ journalctl -u mkvtools-gui -f
 systemctl list-timers mkv-organize.timer
 ```
 
+## Giám sát
+
+| Endpoint | Xác thực | Dùng để |
+|---|---|---|
+| `GET /healthz` | không | uptime-check. `200` = phục vụ được, `503` = thiếu ffmpeg hoặc đĩa dưới `min_free_gb`. Cố tình tối giản, không lộ chi tiết vận hành. |
+| `GET /metrics` | phiên đăng nhập **hoặc** header `X-MKV-Handoff-Token` | phơi bày Prometheus: hàng đợi, job done/error, đĩa trống, số phiên, worker có trong ca không. |
+
+```bash
+curl -fsS localhost:8800/healthz            # 503 nếu degraded
+curl -H "X-MKV-Handoff-Token: $(cat /etc/mkvtools-handoff.token)" localhost:8800/metrics
+```
+
+`/metrics` dùng lại chính `handoff_token` thay vì đẻ thêm một secret nữa để scrape.
+
+**Log**: service ghi JSON một dòng mỗi bản ghi khi chạy dưới systemd, kèm
+`request_id` truy vết được (client gửi `X-Request-ID` thì server dùng lại).
+Chạy tay trong terminal thì tự đổi sang dạng text dễ đọc.
+
+```bash
+journalctl -u mkvtools-gui -o cat | jq 'select(.status >= 400)'   # lọc request hỏng
+journalctl -u mkvtools-gui -p warning -n 50
+```
+
+Chỉnh bằng `MKV_LOG_LEVEL` (mặc định `INFO`) và `MKV_LOG_JSON=0|1`.
+
 ## Ghi chú
 - **Proxmox LXC**: nếu chạy trong container, `redis-server` có thể không start (systemd hardening) → tool **tự fallback cache file**, vẫn tiết kiệm quota như thường.
 - **Tên gói Chromium**: Debian = `chromium` (`/usr/bin/chromium`); Ubuntu có thể là `chromium-browser` — script tự dò.

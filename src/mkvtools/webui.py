@@ -5,9 +5,11 @@ Chay tac vu o thread nen, log poll qua /status.
 """
 import hmac
 import json
+import logging
 import os
 import pathlib
 import re
+import secrets as _secrets
 import threading
 import time
 import urllib.parse
@@ -17,6 +19,7 @@ from fastapi import FastAPI, File, Form, HTTPException, Request, Response, Uploa
 from fastapi.responses import (
     FileResponse,
     HTMLResponse,
+    JSONResponse,
     PlainTextResponse,
     RedirectResponse,
 )
@@ -30,12 +33,17 @@ from . import (
     ffmpeg_helper,
     idempotency,
     jobs,
+    logging_setup,
+    observability,
     pipeline,
     resources,
     security,
     shorts,
     templating,
 )
+
+logger = logging.getLogger("mkvtools.webui")
+_STARTED_AT = time.time()
 
 _WEBDIR = pathlib.Path(__file__).parent / "web"
 
@@ -336,6 +344,18 @@ async def _guard(request: Request, call_next):
                                         https=request.url.scheme == "https")
         return resp
 
+    # /metrics: cho phep may quet dung chinh handoff_token thay vi cookie phien
+    # (khong bay them mot secret moi chi de scrape).
+    if request.url.path == "/metrics":
+        expected = str(cfg.get("handoff_token") or "")
+        supplied = request.headers.get("x-mkv-handoff-token", "")
+        if expected and supplied and hmac.compare_digest(expected, supplied):
+            resp = await call_next(request)
+            security.apply_security_headers(resp.headers,
+                                            https=request.url.scheme == "https")
+            return resp
+        # khong co token hop le -> kiem tra phien dang nhap nhu binh thuong
+
     cookie_token = request.cookies.get(security.CSRF_COOKIE)
     csrf_token = cookie_token or security.new_csrf_token()
     request.state.csrf_token = csrf_token     # template doc de dien vao form
@@ -354,6 +374,35 @@ async def _guard(request: Request, call_next):
 
     resp = await call_next(request)
     return _finish(request, resp, csrf_token, not cookie_token)
+
+
+# Dang ky SAU _guard => chay NGOAI _guard, nen ghi log duoc ca request bi chan
+# (302 chua dang nhap, 403 sai CSRF) chu khong chi request vao duoc route.
+@app.middleware("http")
+async def _access_log(request: Request, call_next):
+    rid = request.headers.get("x-request-id") or _secrets.token_hex(8)
+    token = logging_setup.request_id_var.set(rid)
+    t0 = time.perf_counter()
+    try:
+        resp = await call_next(request)
+    except Exception:
+        logger.exception("request loi", extra={"method": request.method,
+                                               "path": request.url.path})
+        logging_setup.request_id_var.reset(token)
+        raise
+    ms = (time.perf_counter() - t0) * 1000
+    user = getattr(request.state, "user", None) or {}
+    # Muc log theo ket qua: 5xx la ERROR, 4xx la WARNING, con lai INFO — de
+    # `journalctl -p warning` loc ra ngay cai dang hong.
+    level = (logging.ERROR if resp.status_code >= 500
+             else logging.WARNING if resp.status_code >= 400 else logging.INFO)
+    logger.log(level, "%s %s -> %s", request.method, request.url.path, resp.status_code,
+               extra={"method": request.method, "path": request.url.path,
+                      "status": resp.status_code, "duration_ms": round(ms, 1),
+                      "user": user.get("username") or "-"})
+    resp.headers.setdefault("X-Request-ID", rid)
+    logging_setup.request_id_var.reset(token)
+    return resp
 
 
 def _require_admin(request):
@@ -468,6 +517,49 @@ def run(file: str = Form(...), upload: str = Form(None)):
 @app.get("/status")
 def status():
     return {"running": _job["running"], "log": _job["log"][-200:]}
+
+
+def _disk_free_gb():
+    _ensure_runtime_dirs()
+    d = cfg.get("downloads_dir") or cfg.get("inbox_dir", "inbox")
+    try:
+        return round(resources.free_gb(d), 1)
+    except OSError:
+        return None
+
+
+@app.get("/healthz")
+def healthz():
+    """Cong khai, co tinh toi gian: chi 'con phuc vu duoc khong' + 200/503.
+
+    Khong dat sau dang nhap vi day la thu systemd/uptime-check goi; cung khong
+    tra chi tiet hang doi de trang cong khai nay khong lo thong tin van hanh —
+    chi tiet nam o /metrics (co xac thuc).
+    """
+    body, code = observability.health(
+        ffmpeg_ok=ffmpeg_helper.available(),
+        disk_free_gb=_disk_free_gb(),
+        min_free_gb=float(cfg.get("min_free_gb", 0) or 0),
+        queue=Q.snapshot(),
+        uptime_seconds=time.time() - _STARTED_AT,
+    )
+    return JSONResponse({k: v for k, v in body.items() if k != "checks"},
+                        status_code=code)
+
+
+@app.get("/metrics")
+def metrics():
+    """Phoi bay Prometheus. Can dang nhap HOAC header x-mkv-handoff-token."""
+    return PlainTextResponse(observability.render_prometheus(
+        ffmpeg_ok=ffmpeg_helper.available(),
+        disk_free_gb=_disk_free_gb(),
+        queue=Q.snapshot(),
+        shorts=SHORTS.snapshot(),
+        sessions=len(SESS),
+        worker_allowed=_worker_allowed(),
+        node_id=cfg.get("node_id", "local"),
+        uptime_seconds=time.time() - _STARTED_AT,
+    ), media_type="text/plain; version=0.0.4; charset=utf-8")
 
 
 @app.post("/enqueue", response_class=HTMLResponse)
@@ -979,7 +1071,9 @@ def catch_enqueue(url: str = Form(...), referer: str = Form("")):
 
 def main():
     import uvicorn
+    logging_setup.configure()            # JSON khi chay duoi systemd, text khi chay tay
     _ensure_runtime_dirs()
+    logger.info("mkvtools-gui khoi dong", extra={"node": cfg.get("node_id", "local")})
     if not ffmpeg_helper.available():
         raise SystemExit("Khong tim thay ffmpeg/ffprobe.")
     auth.bootstrap_admin(USERS)          # lan dau: tao admin (env hoac mat khau ngau nhien in ra)
