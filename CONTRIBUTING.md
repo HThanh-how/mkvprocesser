@@ -40,9 +40,9 @@ We welcome all suggestions! Please:
 
 3. **Set up development environment**
    ```bash
-   python -m venv venv
-   source venv/bin/activate  # Windows: venv\Scripts\activate
-   pip install -r requirements.txt
+   python -m venv .venv
+   source .venv/bin/activate  # Windows: .venv\Scripts\activate
+   pip install -e ".[all,dev]"
    ```
 
 4. **Write code**
@@ -52,8 +52,8 @@ We welcome all suggestions! Please:
 
 5. **Test code**
    ```bash
-   python script.py  # Test core functionality
-   python gui.py     # Test GUI
+   ruff check src tests
+   pytest
    ```
 
 6. **Commit changes**
@@ -86,6 +86,21 @@ Use [Conventional Commits](https://www.conventionalcommits.org/):
 - Use type hints when possible
 - Docstrings for public functions/classes
 - Clear, meaningful variable/function names
+
+#### Versioning — hai artifact, hai scheme (co chu y)
+
+Repo nay xuat ban hai thu khac nhau, moi thu co so phien ban rieng. Day
+**khong** phai loi lech version:
+
+| Artifact | Nguon phien ban | Vi du | Ai doc |
+|---|---|---|---|
+| Package `mkvtools` (pip, CLI, web GUI) | `pyproject.toml` + `mkvtools.__version__` | `3.0.0` | SemVer, nguoi cai bang pip |
+| `MKVProcessor.exe` (PySide6 desktop, legacy) | `version.txt`, sinh tu git tag khi build | `1.11.28.12` | Bo tu dong cap nhat trong exe |
+
+`version.txt` do `scripts/build_complete.py` ghi de tu git tag luc build; ban
+commit trong repo chi la fallback khi chay tu source. **Dung sua tay** de dong
+bo hai con so — bo cap nhat cua exe so sanh `version.txt` voi tag GitHub
+release, doi thanh `3.0.0` se lam moi ban exe dang chay tu cho la co ban moi.
 
 ### 📝 Updating Documentation
 

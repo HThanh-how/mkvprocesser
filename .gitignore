@@ -56,3 +56,10 @@ inbox/*
 work/
 done/
 *.egg-info/
+
+# --- Artifact lon / bao cao may cua lap trinh vien (khong bao gio commit) ---
+# Mot ref checkpoint tung nuot ca file .iso 1.7GB khien .git phong len 1.7GB;
+# chan tu goc de khong lap lai.
+*.iso
+*.img
+battery-report.html
