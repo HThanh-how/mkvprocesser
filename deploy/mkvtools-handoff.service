@@ -5,5 +5,28 @@ Wants=network-online.target
 
 [Service]
 Type=oneshot
+# Doc /etc/mkvtools-handoff.token nen phai cung user voi file do (install.sh
+# chown mkvtools:mkvtools 0600).
+User=mkvtools
+Group=mkvtools
 EnvironmentFile=/etc/mkvtools-handoff.env
 ExecStart=/usr/bin/python3 /opt/mkvprocesser/deploy/handoff.py --source ${MKV_HANDOFF_SOURCE} --dest ${MKV_HANDOFF_DEST} --token-file /etc/mkvtools-handoff.token --start-hour ${MKV_HANDOFF_START_HOUR} --stop-hour ${MKV_HANDOFF_STOP_HOUR}
+
+# Script nay chi goi HTTP roi thoat — khong can ghi gi ca.
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectHome=yes
+ProtectSystem=strict
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+ProtectProc=invisible
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+RestrictNamespaces=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+LockPersonality=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources

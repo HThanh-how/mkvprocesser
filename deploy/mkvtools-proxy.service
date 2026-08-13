@@ -5,3 +5,24 @@ After=network.target pve-container@101.service
 
 [Service]
 ExecStart=/usr/lib/systemd/systemd-socket-proxyd 10.77.100.11:8800
+
+# Chi chuyen tiep byte giua hai socket: khong can user rieng, khong can dia,
+# khong can quyen gi. DynamicUser cap mot UID dung mot lan roi bo.
+DynamicUser=yes
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectHome=yes
+ProtectSystem=strict
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+ProtectProc=invisible
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+RestrictNamespaces=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+LockPersonality=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources

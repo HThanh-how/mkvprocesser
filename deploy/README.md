@@ -35,6 +35,34 @@ Script in ra URL + mật khẩu admin/VNC ở cuối. **Lưu lại** rồi đổ
 | `mkv-novnc` | noVNC (nhúng vào GUI) | 6080 |
 | `mkv-organize.timer` | dọn kênh hằng ngày (private + playlist, có budget) | — |
 
+## Chạy bằng tài khoản riêng (không phải root)
+
+`mkvtools-gui`, `mkvtools-handoff` và `mkv-organize` chạy dưới user hệ thống
+`mkvtools` (đổi bằng `SVC_USER=...`), kèm sandbox systemd: `ProtectSystem=strict`,
+`NoNewPrivileges`, `PrivateTmp`, `RestrictAddressFamilies`, `SystemCallFilter`,
+`MemoryHigh=80%`. Lý do: các service này chạy ffmpeg/yt-dlp/aria2/Chromium trên
+dữ liệu tải từ Internet — một lỗi parse trong ffmpeg không nên đổi thành root.
+
+**Nâng cấp từ bản cũ (đang chạy root)** — chạy trước khi `systemctl restart`:
+
+```bash
+useradd --system --no-create-home --home-dir /opt/mkvprocesser --shell /usr/sbin/nologin mkvtools
+chown -R mkvtools:mkvtools /opt/mkvprocesser /data
+chown mkvtools:mkvtools /etc/mkvtools-handoff.token
+systemctl daemon-reload && systemctl restart mkvtools-gui
+systemd-analyze security mkvtools-gui     # kiểm điểm exposure
+```
+
+Nếu service không lên, gần như luôn là quyền ghi: xem `journalctl -u mkvtools-gui -n50`,
+tìm `Read-only file system` rồi thêm đường dẫn đó vào `ReadWritePaths=`.
+
+**Cố ý KHÔNG sandbox hai unit này:**
+
+| Unit | Vì sao để nguyên |
+|---|---|
+| `mkvtools-vnpt-stop` | `pct shutdown` cần root thật + `/etc/pve` (fuse). Đây là cơ chế tắt sạch container trước giờ cắt điện — hỏng nghĩa là mất dữ liệu, không đáng đánh đổi. |
+| `mkv-xvfb` / `mkv-chromium` / `mkv-x11vnc` | Chromium `--no-sandbox` chạy root là điểm yếu đã biết, nhưng đổi user ở đây dễ làm hỏng chuỗi X11/CDP mà không test được từ xa. Xem ROADMAP. |
+
 ## Sau khi cài (thủ công, vì là secret)
 Copy OAuth YouTube vào `secrets/`:
 ```

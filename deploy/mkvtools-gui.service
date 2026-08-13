@@ -4,14 +4,55 @@ After=network-online.target
 Wants=network-online.target
 
 [Service]
+# Chay bang tai khoan rieng, KHONG phai root: service nay chay ffmpeg, yt-dlp,
+# aria2 va Chromium tren du lieu tai tu Internet ve. install.sh tao user va
+# chown san; neu nang cap tu ban cu (dang chay root) thi phai chown truoc:
+#   useradd --system --home-dir /opt/mkvprocesser --shell /usr/sbin/nologin mkvtools
+#   chown -R mkvtools:mkvtools /opt/mkvprocesser /data
+User=mkvtools
+Group=mkvtools
+
 WorkingDirectory=/opt/mkvprocesser
 EnvironmentFile=/etc/mkvtools.env
 ExecStart=/opt/mkvprocesser/.venv/bin/mkvtools-gui
 ExecStartPost=/bin/sh -c 'echo ready > /data/work/service-ready'
-Restart=on-failure
+Restart=always
 RestartSec=3
 TimeoutStopSec=300
 KillSignal=SIGINT
+
+# --- Sandbox ---------------------------------------------------------------
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectHome=yes
+ProtectSystem=strict
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+RestrictNamespaces=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+LockPersonality=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources
+
+# ProtectSystem=strict khoa toan bo he thong file thanh chi-doc, tru cac duong
+# duoi day. Cap ca /opt/mkvprocesser vi ung dung ghi secrets/users.json va
+# ui_settings.json ngay trong thu muc cai dat. Muon siet them (de /opt chi-doc)
+# thi phai chuyen config.yaml + secrets/ sang /data — xem ROADMAP.
+ReadWritePaths=/data /opt/mkvprocesser
+
+# Han muc tai nguyen: MemoryHigh gay ap luc thu hoi thay vi giet tien trinh,
+# nen mot lan transcode nang khong bi OOM-kill giua chung nhu MemoryMax.
+MemoryHigh=80%
+TasksMax=512
 
 [Install]
 WantedBy=multi-user.target

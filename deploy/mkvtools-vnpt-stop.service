@@ -3,4 +3,8 @@ Description=Cleanly stop mkvtools LXC before company power cutoff
 
 [Service]
 Type=oneshot
+# CO Y KHONG sandbox unit nay. `pct` can quyen root that va truy cap /etc/pve
+# (fuse) — moi directive Protect*/User= deu co the lam no im lang that bai. Day
+# la co che tat SACH container truoc khi cong ty cat dien; no hong nghia la mat
+# du lieu, nen doi lay chut hardening la khong dang.
 ExecStart=-/usr/sbin/pct shutdown 101 --timeout 240

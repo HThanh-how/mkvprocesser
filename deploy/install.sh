@@ -17,6 +17,7 @@ NODE_ID=${NODE_ID:-$(hostname)}
 WORKER_START_HOUR=${WORKER_START_HOUR:-0}
 WORKER_STOP_HOUR=${WORKER_STOP_HOUR:-24}
 HANDOFF_DEST=${HANDOFF_DEST:-}
+SVC_USER=${SVC_USER:-mkvtools}
 export DEBIAN_FRONTEND=noninteractive
 _rand() { head -c12 /dev/urandom | base64 | tr -dc 'a-zA-Z0-9' | head -c12; }
 ADMINPASS=${ADMINPASS:-$(_rand)}
@@ -40,9 +41,14 @@ python3 -m venv .venv
 .venv/bin/playwright install chromium 2>/dev/null \
   || .venv/bin/playwright install --with-deps chromium || true
 
-echo "== [3/7] thu muc du lieu + config =="
+echo "== [3/7] thu muc du lieu + config + user dich vu =="
 mkdir -p "$DATA_DIR"/{inbox,work,done,downloads,catch-profile} "$INSTALL_DIR"/secrets
 [ -f "$INSTALL_DIR/config.yaml" ] || cp "$INSTALL_DIR/deploy/config.lxc.yaml" "$INSTALL_DIR/config.yaml"
+# Tai khoan he thong rieng cho mkvtools-gui: service chay ffmpeg/yt-dlp/aria2
+# tren du lieu tai tu Internet, khong co ly do gi de no chay bang root.
+id -u "$SVC_USER" >/dev/null 2>&1 || useradd --system --no-create-home \
+  --home-dir "$INSTALL_DIR" --shell /usr/sbin/nologin "$SVC_USER"
+chown -R "$SVC_USER:$SVC_USER" "$INSTALL_DIR" "$DATA_DIR"
 
 echo "== [4/7] secrets (/etc/mkvtools.env) =="
 x11vnc -storepasswd "$VNCPASS" /etc/x11vnc.pass >/dev/null
@@ -61,6 +67,8 @@ EOF
 chmod 600 /etc/mkvtools.env
 printf '%s\n' "$HANDOFF_TOKEN" > /etc/mkvtools-handoff.token
 chmod 600 /etc/mkvtools-handoff.token
+# handoff.service chay bang $SVC_USER nen phai doc duoc token (van 0600).
+chown "$SVC_USER:$SVC_USER" /etc/mkvtools-handoff.token 2>/dev/null || true
 
 echo "== [5/7] systemd units =="
 cat > /etc/systemd/system/mkv-xvfb.service <<EOF
@@ -105,20 +113,16 @@ Restart=always
 [Install]
 WantedBy=multi-user.target
 EOF
-cat > /etc/systemd/system/mkvtools-gui.service <<EOF
-[Unit]
-Description=mkvtools web GUI (link queue + login)
-After=network-online.target
-Wants=network-online.target
-[Service]
-WorkingDirectory=$INSTALL_DIR
-EnvironmentFile=-/etc/mkvtools.env
-ExecStart=$INSTALL_DIR/.venv/bin/mkvtools-gui
-Restart=on-failure
-RestartSec=3
-[Install]
-WantedBy=multi-user.target
-EOF
+# Unit cua GUI lay tu deploy/mkvtools-gui.service (co san sandbox). Truoc day
+# file nay ghi mot ban INLINE khac han ban trong deploy/ — hai dinh nghia troi
+# nhau, ban duoc cai lai la ban yeu hon. Nay chi con mot nguon su that; sed chi
+# de ton trong INSTALL_DIR/DATA_DIR/SVC_USER khi nguoi dung doi mac dinh.
+sed -e "s#/opt/mkvprocesser#$INSTALL_DIR#g" \
+    -e "s#/data#$DATA_DIR#g" \
+    -e "s#^\(User\|Group\)=mkvtools\$#\1=$SVC_USER#" \
+    "$INSTALL_DIR/deploy/mkvtools-gui.service" \
+    > /etc/systemd/system/mkvtools-gui.service
+chmod 644 /etc/systemd/system/mkvtools-gui.service
 cat > /etc/systemd/system/mkv-organize.service <<EOF
 [Unit]
 Description=mkvtools organize (private + playlists; budget tu config organize_budget)
@@ -126,9 +130,16 @@ After=network-online.target
 Wants=network-online.target
 [Service]
 Type=oneshot
+User=$SVC_USER
+Group=$SVC_USER
 WorkingDirectory=$INSTALL_DIR
 EnvironmentFile=-/etc/mkvtools.env
 ExecStart=$INSTALL_DIR/.venv/bin/mkvtools organize
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=strict
+ReadWritePaths=$DATA_DIR $INSTALL_DIR
 EOF
 cat > /etc/systemd/system/mkv-organize.timer <<EOF
 [Unit]
@@ -147,7 +158,7 @@ if [ -n "$HANDOFF_DEST" ]; then
     /etc/systemd/system/mkvtools-handoff.timer
   printf 'MKV_HANDOFF_SOURCE=http://127.0.0.1:%s\nMKV_HANDOFF_DEST=%s\n' \
     "$GUI_PORT" "$HANDOFF_DEST" > /etc/mkvtools-handoff.env
-  chmod 600 /etc/mkvtools-handoff.env
+  chmod 600 /etc/mkvtools-handoff.env   # systemd doc file nay bang root, giu root
 fi
 
 echo "== [6/7] bat dich vu =="
