@@ -63,3 +63,9 @@ done/
 *.iso
 *.img
 battery-report.html
+
+# Coverage
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
